@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(245, 245, 243, 0.96)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(17, 17, 17, 0.02) 0,
+      rgba(17, 17, 17, 0.02) 1px,
+      transparent 1px,
+      transparent 64px
+    );
+  color: #111111;
+}
+
+body {
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+* {
+  box-sizing: border-box;
+}

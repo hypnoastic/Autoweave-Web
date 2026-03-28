@@ -1,0 +1,204 @@
+name: autoweave-web
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: autoweave_web
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d autoweave_web"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.24
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+  openhands-agent-server:
+    image: ghcr.io/openhands/agent-server:latest-python
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      LOG_ALL_EVENTS: "true"
+      SANDBOX_USER_ID: ${UID:-1000}
+      SANDBOX_VOLUMES: /srv/autoweave:/srv/autoweave:rw
+      REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
+      ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
+      OPENHANDS_AGENT_SERVER_BASE_URL: http://127.0.0.1:8000
+      VERTEXAI_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      VERTEXAI_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
+      VERTEXAI_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+      GOOGLE_APPLICATION_CREDENTIALS: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+    ports:
+      - "8001:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - autoweave-runtime:/srv/autoweave
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ..
+      dockerfile: Autoweave Web/docker/backend.Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      BACKEND_BASE_URL: http://localhost:8000
+      FRONTEND_BASE_URL: http://localhost:3000
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_OAUTH_SCOPES: ${GITHUB_OAUTH_SCOPES:-read:user,user:email,repo}
+      MAIL_FROM: ${MAIL_FROM:-hello@autoweave.local}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      RUNTIME_ROOT: /srv/autoweave/runtime
+      RUNTIME_CONTROL_PLANE: /srv/autoweave/runtime/control-plane
+      RUNTIME_VOLUME_MOUNT_PATH: /srv/autoweave
+      RUNTIME_VOLUME_NAME: ${RUNTIME_VOLUME_NAME:-autoweave_web_runtime}
+      RUNTIME_POSTGRES_URL: ${RUNTIME_POSTGRES_URL:-}
+      RUNTIME_POSTGRES_SCHEMA: ${RUNTIME_POSTGRES_SCHEMA:-autoweave_runtime}
+      RUNTIME_REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
+      RUNTIME_NEO4J_URL: ${RUNTIME_NEO4J_URL:-}
+      RUNTIME_NEO4J_USERNAME: ${RUNTIME_NEO4J_USERNAME:-}
+      RUNTIME_NEO4J_PASSWORD: ${RUNTIME_NEO4J_PASSWORD:-}
+      RUNTIME_ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
+      RUNTIME_OPENHANDS_BASE_URL: http://openhands-agent-server:8000
+      RUNTIME_OPENHANDS_API_KEY: ${RUNTIME_OPENHANDS_API_KEY:-}
+      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      RUNTIME_VERTEX_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
+      RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+      RUNTIME_EXECUTION_MODE: ${RUNTIME_EXECUTION_MODE:-queue}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      openhands-agent-server:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - autoweave-runtime:/srv/autoweave
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Autoweave Web/docker/worker.Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RUNTIME_ROOT: /srv/autoweave/runtime
+      RUNTIME_CONTROL_PLANE: /srv/autoweave/runtime/control-plane
+      RUNTIME_VOLUME_MOUNT_PATH: /srv/autoweave
+      RUNTIME_VOLUME_NAME: ${RUNTIME_VOLUME_NAME:-autoweave_web_runtime}
+      RUNTIME_POSTGRES_URL: ${RUNTIME_POSTGRES_URL:-}
+      RUNTIME_POSTGRES_SCHEMA: ${RUNTIME_POSTGRES_SCHEMA:-autoweave_runtime}
+      RUNTIME_REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
+      RUNTIME_NEO4J_URL: ${RUNTIME_NEO4J_URL:-}
+      RUNTIME_NEO4J_USERNAME: ${RUNTIME_NEO4J_USERNAME:-}
+      RUNTIME_NEO4J_PASSWORD: ${RUNTIME_NEO4J_PASSWORD:-}
+      RUNTIME_ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
+      RUNTIME_OPENHANDS_BASE_URL: http://openhands-agent-server:8000
+      RUNTIME_OPENHANDS_API_KEY: ${RUNTIME_OPENHANDS_API_KEY:-}
+      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      RUNTIME_VERTEX_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
+      RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+      AUTOWEAVE_WORKER_CONCURRENCY: ${AUTOWEAVE_WORKER_CONCURRENCY:-1}
+      AUTOWEAVE_WORKER_LOGLEVEL: ${AUTOWEAVE_WORKER_LOGLEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+      openhands-agent-server:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - autoweave-runtime:/srv/autoweave
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: Autoweave Web/docker/frontend.Dockerfile
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  autoweave-runtime:
+    name: autoweave_web_runtime
