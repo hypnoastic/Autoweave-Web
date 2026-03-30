@@ -47,6 +47,9 @@ services:
 
   openhands-agent-server:
     image: ghcr.io/openhands/agent-server:latest-python
+    env_file:
+      - path: ../Autoweave Library/.env.local
+        required: false
     entrypoint:
       - /bin/sh
       - /opt/autoweave/openhands-entrypoint.sh
@@ -98,9 +101,11 @@ services:
     env_file:
       - path: .env
         required: false
+      - path: ../Autoweave Library/.env.local
+        required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       BACKEND_BASE_URL: http://localhost:8000
       FRONTEND_BASE_URL: http://localhost:3000
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
@@ -156,6 +161,8 @@ services:
       dockerfile: Autoweave Web/docker/worker.Dockerfile
     env_file:
       - path: .env
+        required: false
+      - path: ../Autoweave Library/.env.local
         required: false
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}

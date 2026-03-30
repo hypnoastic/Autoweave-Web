@@ -27,7 +27,8 @@ The web product owns raw collaborative application truth:
 - work requests and user actions
 - product-level context projections
 
-These live in the product database schema and remain the authoritative record.
+For the current V1 stack, these live in the web product's local Docker Postgres database and remain the authoritative record.
+Agents do not query these tables directly.
 
 ### AutoWeave runtime store
 
@@ -42,17 +43,16 @@ The `autoweave` package owns derived execution state:
 - artifacts
 - observability events
 
-These live in a separate runtime schema and in orbit-specific runtime roots.
+These live in hosted Neon Postgres using the shared connection from `Autoweave Library/.env.local`, with the runtime isolated to the `autoweave_runtime` schema plus orbit-specific runtime roots.
 
 ### Redis
 
 Redis is used only for transient state:
 
-- user navigation state
+- product navigation state in Redis DB `1`
 - last opened orbit
 - last opened orbit section
-- idempotency / leases used by the AutoWeave runtime
-- queue/broker functions for background workflow execution
+- AutoWeave queue, Celery broker/result, leases, and heartbeats in Redis DB `0`
 
 ### Local Docker-managed storage
 
@@ -81,6 +81,15 @@ The bridge works like this:
 3. The backend stores those structured projections in product tables.
 4. The backend also projects compact derived memory entries into the AutoWeave runtime repository for the related orbit/project.
 5. Agents work primarily from that derived execution context and can request deeper product detail on demand through the backend.
+
+## Concrete Runtime Topology
+
+- `product postgres (local docker)`: raw product truth
+- `runtime postgres (hosted Neon)`: workflow runs, tasks, approvals, memory, artifacts metadata
+- `graph (hosted Neo4j Aura)`: derived context graph only
+- `redis db 1 (local docker)`: product navigation remembrance
+- `redis db 0 (local docker)`: AutoWeave Celery/runtime transient state
+- `docker volume`: runtime artifacts, workspaces, demos, generated outputs
 
 ## Orbit Model
 

@@ -36,3 +36,44 @@ def test_runtime_environ_derives_vertex_project_from_credentials(tmp_path) -> No
 
     assert settings.resolved_runtime_vertex_project == "ergon-488918"
     assert settings.runtime_environ()["VERTEXAI_PROJECT"] == "ergon-488918"
+
+
+def test_runtime_postgres_dsn_falls_back_to_hosted_library_env(monkeypatch) -> None:
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://runtime:secret@neon-host/autoweave_runtime")
+    settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web",
+        redis_url="redis://localhost:6379/1",
+        runtime_postgres_url="",
+    )
+
+    assert settings.runtime_postgres_dsn == "postgresql://runtime:secret@neon-host/autoweave_runtime"
+    assert settings.runtime_environ()["POSTGRES_URL"] == "postgresql://runtime:secret@neon-host/autoweave_runtime"
+
+
+def test_runtime_environ_uses_hosted_graph_env_when_runtime_values_blank(monkeypatch) -> None:
+    monkeypatch.setenv("NEO4J_URL", "neo4j+s://example.databases.neo4j.io")
+    monkeypatch.setenv("NEO4J_USERNAME", "neo4j")
+    monkeypatch.setenv("NEO4J_PASSWORD", "secret")
+    settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web",
+        redis_url="redis://localhost:6379/1",
+        runtime_neo4j_url="",
+        runtime_neo4j_username="",
+        runtime_neo4j_password="",
+    )
+
+    assert settings.runtime_environ()["NEO4J_URL"] == "neo4j+s://example.databases.neo4j.io"
+    assert settings.runtime_environ()["NEO4J_USERNAME"] == "neo4j"
+    assert settings.runtime_environ()["NEO4J_PASSWORD"] == "secret"
+    assert settings.runtime_environ()["AUTOWEAVE_GRAPH_BACKEND"] == "neo4j"
+
+
+def test_product_and_runtime_redis_use_separate_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("RUNTIME_REDIS_URL", raising=False)
+    settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web",
+    )
+
+    assert settings.redis_url == "redis://redis:6379/1"
+    assert settings.runtime_environ()["REDIS_URL"] == "redis://redis:6379/0"
