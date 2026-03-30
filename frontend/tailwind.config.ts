@@ -5,19 +5,37 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas: "#f5f5f3",
-        ink: "#111111",
-        stone: "#d6d2ca",
-        panel: "#ffffff",
-        quiet: "#6b6b67",
-        line: "#dbd7ce",
+        canvas: "var(--aw-bg)",
+        ink: "var(--aw-text)",
+        quiet: "var(--aw-text-soft)",
+        faint: "var(--aw-text-faint)",
+        panel: "var(--aw-panel)",
+        panelStrong: "var(--aw-panel-strong)",
+        panelMuted: "var(--aw-panel-muted)",
+        line: "var(--aw-border)",
+        lineStrong: "var(--aw-border-strong)",
+        accent: "var(--aw-accent)",
+        accentContrast: "var(--aw-accent-contrast)",
+        overlay: "var(--aw-overlay)",
       },
       fontFamily: {
         sans: ['"IBM Plex Sans"', '"Helvetica Neue"', "Arial", "sans-serif"],
         mono: ['"IBM Plex Mono"', '"SFMono-Regular"', "monospace"],
       },
       boxShadow: {
-        panel: "0 1px 0 rgba(17,17,17,0.06), 0 18px 40px rgba(17,17,17,0.06)",
+        panel: "var(--aw-shadow)",
+        soft: "var(--aw-shadow-soft)",
+      },
+      borderRadius: {
+        card: "var(--aw-radius-lg)",
+        pane: "var(--aw-radius-md)",
+        chip: "var(--aw-radius-sm)",
+      },
+      height: {
+        dvh: "100dvh",
+      },
+      minHeight: {
+        dvh: "100dvh",
       },
     },
   },

@@ -112,6 +112,115 @@ def test_ergo_channel_message_starts_work_and_projects_context(client):
     assert workflow.json()["selected_run"]["title"].startswith("@ERGO build")
 
 
+def test_theme_preferences_channel_scoped_messages_and_member_dm_flow(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    preferences = client.get("/api/preferences", headers=headers)
+    assert preferences.status_code == 200
+    assert preferences.json() == {"theme_preference": "system"}
+
+    updated = client.put("/api/preferences", json={"theme_preference": "dark"}, headers=headers)
+    assert updated.status_code == 200
+    assert updated.json() == {"theme_preference": "dark"}
+
+    channel_response = client.post(
+        f"/api/orbits/{orbit['id']}/channels",
+        json={"name": "Product Design"},
+        headers=headers,
+    )
+    assert channel_response.status_code == 200
+    channel = channel_response.json()
+    assert channel["slug"] == "product-design"
+
+    channel_message = client.post(
+        f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
+        json={"body": "Need tighter spacing in the workflow lane."},
+        headers=headers,
+    )
+    assert channel_message.status_code == 200
+    assert channel_message.json()["message"]["channel_id"] == channel["id"]
+    assert channel_message.json()["ergo"] is None
+
+    scoped_messages = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
+        headers=headers,
+    )
+    assert scoped_messages.status_code == 200
+    scoped_payload = scoped_messages.json()
+    assert scoped_payload["channel"]["id"] == channel["id"]
+    assert len(scoped_payload["messages"]) == 1
+    assert scoped_payload["messages"][0]["body"] == "Need tighter spacing in the workflow lane."
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    member = orbit_payload.json()["members"][0]
+    assert member["login"] == user["github_login"]
+    assert member["display_name"] == user["display_name"]
+    assert "avatar_url" in member
+
+    member_dm = client.post(
+        f"/api/orbits/{orbit['id']}/dms",
+        json={"target_login": user["github_login"]},
+        headers=headers,
+    )
+    assert member_dm.status_code == 400
+    assert member_dm.json()["detail"] == "Cannot start a DM with yourself"
+
+    ergo_dm = client.post(
+        f"/api/orbits/{orbit['id']}/dms",
+        json={"target_login": "ERGO"},
+        headers=headers,
+    )
+    assert ergo_dm.status_code == 200
+    ergo_payload = ergo_dm.json()
+    assert ergo_payload["kind"] == "agent"
+    assert ergo_payload["participant"]["login"] == "ERGO"
+
+
+def test_dm_thread_creation_works_with_member_login_and_orbit_payloads_are_rich(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    second_payload = second_login.json()
+    second_headers = {"Authorization": f"Bearer {second_payload['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=headers,
+    )
+    assert invite.status_code == 200
+
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=second_headers)
+    assert accept.status_code == 200
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    members = orbit_payload.json()["members"]
+    teammate = next(member for member in members if member["login"] == "teammate")
+    assert teammate["role"] == "member"
+
+    dm_response = client.post(
+        f"/api/orbits/{orbit['id']}/dms",
+        json={"target_user_id": second_payload["user"]["id"]},
+        headers=headers,
+    )
+    assert dm_response.status_code == 200
+    dm_payload = dm_response.json()
+    assert dm_payload["kind"] == "member"
+    assert dm_payload["participant"]["user_id"] == second_payload["user"]["id"]
+    assert dm_payload["participant"]["display_name"] == second_payload["user"]["display_name"]
+
+    dm_list = client.get(f"/api/orbits/{orbit['id']}/dms", headers=headers)
+    assert dm_list.status_code == 200
+    assert any(thread["id"] == dm_payload["id"] for thread in dm_list.json())
+
+
 def test_dm_workflow_actions_codespaces_and_demos(client):
     token, _ = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
@@ -161,3 +270,20 @@ def test_dm_workflow_actions_codespaces_and_demos(client):
     )
     assert demo_response.status_code == 200
     assert demo_response.json()["url"].startswith("http://localhost:9100/")
+
+
+def test_refresh_prs_and_issues_returns_operational_statuses(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    refresh = client.post(f"/api/orbits/{orbit['id']}/prs-issues/refresh", headers=headers)
+    assert refresh.status_code == 200
+    assert refresh.json() == {"prs": 1, "issues": 1}
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+
+    assert payload["prs"][0]["operational_status"] == "queued"
+    assert payload["issues"][0]["operational_status"] == "queued"

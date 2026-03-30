@@ -31,6 +31,11 @@ def _engine_kwargs(settings: Settings) -> dict:
         kwargs["connect_args"] = {"check_same_thread": False}
         if ":memory:" in settings.database_url:
             kwargs["poolclass"] = StaticPool
+    elif settings.database_url.startswith("postgres"):
+        # Hosted Postgres connections can go stale underneath long-lived app processes.
+        # Pre-ping and recycling keep the web API from reusing dead SSL sessions.
+        kwargs["pool_pre_ping"] = True
+        kwargs["pool_recycle"] = 1800
     return kwargs
 
 

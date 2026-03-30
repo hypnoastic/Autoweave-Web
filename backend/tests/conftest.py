@@ -31,6 +31,13 @@ class FakeGitHubGateway:
         self.collaborators: list[dict[str, Any]] = []
 
     def get_authenticated_user(self, token: str) -> dict[str, Any]:
+        if token.endswith("_second"):
+            return {
+                "id": 202,
+                "login": "teammate",
+                "name": "Team Mate",
+                "avatar_url": "https://example.com/teammate.png",
+            }
         return {
             "id": 101,
             "login": "octocat",
@@ -39,6 +46,8 @@ class FakeGitHubGateway:
         }
 
     def get_primary_email(self, token: str) -> str | None:
+        if token.endswith("_second"):
+            return "teammate@example.com"
         return "octo@example.com"
 
     def create_repository(self, token: str, *, name: str, description: str, private: bool) -> dict[str, Any]:
@@ -159,7 +168,7 @@ class FakeRuntimeManager:
             "source_tree_bypassed": True,
         }
 
-    def monitoring_snapshot(self, orbit, *, limit: int = 8) -> dict[str, Any]:
+    def monitoring_snapshot(self, orbit, *, limit: int = 8, timeout_seconds: float = 1.5) -> dict[str, Any]:
         return self.snapshots.get(
             orbit.id,
             {

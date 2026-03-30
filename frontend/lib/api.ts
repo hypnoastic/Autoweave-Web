@@ -1,6 +1,20 @@
 "use client";
 
-import type { DashboardPayload, DmThreadPayload, OrbitPayload, Session, WorkflowSnapshot } from "@/lib/types";
+import type {
+  ChannelSummary,
+  CodespaceSummary,
+  ConversationMessage,
+  ConversationSendResult,
+  DashboardPayload,
+  DemoSummary,
+  DmThreadPayload,
+  DmThreadSummary,
+  Orbit,
+  OrbitPayload,
+  Session,
+  UserPreferences,
+  WorkflowSnapshot,
+} from "@/lib/types";
 
 const SESSION_KEY = "autoweave-web-session";
 
@@ -103,15 +117,31 @@ export async function fetchOrbits(token: string) {
 }
 
 export async function createOrbit(token: string, payload: Record<string, unknown>) {
-  return request("/api/orbits", { method: "POST", body: JSON.stringify(payload) }, token);
+  return request<Orbit>("/api/orbits", { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
 export async function fetchOrbit(token: string, orbitId: string) {
   return request<OrbitPayload>(`/api/orbits/${orbitId}`, {}, token);
 }
 
+export async function fetchChannelMessages(token: string, orbitId: string, channelId: string) {
+  return request<{ channel: ChannelSummary; messages: ConversationMessage[] }>(
+    `/api/orbits/${orbitId}/channels/${channelId}/messages`,
+    {},
+    token,
+  );
+}
+
+export async function createChannel(token: string, orbitId: string, payload: Record<string, unknown>) {
+  return request<ChannelSummary>(`/api/orbits/${orbitId}/channels`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function sendChannelMessage(token: string, orbitId: string, channelId: string, body: string) {
+  return request<ConversationSendResult>(`/api/orbits/${orbitId}/channels/${channelId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
+}
+
 export async function sendOrbitMessage(token: string, orbitId: string, body: string) {
-  return request(`/api/orbits/${orbitId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
+  return request<ConversationSendResult>(`/api/orbits/${orbitId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
 }
 
 export async function refreshPrsIssues(token: string, orbitId: string) {
@@ -142,20 +172,32 @@ export async function fetchDmThread(token: string, orbitId: string, threadId: st
   return request<DmThreadPayload>(`/api/orbits/${orbitId}/dms/${threadId}`, {}, token);
 }
 
+export async function createDmThread(token: string, orbitId: string, payload: Record<string, unknown>) {
+  return request<DmThreadSummary>(`/api/orbits/${orbitId}/dms`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
 export async function sendDmMessage(token: string, orbitId: string, threadId: string, body: string) {
-  return request(`/api/orbits/${orbitId}/dms/${threadId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
+  return request<ConversationSendResult>(`/api/orbits/${orbitId}/dms/${threadId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
 }
 
 export async function createCodespace(token: string, orbitId: string, payload: Record<string, unknown>) {
-  return request(`/api/orbits/${orbitId}/codespaces`, { method: "POST", body: JSON.stringify(payload) }, token);
+  return request<CodespaceSummary>(`/api/orbits/${orbitId}/codespaces`, { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
 export async function publishDemo(token: string, orbitId: string, payload: Record<string, unknown>) {
-  return request(`/api/orbits/${orbitId}/demos`, { method: "POST", body: JSON.stringify(payload) }, token);
+  return request<DemoSummary>(`/api/orbits/${orbitId}/demos`, { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
 export async function updateNavigation(token: string, payload: Record<string, unknown>) {
   return request("/api/navigation", { method: "PUT", body: JSON.stringify(payload) }, token);
+}
+
+export async function fetchPreferences(token: string) {
+  return request<UserPreferences>("/api/preferences", {}, token);
+}
+
+export async function updatePreferences(token: string, payload: UserPreferences) {
+  return request<UserPreferences>("/api/preferences", { method: "PUT", body: JSON.stringify(payload) }, token);
 }
 
 export async function inviteOrbitMember(token: string, orbitId: string, email: string) {

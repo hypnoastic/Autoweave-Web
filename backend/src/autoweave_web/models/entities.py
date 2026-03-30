@@ -31,6 +31,17 @@ class SessionToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class UserPreference(Base):
+    __tablename__ = "product_user_preferences"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_product_user_preference"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("pref"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    theme_preference: Mapped[str] = mapped_column(String(32), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class Orbit(Base):
     __tablename__ = "product_orbits"
 

@@ -1,23 +1,36 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { OrbitWorkspace } from "@/components/orbit-workspace";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const api = vi.hoisted(() => ({
   answerWorkflowHumanRequest: vi.fn(),
+  createChannel: vi.fn(),
   createCodespace: vi.fn(),
+  createDmThread: vi.fn(),
+  fetchChannelMessages: vi.fn(),
   fetchDmThread: vi.fn(),
   fetchOrbit: vi.fn(),
+  fetchPreferences: vi.fn(),
   inviteOrbitMember: vi.fn(),
   publishDemo: vi.fn(),
   readSession: vi.fn(),
   refreshPrsIssues: vi.fn(),
   resolveWorkflowApprovalRequest: vi.fn(),
+  sendChannelMessage: vi.fn(),
   sendDmMessage: vi.fn(),
-  sendOrbitMessage: vi.fn(),
+  updatePreferences: vi.fn(),
   updateNavigation: vi.fn(),
+  writeSession: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => api);
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+  }),
+}));
 
 describe("OrbitWorkspace", () => {
   it("renders workflow clarifications from the runtime snapshot", async () => {
@@ -29,6 +42,7 @@ describe("OrbitWorkspace", () => {
         display_name: "Octo Cat",
       },
     });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
     api.fetchOrbit.mockResolvedValue({
       orbit: {
         id: "orbit_1",
@@ -39,9 +53,9 @@ describe("OrbitWorkspace", () => {
         repo_private: true,
         default_branch: "main",
       },
-      members: [{ user_id: "user_1", role: "owner" }],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat" }],
       channels: [{ id: "channel_1", slug: "general", name: "general" }],
-      direct_messages: [{ id: "dm_1", title: "ERGO" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
       messages: [],
       workflow: {
         status: "ok",
@@ -115,16 +129,24 @@ describe("OrbitWorkspace", () => {
       demos: [],
       navigation: { orbit_id: "orbit_1", section: "workflow" },
     });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+    });
     api.fetchDmThread.mockResolvedValue({
       thread: { id: "dm_1", title: "ERGO" },
       messages: [],
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(<OrbitWorkspace orbitId="orbit_1" />);
+    render(
+      <ThemeProvider>
+        <OrbitWorkspace orbitId="orbit_1" />
+      </ThemeProvider>,
+    );
 
-    expect(await screen.findByText("Kanban execution board")).toBeInTheDocument();
-    expect(screen.getByText("Clarification needed")).toBeInTheDocument();
-    expect(screen.getByText("What exact flow should ERGO ship first?")).toBeInTheDocument();
+    expect(await screen.findByText("Execution board")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /manager plan/i })[0]);
+    expect((await screen.findAllByText("What exact flow should ERGO ship first?")).length).toBeGreaterThan(0);
   });
 });

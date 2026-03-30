@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import importlib.metadata
 import json
 from pathlib import Path
 import shutil
+from time import monotonic, sleep
 from typing import Any
 
 from autoweave import bootstrap_project, build_local_runtime
@@ -23,6 +25,8 @@ def slugify(value: str) -> str:
 class RuntimeManager:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._monitoring_services: dict[str, MonitoringService] = {}
+        self._snapshot_cache: dict[str, dict[str, Any]] = {}
         self._bootstrap_control_plane()
 
     def _bootstrap_control_plane(self) -> None:
@@ -75,6 +79,53 @@ class RuntimeManager:
     def runtime_environ(self) -> dict[str, str]:
         return self.settings.runtime_environ()
 
+    @staticmethod
+    def _orbit_cache_key(orbit: Orbit) -> str:
+        return str(getattr(orbit, "id", "") or orbit.slug)
+
+    def _monitoring_service(self, orbit: Orbit) -> MonitoringService:
+        cache_key = self._orbit_cache_key(orbit)
+        service = self._monitoring_services.get(cache_key)
+        if service is None:
+            service = MonitoringService(root=self.orbit_root(orbit), environ=self.runtime_environ())
+            self._monitoring_services[cache_key] = service
+        return service
+
+    @staticmethod
+    def _snapshot_is_ready(payload: dict[str, Any]) -> bool:
+        return payload.get("status") != "loading"
+
+    def _fallback_snapshot(
+        self,
+        orbit: Orbit,
+        *,
+        message: str,
+        base_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        cache_key = self._orbit_cache_key(orbit)
+        cached = self._snapshot_cache.get(cache_key)
+        if cached is not None:
+            payload = copy.deepcopy(cached)
+        elif base_payload is not None:
+            payload = copy.deepcopy(base_payload)
+        else:
+            payload = {
+                "status": "degraded",
+                "load_error": None,
+                "project_root": str(self.settings.runtime_root / "orbits" / orbit.slug),
+                "runs": [],
+                "selected_run_id": None,
+                "selected_run": None,
+                "jobs": [],
+                "agents": [],
+                "workflow_blueprint": {"name": None, "version": None, "entrypoint": None, "roles": [], "templates": []},
+            }
+        payload["status"] = "degraded"
+        previous_error = str(payload.get("load_error") or "").strip()
+        payload["load_error"] = message if not previous_error else f"{previous_error}\n{message}"
+        payload["stale"] = cached is not None
+        return payload
+
     def package_report(self) -> dict[str, Any]:
         import autoweave
 
@@ -87,9 +138,35 @@ class RuntimeManager:
             "source_tree_bypassed": library_root.resolve() not in module_path.parents,
         }
 
-    def monitoring_snapshot(self, orbit: Orbit, *, limit: int = 8) -> dict[str, Any]:
-        service = MonitoringService(root=self.orbit_root(orbit), environ=self.runtime_environ())
-        return service.snapshot(limit=limit, wait_for_refresh=True)
+    def monitoring_snapshot(self, orbit: Orbit, *, limit: int = 8, timeout_seconds: float = 1.5) -> dict[str, Any]:
+        cache_key = self._orbit_cache_key(orbit)
+        service = self._monitoring_service(orbit)
+        try:
+            payload = service.snapshot(limit=limit, wait_for_refresh=False, include_jobs=False)
+        except Exception as exc:
+            self._monitoring_services.pop(cache_key, None)
+            return self._fallback_snapshot(orbit, message=f"Workflow state unavailable: {exc}")
+        if self._snapshot_is_ready(payload):
+            self._snapshot_cache[cache_key] = copy.deepcopy(payload)
+            return payload
+        deadline = monotonic() + max(timeout_seconds, 0.1)
+        while monotonic() < deadline:
+            sleep(0.1)
+            try:
+                payload = service.snapshot(limit=limit, wait_for_refresh=False, include_jobs=False)
+            except Exception as exc:
+                self._monitoring_services.pop(cache_key, None)
+                return self._fallback_snapshot(orbit, message=f"Workflow state unavailable: {exc}")
+            if self._snapshot_is_ready(payload):
+                self._snapshot_cache[cache_key] = copy.deepcopy(payload)
+                return payload
+        # Keep the monitoring service alive on timeout so the in-flight refresh can
+        # finish and populate cache for the next poll instead of restarting from scratch.
+        return self._fallback_snapshot(
+            orbit,
+            base_payload=payload,
+            message="Workflow state refresh timed out; showing the last known runtime state.",
+        )
 
     def queue_workflow(self, orbit: Orbit, *, request_text: str) -> dict[str, Any]:
         root = self.orbit_root(orbit)

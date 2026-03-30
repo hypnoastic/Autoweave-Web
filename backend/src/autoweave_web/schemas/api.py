@@ -29,6 +29,22 @@ class DmMessageCreateRequest(BaseModel):
     body: str
 
 
+class ChannelCreateRequest(BaseModel):
+    name: str
+    slug: str | None = None
+
+
+class DmThreadCreateRequest(BaseModel):
+    target_kind: str = "member"
+    target_login: str | None = None
+    target_user_id: str | None = None
+    target_agent: str | None = None
+
+
+class UserPreferencesUpdateRequest(BaseModel):
+    theme_preference: str = Field(default="system")
+
+
 class CodespaceCreateRequest(BaseModel):
     name: str
     branch_name: str | None = None
@@ -60,6 +76,10 @@ class WorkflowApprovalRequest(BaseModel):
 class SessionPayload(BaseModel):
     token: str
     user: dict
+
+
+class UserPreferencesPayload(BaseModel):
+    theme_preference: str
 
 
 class DashboardPayload(BaseModel):

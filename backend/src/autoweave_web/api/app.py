@@ -30,12 +30,15 @@ from autoweave_web.models.entities import (
     PullRequestSnapshot,
     SessionToken,
     User,
+    UserPreference,
     WorkItem,
 )
 from autoweave_web.schemas.api import (
+    ChannelCreateRequest,
     CodespaceCreateRequest,
     DashboardPayload,
     DemoPublishRequest,
+    DmThreadCreateRequest,
     DmMessageCreateRequest,
     GitHubTokenLoginRequest,
     InviteRequest,
@@ -44,6 +47,8 @@ from autoweave_web.schemas.api import (
     OrbitCreateRequest,
     OrbitPayload,
     SessionPayload,
+    UserPreferencesPayload,
+    UserPreferencesUpdateRequest,
     WorkflowApprovalRequest,
     WorkflowHumanAnswerRequest,
 )
@@ -136,11 +141,46 @@ def create_app(
     def _serialize_message(message: Message) -> dict[str, Any]:
         return {
             "id": message.id,
+            "channel_id": message.channel_id,
+            "dm_thread_id": message.dm_thread_id,
+            "user_id": message.user_id,
             "author_kind": message.author_kind,
             "author_name": message.author_name,
             "body": message.body,
             "metadata": message.metadata_json,
             "created_at": message.created_at.isoformat(),
+        }
+
+    def _serialize_member_summary(member_user: User, membership: OrbitMembership, *, viewer: User) -> dict[str, Any]:
+        return {
+            "id": member_user.id,
+            "user_id": member_user.id,
+            "login": member_user.github_login,
+            "github_login": member_user.github_login,
+            "display_name": member_user.display_name,
+            "avatar_url": member_user.avatar_url,
+            "role": membership.role,
+            "introduced": membership.introduced,
+            "is_self": member_user.id == viewer.id,
+        }
+
+    def _normalize_theme_preference(value: str | None) -> str:
+        normalized = (value or "system").strip().lower()
+        if normalized not in {"system", "light", "dark"}:
+            raise HTTPException(status_code=400, detail="Unsupported theme preference")
+        return normalized
+
+    def _user_preferences(db: Session, user: User, *, create: bool = False) -> UserPreference | None:
+        preference = db.scalar(select(UserPreference).where(UserPreference.user_id == user.id))
+        if preference is None and create:
+            preference = UserPreference(user_id=user.id, theme_preference="system")
+            db.add(preference)
+            db.flush()
+        return preference
+
+    def _serialize_preferences(preference: UserPreference | None) -> dict[str, Any]:
+        return {
+            "theme_preference": preference.theme_preference if preference else "system",
         }
 
     def _serialize_codespace(item: Codespace) -> dict[str, Any]:
@@ -173,6 +213,58 @@ def create_app(
             "workflow_run_id": item.workflow_run_id,
             "summary": item.summary,
             "updated_at": item.updated_at.isoformat(),
+        }
+
+    def _normalize_pull_request_status(item: PullRequestSnapshot) -> str:
+        metadata = item.metadata_json or {}
+        if metadata.get("merged_at"):
+            return "merged"
+        if item.state == "closed":
+            return "closed"
+        if metadata.get("review_decision") == "changes_requested":
+            return "changes_requested"
+        if metadata.get("blocked"):
+            return "blocked"
+        if metadata.get("draft"):
+            return "queued"
+        return "awaiting_review"
+
+    def _normalize_issue_status(item: IssueSnapshot) -> str:
+        metadata = item.metadata_json or {}
+        labels = {str(label).lower() for label in metadata.get("labels", [])}
+        if item.state == "closed":
+            return "closed"
+        if {"blocked", "needs-blocker"} & labels:
+            return "blocked"
+        if {"changes-requested", "changes_requested"} & labels:
+            return "changes_requested"
+        if {"review", "awaiting-review", "awaiting_review"} & labels:
+            return "awaiting_review"
+        if {"in-progress", "in_progress", "doing"} & labels:
+            return "in_progress"
+        return "queued"
+
+    def _serialize_pull_request(item: PullRequestSnapshot) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "number": item.github_number,
+            "title": item.title,
+            "state": item.state,
+            "url": item.url,
+            "priority": item.priority,
+            "branch_name": item.branch_name,
+            "operational_status": _normalize_pull_request_status(item),
+        }
+
+    def _serialize_issue(item: IssueSnapshot) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "number": item.github_number,
+            "title": item.title,
+            "state": item.state,
+            "url": item.url,
+            "priority": item.priority,
+            "operational_status": _normalize_issue_status(item),
         }
 
     def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
@@ -243,11 +335,22 @@ def create_app(
             raise HTTPException(status_code=404, detail="Orbit channel not found")
         return channel
 
+    def _orbit_channel_by_id(db: Session, orbit_id: str, channel_id: str) -> Channel:
+        channel = db.scalar(select(Channel).where(Channel.id == channel_id, Channel.orbit_id == orbit_id))
+        if channel is None:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        return channel
+
     def _orbit_dm_thread(db: Session, orbit_id: str, thread_id: str) -> DmThread:
         thread = db.scalar(select(DmThread).where(DmThread.id == thread_id, DmThread.orbit_id == orbit_id))
         if thread is None:
             raise HTTPException(status_code=404, detail="DM thread not found")
         return thread
+
+    def _ensure_dm_participant_access(db: Session, thread: DmThread, user: User) -> None:
+        participant = db.scalar(select(DmParticipant).where(DmParticipant.thread_id == thread.id, DmParticipant.user_id == user.id))
+        if participant is None:
+            raise HTTPException(status_code=404, detail="DM thread not found")
 
     def _unique_orbit_slug(db: Session, name: str) -> str:
         base_slug = slugify(name)
@@ -258,11 +361,16 @@ def create_app(
             suffix += 1
         return candidate
 
-    def _ensure_default_orbit_records(db: Session, orbit: Orbit, user: User) -> None:
-        general = db.scalar(select(Channel).where(Channel.orbit_id == orbit.id, Channel.slug == "general"))
-        if general is None:
-            general = Channel(orbit_id=orbit.id, slug="general", name="general")
-            db.add(general)
+    def _unique_channel_slug(db: Session, orbit_id: str, name: str, preferred_slug: str | None = None) -> str:
+        base_slug = slugify(preferred_slug or name)
+        candidate = base_slug
+        suffix = 2
+        while db.scalar(select(Channel).where(Channel.orbit_id == orbit_id, Channel.slug == candidate)) is not None:
+            candidate = f"{base_slug}-{suffix}"
+            suffix += 1
+        return candidate
+
+    def _ergo_dm_thread(db: Session, orbit: Orbit, user: User) -> DmThread:
         ergo_dm = db.scalar(select(DmThread).where(DmThread.orbit_id == orbit.id, DmThread.title == "ERGO"))
         if ergo_dm is None:
             ergo_dm = DmThread(orbit_id=orbit.id, title="ERGO")
@@ -273,6 +381,62 @@ def create_app(
         )
         if existing_participant is None:
             db.add(DmParticipant(thread_id=ergo_dm.id, user_id=user.id))
+            db.flush()
+        return ergo_dm
+
+    def _serialize_channel(channel: Channel) -> dict[str, Any]:
+        return {
+            "id": channel.id,
+            "slug": channel.slug,
+            "name": channel.name,
+            "kind": channel.kind,
+        }
+
+    def _serialize_dm_thread(db: Session, thread: DmThread, *, viewer: User) -> dict[str, Any]:
+        participants = db.scalars(select(DmParticipant).where(DmParticipant.thread_id == thread.id)).all()
+        participant_users = [db.get(User, participant.user_id) for participant in participants]
+        visible_participants = [member for member in participant_users if member is not None and member.id != viewer.id]
+        counterpart = visible_participants[0] if visible_participants else None
+        is_ergo = thread.title == "ERGO"
+        return {
+            "id": thread.id,
+            "title": thread.title,
+            "kind": "agent" if is_ergo else "member",
+            "participant": (
+                {
+                    "id": "ergo",
+                    "user_id": None,
+                    "login": "ERGO",
+                    "github_login": "ERGO",
+                    "display_name": "ERGO",
+                    "avatar_url": None,
+                    "role": "agent",
+                    "is_self": False,
+                }
+                if is_ergo
+                else (
+                    {
+                        "id": counterpart.id,
+                        "user_id": counterpart.id,
+                        "login": counterpart.github_login,
+                        "github_login": counterpart.github_login,
+                        "display_name": counterpart.display_name,
+                        "avatar_url": counterpart.avatar_url,
+                        "role": "member",
+                        "is_self": False,
+                    }
+                    if counterpart
+                    else None
+                )
+            ),
+        }
+
+    def _ensure_default_orbit_records(db: Session, orbit: Orbit, user: User) -> None:
+        general = db.scalar(select(Channel).where(Channel.orbit_id == orbit.id, Channel.slug == "general"))
+        if general is None:
+            general = Channel(orbit_id=orbit.id, slug="general", name="general")
+            db.add(general)
+        _ergo_dm_thread(db, orbit, user)
 
     def _send_invite_email(invite: OrbitInvite, orbit: Orbit) -> None:
         message = EmailMessage()
@@ -450,12 +614,28 @@ def create_app(
     def me(user: User = Depends(current_user)) -> dict[str, Any]:
         return _serialize_user(user)
 
+    @app.get("/api/preferences", response_model=UserPreferencesPayload)
+    def get_preferences(user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserPreferencesPayload:
+        return UserPreferencesPayload(**_serialize_preferences(_user_preferences(db, user)))
+
+    @app.put("/api/preferences", response_model=UserPreferencesPayload)
+    def update_preferences(
+        payload: UserPreferencesUpdateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> UserPreferencesPayload:
+        preference = _user_preferences(db, user, create=True)
+        preference.theme_preference = _normalize_theme_preference(payload.theme_preference)
+        preference.updated_at = utc_now()
+        db.commit()
+        return UserPreferencesPayload(**_serialize_preferences(preference))
+
     @app.get("/api/dashboard", response_model=DashboardPayload)
     def dashboard(user: User = Depends(current_user), db: Session = Depends(get_db)) -> DashboardPayload:
         orbit_ids = [membership.orbit_id for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()]
         orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
         for orbit in orbits[:5]:
-            workflow_snapshot = runtime_manager.monitoring_snapshot(orbit)
+            workflow_snapshot = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=0.5)
             _sync_work_items_from_snapshot(db, orbit, workflow_snapshot)
         db.commit()
         work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id.in_(orbit_ids)).order_by(WorkItem.updated_at.desc())).all() if orbit_ids else []
@@ -594,9 +774,11 @@ def create_app(
     @app.get("/api/orbits/{orbit_id}", response_model=OrbitPayload)
     def get_orbit(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> OrbitPayload:
         orbit = _orbit_for_member(db, orbit_id, user)
+        memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id).order_by(OrbitMembership.created_at)).all()
         members = [
-            {"user_id": membership.user_id, "role": membership.role}
-            for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id)).all()
+            _serialize_member_summary(member_user, membership, viewer=user)
+            for membership in memberships
+            if (member_user := db.get(User, membership.user_id)) is not None
         ]
         channels = db.scalars(select(Channel).where(Channel.orbit_id == orbit.id).order_by(Channel.slug)).all()
         dms = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
@@ -606,24 +788,18 @@ def create_app(
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
-        workflow = runtime_manager.monitoring_snapshot(orbit)
+        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
         _sync_work_items_from_snapshot(db, orbit, workflow)
         db.commit()
         return OrbitPayload(
             orbit=_serialize_orbit(orbit),
             members=members,
-            channels=[{"id": channel.id, "slug": channel.slug, "name": channel.name} for channel in channels],
-            direct_messages=[{"id": thread.id, "title": thread.title} for thread in dms],
+            channels=[_serialize_channel(channel) for channel in channels],
+            direct_messages=[_serialize_dm_thread(db, thread, viewer=user) for thread in dms],
             messages=[_serialize_message(message) for message in messages],
             workflow=workflow,
-            prs=[
-                {"id": item.id, "number": item.github_number, "title": item.title, "state": item.state, "url": item.url, "priority": item.priority}
-                for item in prs
-            ],
-            issues=[
-                {"id": item.id, "number": item.github_number, "title": item.title, "state": item.state, "url": item.url, "priority": item.priority}
-                for item in issues
-            ],
+            prs=[_serialize_pull_request(item) for item in prs],
+            issues=[_serialize_issue(item) for item in issues],
             codespaces=[_serialize_codespace(item) for item in codespaces],
             demos=[_serialize_demo(item) for item in demos],
             navigation=navigation.get_state(user.id),
@@ -636,18 +812,52 @@ def create_app(
         messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
         return [_serialize_message(message) for message in messages]
 
-    @app.post("/api/orbits/{orbit_id}/messages")
-    def post_orbit_message(
+    @app.post("/api/orbits/{orbit_id}/channels")
+    def create_channel(
         orbit_id: str,
+        payload: ChannelCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        slug = _unique_channel_slug(db, orbit.id, payload.name, payload.slug)
+        channel = Channel(
+            orbit_id=orbit.id,
+            slug=slug,
+            name=payload.name.strip(),
+            kind="channel",
+        )
+        db.add(channel)
+        db.commit()
+        return _serialize_channel(channel)
+
+    @app.get("/api/orbits/{orbit_id}/channels/{channel_id}/messages")
+    def orbit_channel_messages(
+        orbit_id: str,
+        channel_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        channel = _orbit_channel_by_id(db, orbit.id, channel_id)
+        messages = db.scalars(
+            select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == channel.id).order_by(Message.created_at)
+        ).all()
+        return {"channel": _serialize_channel(channel), "messages": [_serialize_message(message) for message in messages]}
+
+    @app.post("/api/orbits/{orbit_id}/channels/{channel_id}/messages")
+    def post_channel_message(
+        orbit_id: str,
+        channel_id: str,
         payload: MessageCreateRequest,
         user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
-        general = _orbit_channel(db, orbit.id)
+        channel = _orbit_channel_by_id(db, orbit.id, channel_id)
         user_message = Message(
             orbit_id=orbit.id,
-            channel_id=general.id,
+            channel_id=channel.id,
             user_id=user.id,
             author_kind="user",
             author_name=user.display_name,
@@ -661,29 +871,41 @@ def create_app(
             source_id=user_message.id,
             event_type="chat.message.created",
             body=payload.body,
-            payload_json={"author": user.display_name, "surface": "channel"},
+            payload_json={"author": user.display_name, "surface": "channel", "channel_id": channel.id},
             db=db,
         )
         ergo_body, should_start_work = _ergo_reply_for(payload.body)
         reply = None
+        work_item_payload = None
         if ergo_body:
             reply = Message(
                 orbit_id=orbit.id,
-                channel_id=general.id,
+                channel_id=channel.id,
                 author_kind="agent",
                 author_name="ERGO",
                 body=ergo_body,
             )
             db.add(reply)
-        work_item_payload = None
         if should_start_work:
             work_item_payload = _start_work_item(db, orbit, user, request_text=payload.body, summary=ergo_body)
         db.commit()
         return {
+            "channel": _serialize_channel(channel),
             "message": _serialize_message(user_message),
             "ergo": _serialize_message(reply) if reply else None,
             "work_item": work_item_payload,
         }
+
+    @app.post("/api/orbits/{orbit_id}/messages")
+    def post_orbit_message(
+        orbit_id: str,
+        payload: MessageCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        general = _orbit_channel(db, orbit.id)
+        return post_channel_message(orbit.id, general.id, payload, user, db)
 
     @app.post("/api/orbits/{orbit_id}/prs-issues/refresh")
     def refresh_prs_and_issues(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -704,7 +926,13 @@ def create_app(
                     priority="high" if pr.get("draft") else "medium",
                     url=pr["html_url"],
                     branch_name=pr.get("head", {}).get("ref"),
-                    metadata_json={"draft": pr.get("draft", False)},
+                    metadata_json={
+                        "draft": pr.get("draft", False),
+                        "merged_at": pr.get("merged_at"),
+                        "review_decision": pr.get("review_decision"),
+                        "mergeable_state": pr.get("mergeable_state"),
+                        "blocked": pr.get("mergeable_state") == "blocked",
+                    },
                 )
             )
         for issue in issues:
@@ -727,7 +955,7 @@ def create_app(
     @app.get("/api/orbits/{orbit_id}/workflow")
     def orbit_workflow(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
-        workflow = runtime_manager.monitoring_snapshot(orbit)
+        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
         _sync_work_items_from_snapshot(db, orbit, workflow)
         db.commit()
         return workflow
@@ -792,17 +1020,69 @@ def create_app(
     def orbit_dms(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         orbit = _orbit_for_member(db, orbit_id, user)
         threads = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
-        return [{"id": thread.id, "title": thread.title} for thread in threads]
+        visible_threads = []
+        for thread in threads:
+            participant = db.scalar(select(DmParticipant).where(DmParticipant.thread_id == thread.id, DmParticipant.user_id == user.id))
+            if participant is not None:
+                visible_threads.append(_serialize_dm_thread(db, thread, viewer=user))
+        return visible_threads
+
+    @app.post("/api/orbits/{orbit_id}/dms")
+    def create_dm_thread(
+        orbit_id: str,
+        payload: DmThreadCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        target_kind = (payload.target_kind or "member").strip().lower()
+        target_login = (payload.target_login or payload.target_agent or "").strip()
+        if target_kind == "agent" or target_login.upper() == "ERGO":
+            thread = _ergo_dm_thread(db, orbit, user)
+            db.commit()
+            return _serialize_dm_thread(db, thread, viewer=user)
+
+        target_user = None
+        if payload.target_user_id:
+            target_user = db.get(User, payload.target_user_id)
+        elif target_login:
+            target_user = db.scalar(select(User).where(User.github_login == target_login))
+        if target_user is None:
+            raise HTTPException(status_code=404, detail="DM participant not found")
+        if target_user.id == user.id:
+            raise HTTPException(status_code=400, detail="Cannot start a DM with yourself")
+        target_membership = db.scalar(
+            select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id, OrbitMembership.user_id == target_user.id)
+        )
+        if target_membership is None:
+            raise HTTPException(status_code=404, detail="DM participant not found in orbit")
+        candidate_threads = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
+        for thread in candidate_threads:
+            if thread.title == "ERGO":
+                continue
+            participants = db.scalars(select(DmParticipant).where(DmParticipant.thread_id == thread.id)).all()
+            participant_ids = {participant.user_id for participant in participants}
+            if participant_ids == {user.id, target_user.id}:
+                return _serialize_dm_thread(db, thread, viewer=user)
+
+        thread = DmThread(orbit_id=orbit.id, title=target_user.display_name)
+        db.add(thread)
+        db.flush()
+        db.add(DmParticipant(thread_id=thread.id, user_id=user.id))
+        db.add(DmParticipant(thread_id=thread.id, user_id=target_user.id))
+        db.commit()
+        return _serialize_dm_thread(db, thread, viewer=user)
 
     @app.get("/api/orbits/{orbit_id}/dms/{thread_id}")
     def orbit_dm_messages(orbit_id: str, thread_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
         thread = _orbit_dm_thread(db, orbit.id, thread_id)
+        _ensure_dm_participant_access(db, thread, user)
         messages = db.scalars(
             select(Message).where(Message.orbit_id == orbit.id, Message.dm_thread_id == thread.id).order_by(Message.created_at)
         ).all()
         return {
-            "thread": {"id": thread.id, "title": thread.title},
+            "thread": _serialize_dm_thread(db, thread, viewer=user),
             "messages": [_serialize_message(message) for message in messages],
         }
 
@@ -816,6 +1096,7 @@ def create_app(
     ) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
         thread = _orbit_dm_thread(db, orbit.id, thread_id)
+        _ensure_dm_participant_access(db, thread, user)
         message = Message(
             orbit_id=orbit.id,
             dm_thread_id=thread.id,

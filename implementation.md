@@ -150,5 +150,114 @@ The backend and worker mount the shared runtime volume and talk to external Post
 ## Current Implementation Status
 
 - architecture and repo structure established
-- product backend and frontend implementation in progress
-- package-installed runtime integration in progress
+- package-installed runtime integration working
+- product data and runtime data remain separated
+- UI shell redesign implemented for dashboard and orbit surfaces
+
+## UI Redesign Pass
+
+This redesign pass focused on turning the V1 product from a stitched set of screens into a coherent product shell.
+
+### Design direction
+
+- closer to Linear + Slack than generic dashboard SaaS
+- dense, sharp, minimal, calm
+- black / white / grey only with restrained accent usage
+- fixed-height shells with internal scrolling instead of long pages
+- reduced roundness and lower visual noise
+
+### Constraint during this pass
+
+The redesign was planned as a Figma-first pass, but the Figma MCP connection was not available in this session. The repo was still redesigned systematically:
+
+- design-system rules and screen targets were translated into shared shell primitives
+- implementation was validated against the running product in-browser instead of improvising style changes screen by screen
+
+### New frontend shell primitives
+
+The frontend now relies on shared UI architecture instead of page-owned one-off layout code:
+
+- `AppShell`
+- `ShellMain`
+- `LeftSlidePanel`
+- `RightDetailPanel`
+- `CenteredModal`
+- `PopoverMenu`
+- `ScrollPanel`
+- tokenized theme primitives in global CSS/Tailwind
+
+### Dashboard changes
+
+- narrower, denser collapsible sidebar
+- no redundant `Dashboard` heading
+- sparse priority surface
+- codespaces surfaced with running/stopped state
+- search and notifications moved into left slide-over panels
+- profile uses popover menu
+- global settings uses modal
+- orbit creation moved to centered modal
+- logo upload added
+
+### Orbit shell changes
+
+- orbit rail is denser and fixed-width
+- DMs are no longer a top-level rail section
+- search and notifications match dashboard behavior
+- orbit settings moved to modal
+- global settings remains separate from orbit settings
+
+### Chat changes
+
+- real chat workspace layout with:
+  - channels at top of the chat sidebar
+  - DMs in the bottom of that same sidebar
+- current-conversation search in the chat header
+- immediate local echo for user messages
+- ERGO pending state rendered in chat while detailed execution stays in workflow
+- channel creation flow added
+- DM start flow added
+
+### Workflow / board changes
+
+- full-page execution board
+- task detail moved into right slide-over detail panel
+- timeline-style event rendering in task detail
+- approvals and human requests surfaced through the detail flow
+- PR and issue boards split into separate surfaces
+- cards use operational statuses instead of only priority labels
+
+### Codespaces changes
+
+- codespaces now stay inside the product shell
+- selected codespace takes the main content area
+- back-navigation returns to the previous orbit section, defaulting to chat
+- external editor link remains available when needed
+
+### Settings changes
+
+- global settings is modal-based
+- orbit settings is modal-based and separate
+- theme preference supports system / light / dark
+- theme preference syncs to product backend preferences
+
+### Backend/UI contract changes used by the redesign
+
+- `GET /api/preferences`
+- `PUT /api/preferences`
+- `POST /api/orbits/{orbit_id}/channels`
+- `GET /api/orbits/{orbit_id}/channels/{channel_id}/messages`
+- `POST /api/orbits/{orbit_id}/channels/{channel_id}/messages`
+- `POST /api/orbits/{orbit_id}/dms`
+- richer orbit member payloads for DM creation and avatar/name display
+- normalized `operational_status` on PR and issue payloads
+
+### Validation completed
+
+- backend API tests passed
+- full backend suite passed
+- frontend Vitest suite passed
+- frontend production build passed
+- root Docker build context was tightened with a repo-level `.dockerignore`
+- live validation exposed stale Neon SSL connections in the product DB pool, and the backend engine was hardened with `pool_pre_ping` plus connection recycling
+
+Browser/Docker validation remains part of this pass and should be run against the rebuilt local stack.

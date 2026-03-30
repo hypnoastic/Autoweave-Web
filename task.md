@@ -36,6 +36,22 @@
 - [x] codespaces UX
 - [x] demos UX
 
+## UI Redesign Pass
+
+- [x] introduce shared shell / overlay / modal / detail panel primitives
+- [x] add tokenized light / dark / system theme handling
+- [x] redesign dashboard sidebar, priority surface, codespaces surface, and modals
+- [x] redesign orbit rail and shell behavior
+- [x] rebuild chat into channels + bottom DMs sidebar
+- [x] add channel creation and DM-start flows
+- [x] add optimistic local echo and ERGO pending state
+- [x] redesign workflow board with right detail panel
+- [x] split PR and issue surfaces
+- [x] redesign codespace shell with in-app back navigation
+- [x] separate global settings and orbit settings modals
+- [ ] run full browser validation on the rebuilt Docker stack
+- [x] tighten `.dockerignore` / build context so Docker rebuilds stay local-dev friendly
+
 ## Verification
 
 - [x] backend tests
@@ -43,3 +59,5 @@
 - [x] package boundary tests
 - [x] dockerized smoke verification
 - [x] documentation refresh
+- [x] full backend test suite after redesign
+- [x] frontend production build after redesign

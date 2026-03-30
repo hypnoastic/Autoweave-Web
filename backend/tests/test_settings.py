@@ -1,4 +1,5 @@
 from autoweave_web.core.settings import Settings
+from autoweave_web.db.session import _engine_kwargs
 
 
 def test_runtime_postgres_dsn_strips_sqlalchemy_driver_prefix() -> None:
@@ -77,3 +78,15 @@ def test_product_and_runtime_redis_use_separate_defaults(monkeypatch) -> None:
 
     assert settings.redis_url == "redis://redis:6379/1"
     assert settings.runtime_environ()["REDIS_URL"] == "redis://redis:6379/0"
+
+
+def test_postgres_engine_uses_pre_ping_and_recycle() -> None:
+    settings = Settings(
+        database_url="postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web",
+        redis_url="redis://localhost:6379/1",
+    )
+
+    kwargs = _engine_kwargs(settings)
+
+    assert kwargs["pool_pre_ping"] is True
+    assert kwargs["pool_recycle"] == 1800
