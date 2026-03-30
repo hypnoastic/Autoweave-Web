@@ -15,8 +15,8 @@
 - project derived execution context into AutoWeave memory instead of dumping raw history
 - use Docker-managed local runtime storage for workspaces and demos
 - keep product raw truth on local Docker Postgres
-- keep AutoWeave runtime state on hosted Neon from `Autoweave Library/.env.local`
-- keep context graph on hosted Neo4j Aura from `Autoweave Library/.env.local`
+- keep AutoWeave runtime state on hosted Neon copied into `Autoweave Web/.env`
+- keep context graph on hosted Neo4j Aura copied into `Autoweave Web/.env`
 - split Redis usage: DB `1` for product navigation, DB `0` for runtime/Celery
 
 ## Runtime Model

@@ -6,7 +6,7 @@
 - [x] define architecture and packaging boundary
 - [x] package library wheel and install it into backend environment
 - [x] add Docker Compose stack
-- [x] wire runtime Neon/Aura config from `Autoweave Library/.env.local`
+- [x] wire runtime Neon/Aura config into `Autoweave Web/.env`
 - [x] separate product Redis and runtime Redis logical state
 
 ## Backend

@@ -43,7 +43,7 @@ The `autoweave` package owns derived execution state:
 - artifacts
 - observability events
 
-These live in hosted Neon Postgres using the shared connection from `Autoweave Library/.env.local`, with the runtime isolated to the `autoweave_runtime` schema plus orbit-specific runtime roots.
+These live in hosted Neon Postgres using the runtime connection copied into `Autoweave Web/.env`, with the runtime isolated to the `autoweave_runtime` schema plus orbit-specific runtime roots.
 
 ### Redis
 

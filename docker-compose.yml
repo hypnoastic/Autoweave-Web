@@ -48,7 +48,7 @@ services:
   openhands-agent-server:
     image: ghcr.io/openhands/agent-server:latest-python
     env_file:
-      - path: ../Autoweave Library/.env.local
+      - path: .env
         required: false
     entrypoint:
       - /bin/sh
@@ -68,10 +68,10 @@ services:
       REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
       ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
       OPENHANDS_AGENT_SERVER_BASE_URL: http://127.0.0.1:8000
-      VERTEXAI_PROJECT: ${RUNTIME_VERTEX_PROJECT:-}
-      VERTEXAI_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
-      VERTEXAI_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
-      GOOGLE_APPLICATION_CREDENTIALS: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+      VERTEXAI_PROJECT: ${VERTEXAI_PROJECT:-}
+      VERTEXAI_LOCATION: ${VERTEXAI_LOCATION:-global}
+      VERTEXAI_SERVICE_ACCOUNT_FILE: ${VERTEXAI_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
+      GOOGLE_APPLICATION_CREDENTIALS: ${VERTEXAI_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
     ports:
       - "8001:8000"
     volumes:
@@ -100,8 +100,6 @@ services:
       dockerfile: Autoweave Web/docker/backend.Dockerfile
     env_file:
       - path: .env
-        required: false
-      - path: ../Autoweave Library/.env.local
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
@@ -162,10 +160,8 @@ services:
     env_file:
       - path: .env
         required: false
-      - path: ../Autoweave Library/.env.local
-        required: false
     environment:
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
       RUNTIME_ROOT: /srv/autoweave/runtime
       RUNTIME_CONTROL_PLANE: /srv/autoweave/runtime/control-plane
       RUNTIME_VOLUME_MOUNT_PATH: /srv/autoweave
