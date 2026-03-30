@@ -175,6 +175,59 @@ def create_app(
             "updated_at": item.updated_at.isoformat(),
         }
 
+    def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
+        status = str(run_payload.get("status") or "").strip().lower()
+        operator_status = str(run_payload.get("operator_status") or "").strip().lower()
+        execution_status = str(run_payload.get("execution_status") or "").strip().lower()
+        if status == "completed":
+            return "completed"
+        if status == "failed" or execution_status == "failed":
+            return "blocked"
+        if operator_status == "waiting_for_human":
+            return "needs_input"
+        if operator_status == "waiting_for_approval":
+            return "in_review"
+        return "in_process"
+
+    def _sync_work_items_from_snapshot(db: Session, orbit: Orbit, workflow_snapshot: dict[str, Any]) -> None:
+        runs = workflow_snapshot.get("runs")
+        if not isinstance(runs, list) or not runs:
+            return
+        run_map = {
+            str(run.get("id")): run
+            for run in runs
+            if isinstance(run, dict) and str(run.get("id", "")).strip()
+        }
+        if not run_map:
+            return
+        work_items = db.scalars(
+            select(WorkItem).where(
+                WorkItem.orbit_id == orbit.id,
+                WorkItem.workflow_run_id.is_not(None),
+            )
+        ).all()
+        changed = False
+        for item in work_items:
+            if not item.workflow_run_id:
+                continue
+            run_payload = run_map.get(item.workflow_run_id)
+            if run_payload is None:
+                continue
+            next_status = _mapped_work_item_status(run_payload)
+            next_summary = str(
+                run_payload.get("operator_summary")
+                or run_payload.get("execution_summary")
+                or item.summary
+                or ""
+            ).strip() or None
+            if item.status != next_status or item.summary != next_summary:
+                item.status = next_status
+                item.summary = next_summary
+                item.updated_at = utc_now()
+                changed = True
+        if changed:
+            db.flush()
+
     def _orbit_for_member(db: Session, orbit_id: str, user: User) -> Orbit:
         membership = db.scalar(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit_id, OrbitMembership.user_id == user.id))
         if membership is None:
@@ -394,6 +447,10 @@ def create_app(
     def dashboard(user: User = Depends(current_user), db: Session = Depends(get_db)) -> DashboardPayload:
         orbit_ids = [membership.orbit_id for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()]
         orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
+        for orbit in orbits[:5]:
+            workflow_snapshot = runtime_manager.monitoring_snapshot(orbit)
+            _sync_work_items_from_snapshot(db, orbit, workflow_snapshot)
+        db.commit()
         work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id.in_(orbit_ids)).order_by(WorkItem.updated_at.desc())).all() if orbit_ids else []
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id.in_(orbit_ids)).order_by(Codespace.created_at.desc())).all() if orbit_ids else []
         demos = db.scalars(select(Demo).where(Demo.orbit_id.in_(orbit_ids)).order_by(Demo.created_at.desc())).all() if orbit_ids else []
@@ -543,6 +600,8 @@ def create_app(
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
         workflow = runtime_manager.monitoring_snapshot(orbit)
+        _sync_work_items_from_snapshot(db, orbit, workflow)
+        db.commit()
         return OrbitPayload(
             orbit=_serialize_orbit(orbit),
             members=members,
@@ -661,7 +720,10 @@ def create_app(
     @app.get("/api/orbits/{orbit_id}/workflow")
     def orbit_workflow(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
-        return runtime_manager.monitoring_snapshot(orbit)
+        workflow = runtime_manager.monitoring_snapshot(orbit)
+        _sync_work_items_from_snapshot(db, orbit, workflow)
+        db.commit()
+        return workflow
 
     @app.post("/api/orbits/{orbit_id}/workflow/human-requests/answer")
     def answer_workflow_human_request(

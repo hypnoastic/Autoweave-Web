@@ -97,6 +97,33 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     void reload();
   }, [orbitId]);
 
+  useEffect(() => {
+    if (!session || !payload) {
+      return;
+    }
+    const activeRun = (payload.workflow.runs ?? []).some((run) => {
+      const status = (run.status || "").toLowerCase();
+      const operatorStatus = (run.operator_status || "").toLowerCase();
+      const executionStatus = (run.execution_status || "").toLowerCase();
+      return (
+        status === "running" ||
+        operatorStatus === "active" ||
+        operatorStatus === "waiting_for_human" ||
+        operatorStatus === "waiting_for_approval" ||
+        executionStatus === "active" ||
+        executionStatus === "waiting_for_human" ||
+        executionStatus === "waiting_for_approval"
+      );
+    });
+    if (!activeRun) {
+      return;
+    }
+    const handle = window.setInterval(() => {
+      void reload();
+    }, 5000);
+    return () => window.clearInterval(handle);
+  }, [payload, session, orbitId, selectedDmId]);
+
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
   const columns = useMemo(() => workflowColumns(selectedRun), [selectedRun]);
   const openHumanRequests = selectedRun?.human_requests.filter((request) => request.status === "open") ?? [];

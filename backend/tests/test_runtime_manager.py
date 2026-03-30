@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from autoweave_web.core.settings import Settings
@@ -81,3 +82,41 @@ def test_monitoring_snapshot_waits_for_fresh_runtime_state(monkeypatch, tmp_path
     assert payload["selected_run_id"] == "run_123"
     assert captured["limit"] == 3
     assert captured["wait_for_refresh"] is True
+
+
+def test_orbit_root_seeds_valid_runtime_credentials(tmp_path: Path) -> None:
+    source_credentials = tmp_path / "seed-credentials.json"
+    source_credentials.write_text(
+        json.dumps(
+            {
+                "type": "service_account",
+                "project_id": "autoweave-test",
+                "private_key_id": "demo",
+                "private_key": "-----BEGIN PRIVATE KEY-----\\ndemo\\n-----END PRIVATE KEY-----\\n",
+                "client_email": "demo@example.com",
+                "client_id": "123",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/demo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        redis_url="redis://localhost:6379/0",
+        runtime_root=tmp_path / "runtime",
+        runtime_control_plane=tmp_path / "runtime" / "control-plane",
+        runtime_execution_mode="queue",
+        runtime_vertex_service_account_file=str(source_credentials),
+    )
+
+    manager = RuntimeManager(settings)
+    orbit = type("Orbit", (), {"slug": "orbit-one"})()
+
+    orbit_root = manager.orbit_root(orbit)
+    seeded = orbit_root / "config" / "secrets" / "vertex_service_account.json"
+
+    assert seeded.exists()
+    assert json.loads(seeded.read_text(encoding="utf-8"))["type"] == "service_account"

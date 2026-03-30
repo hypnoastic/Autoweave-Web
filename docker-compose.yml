@@ -47,6 +47,9 @@ services:
 
   openhands-agent-server:
     image: ghcr.io/openhands/agent-server:latest-python
+    entrypoint:
+      - /bin/sh
+      - /opt/autoweave/openhands-entrypoint.sh
     command:
       - --host
       - 0.0.0.0
@@ -62,7 +65,7 @@ services:
       REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
       ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
       OPENHANDS_AGENT_SERVER_BASE_URL: http://127.0.0.1:8000
-      VERTEXAI_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      VERTEXAI_PROJECT: ${RUNTIME_VERTEX_PROJECT:-}
       VERTEXAI_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
       VERTEXAI_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
       GOOGLE_APPLICATION_CREDENTIALS: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
@@ -71,6 +74,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - autoweave-runtime:/srv/autoweave
+      - ./config/secrets:/srv/autoweave/runtime/control-plane/config/secrets:ro
+      - ./docker/openhands-entrypoint.sh:/opt/autoweave/openhands-entrypoint.sh:ro
     extra_hosts:
       - host.docker.internal:host-gateway
     healthcheck:
@@ -117,7 +122,7 @@ services:
       RUNTIME_ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
       RUNTIME_OPENHANDS_BASE_URL: http://openhands-agent-server:8000
       RUNTIME_OPENHANDS_API_KEY: ${RUNTIME_OPENHANDS_API_KEY:-}
-      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-}
       RUNTIME_VERTEX_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
       RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
       RUNTIME_EXECUTION_MODE: ${RUNTIME_EXECUTION_MODE:-queue}
@@ -134,6 +139,7 @@ services:
       - "8000:8000"
     volumes:
       - autoweave-runtime:/srv/autoweave
+      - ./config/secrets:/srv/autoweave/runtime/control-plane/config/secrets:ro
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - host.docker.internal:host-gateway
@@ -166,7 +172,7 @@ services:
       RUNTIME_ARTIFACT_STORE_URL: ${RUNTIME_ARTIFACT_STORE_URL:-file:///srv/autoweave/runtime/artifacts}
       RUNTIME_OPENHANDS_BASE_URL: http://openhands-agent-server:8000
       RUNTIME_OPENHANDS_API_KEY: ${RUNTIME_OPENHANDS_API_KEY:-}
-      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-autoweave-web-local}
+      RUNTIME_VERTEX_PROJECT: ${RUNTIME_VERTEX_PROJECT:-}
       RUNTIME_VERTEX_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
       RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
       AUTOWEAVE_WORKER_CONCURRENCY: ${AUTOWEAVE_WORKER_CONCURRENCY:-1}
@@ -180,6 +186,7 @@ services:
         condition: service_healthy
     volumes:
       - autoweave-runtime:/srv/autoweave
+      - ./config/secrets:/srv/autoweave/runtime/control-plane/config/secrets:ro
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped

@@ -16,5 +16,7 @@ tmp/
 .env
 .env.local
 .env.*.local
+config/secrets/*
+!config/secrets/.gitkeep
 backend/.venv/
 frontend/.next/

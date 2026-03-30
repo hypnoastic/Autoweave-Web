@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 from pathlib import Path
 
 from pydantic import Field
@@ -48,7 +49,7 @@ class Settings(BaseSettings):
     runtime_artifact_store_url: str = "file://./var/artifacts"
     runtime_openhands_base_url: str = "http://openhands-agent-server:8000"
     runtime_openhands_api_key: str = ""
-    runtime_vertex_project: str = "autoweave-web-local"
+    runtime_vertex_project: str = ""
     runtime_vertex_location: str = "global"
     runtime_vertex_service_account_file: str = "./config/secrets/vertex_service_account.json"
     runtime_execution_mode: str = "queue"
@@ -71,9 +72,24 @@ class Settings(BaseSettings):
             return f"{dialect.split('+', 1)[0]}://{remainder}"
         return raw_value
 
+    @property
+    def resolved_runtime_vertex_project(self) -> str:
+        configured = self.runtime_vertex_project.strip()
+        if configured and configured != "autoweave-web-local":
+            return configured
+        credentials_path = Path(self.runtime_vertex_service_account_file).expanduser()
+        if not credentials_path.exists():
+            return configured
+        try:
+            payload = json.loads(credentials_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return configured
+        project_id = str(payload.get("project_id") or "").strip()
+        return project_id or configured
+
     def runtime_environ(self) -> dict[str, str]:
         return {
-            "VERTEXAI_PROJECT": self.runtime_vertex_project,
+            "VERTEXAI_PROJECT": self.resolved_runtime_vertex_project,
             "VERTEXAI_LOCATION": self.runtime_vertex_location,
             "VERTEXAI_SERVICE_ACCOUNT_FILE": self.runtime_vertex_service_account_file,
             "GOOGLE_APPLICATION_CREDENTIALS": self.runtime_vertex_service_account_file,
