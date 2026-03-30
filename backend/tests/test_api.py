@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import httpx
+from fastapi.testclient import TestClient
+
+from autoweave_web.api.app import create_app
+from autoweave_web.core.settings import get_settings
+from autoweave_web.db.session import Base, get_engine, reset_database_state
+from conftest import FakeContainerOrchestrator, FakeGitHubGateway, FakeNavigationStore, FakeRuntimeManager
+
 
 def _login(client):
     response = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value"})
@@ -50,6 +58,35 @@ def test_health_endpoint_allows_local_frontend_origin(client):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
+
+
+def test_github_token_login_returns_401_for_invalid_github_token():
+    class InvalidTokenGitHubGateway(FakeGitHubGateway):
+        def get_authenticated_user(self, token: str) -> dict:
+            request = httpx.Request("GET", "https://api.github.com/user")
+            response = httpx.Response(401, request=request)
+            raise httpx.HTTPStatusError("invalid token", request=request, response=response)
+
+    reset_database_state()
+    settings = get_settings()
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    app = create_app(
+        settings=settings,
+        github=InvalidTokenGitHubGateway(),
+        runtime_manager=FakeRuntimeManager(settings),
+        navigation=FakeNavigationStore(),
+        containers=FakeContainerOrchestrator(),
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/auth/github-token", json={"token": "ghp_invalid"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid GitHub token"}
+
+    Base.metadata.drop_all(bind=engine)
 
 
 def test_ergo_channel_message_starts_work_and_projects_context(client):

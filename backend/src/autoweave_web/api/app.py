@@ -389,7 +389,14 @@ def create_app(
 
     @app.post("/api/auth/github-token", response_model=SessionPayload)
     def github_token_login(payload: GitHubTokenLoginRequest, db: Session = Depends(get_db)) -> SessionPayload:
-        github_user = github.get_authenticated_user(payload.token)
+        try:
+            github_user = github.get_authenticated_user(payload.token)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise HTTPException(status_code=401, detail="Invalid GitHub token") from exc
+            raise HTTPException(status_code=502, detail="GitHub authentication failed") from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="GitHub authentication failed") from exc
         email = github.get_primary_email(payload.token)
         user = db.scalar(select(User).where(User.github_user_id == str(github_user["id"])))
         if user is None:

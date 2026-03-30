@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  AuthSessionError,
   answerWorkflowHumanRequest,
   createCodespace,
   fetchDmThread,
@@ -79,17 +80,28 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       window.location.href = "/";
       return;
     }
-    const nextPayload = await fetchOrbit(nextSession.token, orbitId);
-    setPayload(nextPayload);
-    const nextSection = nextPayload.navigation?.section || "chat";
-    setSection(nextSection);
-    const nextDmId = selectedDmId ?? nextPayload.direct_messages[0]?.id ?? null;
-    setSelectedDmId(nextDmId);
-    if (nextDmId) {
-      const thread = await fetchDmThread(nextSession.token, orbitId, nextDmId);
-      setDmPayload(thread);
-    } else {
-      setDmPayload(null);
+    try {
+      const nextPayload = await fetchOrbit(nextSession.token, orbitId);
+      setPayload(nextPayload);
+      const nextSection = nextPayload.navigation?.section || "chat";
+      setSection(nextSection);
+      const nextDmId = selectedDmId ?? nextPayload.direct_messages[0]?.id ?? null;
+      setSelectedDmId(nextDmId);
+      if (nextDmId) {
+        const thread = await fetchDmThread(nextSession.token, orbitId, nextDmId);
+        setDmPayload(thread);
+      } else {
+        setDmPayload(null);
+      }
+    } catch (nextError) {
+      if (nextError instanceof AuthSessionError) {
+        setSession(null);
+        setPayload(null);
+        setDmPayload(null);
+        window.location.href = "/";
+        return;
+      }
+      console.error(nextError);
     }
   }
 

@@ -4,7 +4,7 @@ import { Bell, Home, Plus, Search, User2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { createOrbit, fetchDashboard, fetchOrbits, readSession } from "@/lib/api";
+import { AuthSessionError, createOrbit, fetchDashboard, fetchOrbits, readSession } from "@/lib/api";
 import type { DashboardPayload, Orbit } from "@/lib/types";
 import { ActionButton, GhostButton, Panel, SectionTitle } from "@/components/ui";
 
@@ -42,12 +42,24 @@ export function DashboardScreen() {
       window.location.href = "/";
       return;
     }
-    const [nextDashboard, nextOrbits] = await Promise.all([
-      fetchDashboard(nextSession.token),
-      fetchOrbits(nextSession.token),
-    ]);
-    setPayload(nextDashboard);
-    setOrbits(nextOrbits);
+    try {
+      const [nextDashboard, nextOrbits] = await Promise.all([
+        fetchDashboard(nextSession.token),
+        fetchOrbits(nextSession.token),
+      ]);
+      setPayload(nextDashboard);
+      setOrbits(nextOrbits);
+      setError(null);
+    } catch (nextError) {
+      if (nextError instanceof AuthSessionError) {
+        setSession(null);
+        setPayload(null);
+        setOrbits([]);
+        window.location.href = "/";
+        return;
+      }
+      setError(nextError instanceof Error ? nextError.message : "Unable to load the dashboard.");
+    }
   }
 
   useEffect(() => {
