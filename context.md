@@ -53,4 +53,5 @@
 - finalize workspace editor container launch details
 - finalize demo publish heuristics from generated workspaces
 - reduce Docker build context size with stricter ignores
-- restore Figma-connected design workflow once the MCP connection is available
+- run full browser UI validation pass (intentionally deferred in this pass)
+- restore Figma-connected design workflow once edit-capable MCP access is available

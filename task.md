@@ -23,6 +23,9 @@
 - [x] add demo orchestration
 - [x] add Redis navigation state service
 - [x] add context ingestion bridge
+- [x] route workflow clarification/approval prompts into originating chat conversations
+- [x] deduplicate repeated open workflow prompts to stop repeated ask loops
+- [x] route human answers and approval receipts back to the same originating channel/DM
 
 ## Frontend
 
@@ -49,7 +52,7 @@
 - [x] split PR and issue surfaces
 - [x] redesign codespace shell with in-app back navigation
 - [x] separate global settings and orbit settings modals
-- [ ] run full browser validation on the rebuilt Docker stack
+- [ ] run full browser validation on the rebuilt Docker stack (deferred in this pass by request)
 - [x] tighten `.dockerignore` / build context so Docker rebuilds stay local-dev friendly
 
 ## Verification

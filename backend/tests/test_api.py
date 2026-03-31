@@ -272,6 +272,129 @@ def test_dm_workflow_actions_codespaces_and_demos(client):
     assert demo_response.json()["url"].startswith("http://localhost:9100/")
 
 
+def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    channel_response = client.post(
+        f"/api/orbits/{orbit['id']}/channels",
+        json={"name": "build-room"},
+        headers=headers,
+    )
+    assert channel_response.status_code == 200
+    channel = channel_response.json()
+
+    work_response = client.post(
+        f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
+        json={"body": "@ERGO build the workflow shell and route clarifications in chat"},
+        headers=headers,
+    )
+    assert work_response.status_code == 200
+    work_payload = work_response.json()
+    workflow_run_id = work_payload["work_item"]["workflow_ref"]
+    assert work_payload["ergo"]["metadata"]["workflow_origin"] is True
+
+    client.app.state.runtime_manager.snapshots[orbit["id"]] = {
+        "status": "ok",
+        "selected_run_id": workflow_run_id,
+        "selected_run": {
+            "id": workflow_run_id,
+            "title": "Build workflow shell",
+            "status": "running",
+            "operator_status": "waiting_for_human",
+            "operator_summary": "Needs clarification",
+            "execution_status": "active",
+            "execution_summary": "manager waiting",
+            "tasks": [],
+            "events": [],
+            "human_requests": [
+                {
+                    "id": "human_1",
+                    "task_id": "task_1",
+                    "status": "open",
+                    "question": "Which section should ship first?",
+                }
+            ],
+            "approval_requests": [
+                {
+                    "id": "approval_1",
+                    "task_id": "task_1",
+                    "status": "requested",
+                    "reason": "Approve release to main branch",
+                }
+            ],
+        },
+        "runs": [
+            {
+                "id": workflow_run_id,
+                "title": "Build workflow shell",
+                "status": "running",
+                "operator_status": "waiting_for_human",
+                "operator_summary": "Needs clarification",
+                "execution_status": "active",
+                "execution_summary": "manager waiting",
+                "tasks": [],
+                "events": [],
+                "human_requests": [
+                    {
+                        "id": "human_1",
+                        "task_id": "task_1",
+                        "status": "open",
+                        "question": "Which section should ship first?",
+                    }
+                ],
+                "approval_requests": [
+                    {
+                        "id": "approval_1",
+                        "task_id": "task_1",
+                        "status": "requested",
+                        "reason": "Approve release to main branch",
+                    }
+                ],
+            }
+        ],
+    }
+
+    first_load = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert first_load.status_code == 200
+    second_load = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert second_load.status_code == 200
+
+    channel_messages = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
+        headers=headers,
+    )
+    assert channel_messages.status_code == 200
+    prompt_messages = [
+        item for item in channel_messages.json()["messages"]
+        if item["metadata"].get("workflow_prompt_phase") == "open"
+    ]
+    assert len([item for item in prompt_messages if item["metadata"].get("request_id") == "human_1"]) == 1
+    assert len([item for item in prompt_messages if item["metadata"].get("request_id") == "approval_1"]) == 1
+
+    answer_response = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
+        json={"workflow_run_id": workflow_run_id, "request_id": "human_1", "answer_text": "Ship chat first."},
+        headers=headers,
+    )
+    assert answer_response.status_code == 200
+    approval_response = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/approval-requests/resolve",
+        json={"workflow_run_id": workflow_run_id, "request_id": "approval_1", "approved": True},
+        headers=headers,
+    )
+    assert approval_response.status_code == 200
+
+    routed_messages = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
+        headers=headers,
+    ).json()["messages"]
+    resolved = [item for item in routed_messages if item["metadata"].get("workflow_prompt_phase") == "resolved"]
+    assert len([item for item in resolved if item["metadata"].get("request_id") == "human_1"]) == 1
+    assert len([item for item in resolved if item["metadata"].get("request_id") == "approval_1"]) == 1
+
+
 def test_refresh_prs_and_issues_returns_operational_statuses(client):
     token, _ = _login(client)
     headers = {"Authorization": f"Bearer {token}"}

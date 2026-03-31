@@ -153,6 +153,9 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - package-installed runtime integration working
 - product data and runtime data remain separated
 - UI shell redesign implemented for dashboard and orbit surfaces
+- workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
+- repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
+- human-request answers and approval decisions now post resolved receipts back into the originating conversation
 
 ## UI Redesign Pass
 

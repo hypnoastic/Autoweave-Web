@@ -1,12 +1,14 @@
 "use client";
 
 import { Hash, MessageSquarePlus, Plus, Search, SendHorizonal, Users } from "lucide-react";
+import { useMemo } from "react";
 
 import type {
   ChannelSummary,
   ConversationMessage,
   DmThreadSummary,
   Session,
+  WorkflowRequest,
 } from "@/lib/types";
 import {
   ActionButton,
@@ -43,6 +45,13 @@ export function OrbitChatPane({
   onOpenCreateChannel,
   onOpenStartDm,
   pendingAgent,
+  selectedRunId,
+  openHumanRequests,
+  openApprovalRequests,
+  workflowAnswers,
+  onWorkflowAnswerChange,
+  onAnswerHumanRequest,
+  onResolveApproval,
 }: {
   session: Session;
   channels: ChannelSummary[];
@@ -59,7 +68,34 @@ export function OrbitChatPane({
   onOpenCreateChannel: () => void;
   onOpenStartDm: () => void;
   pendingAgent: boolean;
+  selectedRunId: string;
+  openHumanRequests: Record<string, WorkflowRequest>;
+  openApprovalRequests: Record<string, WorkflowRequest>;
+  workflowAnswers: Record<string, string>;
+  onWorkflowAnswerChange: (requestId: string, value: string) => void;
+  onAnswerHumanRequest: (requestId: string) => void;
+  onResolveApproval: (requestId: string, approved: boolean) => void;
 }) {
+  const actionableMessageIds = useMemo(() => {
+    const latestByKey = new Map<string, string>();
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      const metadata = message.metadata ?? {};
+      const requestId = typeof metadata.request_id === "string" ? metadata.request_id : "";
+      const promptType = typeof metadata.workflow_prompt_type === "string" ? metadata.workflow_prompt_type : "";
+      const promptPhase = typeof metadata.workflow_prompt_phase === "string" ? metadata.workflow_prompt_phase : "";
+      const workflowRunId = typeof metadata.workflow_run_id === "string" ? metadata.workflow_run_id : "";
+      if (!requestId || !promptType || promptPhase !== "open" || workflowRunId !== selectedRunId) {
+        continue;
+      }
+      const key = `${workflowRunId}:${promptType}:${requestId}`;
+      if (!latestByKey.has(key)) {
+        latestByKey.set(key, message.id);
+      }
+    }
+    return new Set(latestByKey.values());
+  }, [messages, selectedRunId]);
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden rounded-card border border-line bg-panel shadow-panel">
       <aside className="flex w-[280px] min-w-[280px] flex-col border-r border-line bg-panelMuted/60">
@@ -160,6 +196,16 @@ export function OrbitChatPane({
             {messages.length ? (
               messages.map((message) => {
                 const isCurrentUser = message.author_kind === "user" && message.author_name === session.user.display_name;
+                const metadata = message.metadata ?? {};
+                const requestId = typeof metadata.request_id === "string" ? metadata.request_id : "";
+                const promptType = typeof metadata.workflow_prompt_type === "string" ? metadata.workflow_prompt_type : "";
+                const workflowRunId = typeof metadata.workflow_run_id === "string" ? metadata.workflow_run_id : "";
+                const canAct =
+                  Boolean(requestId)
+                  && workflowRunId === selectedRunId
+                  && actionableMessageIds.has(message.id);
+                const openHumanRequest = canAct && promptType === "human_request" ? openHumanRequests[requestId] : undefined;
+                const openApprovalRequest = canAct && promptType === "approval_request" ? openApprovalRequests[requestId] : undefined;
                 return (
                   <div key={message.id} className={cx("flex gap-3", isCurrentUser && "justify-end")}>
                     {!isCurrentUser ? <AvatarMark label={message.author_name} className="h-8 w-8 shrink-0" /> : null}
@@ -174,6 +220,41 @@ export function OrbitChatPane({
                       <div className={cx("mt-1 rounded-pane border border-line bg-panelMuted px-4 py-3 text-sm leading-6 text-ink", isCurrentUser && "bg-panelStrong")}>
                         {message.body}
                       </div>
+                      {openHumanRequest ? (
+                        <div className="mt-2 rounded-pane border border-line bg-panel px-3 py-3">
+                          <p className="text-xs font-medium uppercase tracking-[0.12em] text-quiet">Human clarification</p>
+                          <p className="mt-1 text-xs text-quiet">{openHumanRequest.question || "Clarification required."}</p>
+                          <TextArea
+                            value={workflowAnswers[openHumanRequest.id] || ""}
+                            onChange={(event) => onWorkflowAnswerChange(openHumanRequest.id, event.target.value)}
+                            placeholder="Share the exact direction ERGO should follow"
+                            className="mt-2 min-h-[88px]"
+                          />
+                          <div className="mt-2 flex justify-end">
+                            <ActionButton
+                              className="h-9 px-3 text-xs"
+                              onClick={() => onAnswerHumanRequest(openHumanRequest.id)}
+                              disabled={!(workflowAnswers[openHumanRequest.id] || "").trim()}
+                            >
+                              Send answer
+                            </ActionButton>
+                          </div>
+                        </div>
+                      ) : null}
+                      {openApprovalRequest ? (
+                        <div className="mt-2 rounded-pane border border-line bg-panel px-3 py-3">
+                          <p className="text-xs font-medium uppercase tracking-[0.12em] text-quiet">Approval required</p>
+                          <p className="mt-1 text-xs text-quiet">{openApprovalRequest.reason || "Approve or reject this workflow step."}</p>
+                          <div className="mt-2 flex items-center justify-end gap-2">
+                            <GhostButton className="h-9 px-3 text-xs" onClick={() => onResolveApproval(openApprovalRequest.id, false)}>
+                              Reject
+                            </GhostButton>
+                            <ActionButton className="h-9 px-3 text-xs" onClick={() => onResolveApproval(openApprovalRequest.id, true)}>
+                              Approve
+                            </ActionButton>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -190,7 +271,7 @@ export function OrbitChatPane({
                 <div className="rounded-pane border border-line bg-panelStrong px-4 py-3 text-sm text-quiet">
                   <div className="flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-                    ERGO is working. Follow the execution board for detailed progress.
+                    ERGO is preparing a response…
                   </div>
                 </div>
               </div>
@@ -207,7 +288,7 @@ export function OrbitChatPane({
               className="min-h-[120px] border-0 bg-transparent px-0 py-0"
             />
             <div className="mt-3 flex items-center justify-between gap-3">
-              <p className="text-xs text-quiet">Your message appears immediately. ERGO replies here only when humans need to see it.</p>
+              <p className="text-xs text-quiet">Your message appears immediately. Chat is for human-facing replies, clarifications, and approvals.</p>
               <ActionButton onClick={onSendMessage} disabled={!messageBody.trim()}>
                 <SendHorizonal className="h-4 w-4" />
                 Send

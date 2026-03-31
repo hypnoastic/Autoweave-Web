@@ -343,6 +343,16 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+function sameConversation(
+  left: ConversationSelection | null,
+  right: ConversationSelection | null,
+): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return left.kind === right.kind && left.id === right.id;
+}
+
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const router = useRouter();
   const { mode, setMode } = useTheme();
@@ -367,6 +377,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [leftSearch, setLeftSearch] = useState("");
   const [activeCodespaceId, setActiveCodespaceId] = useState<string | null>(null);
   const [localAgentPending, setLocalAgentPending] = useState(false);
+  const [localPendingConversation, setLocalPendingConversation] = useState<ConversationSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [localPendingSince, setLocalPendingSince] = useState<number | null>(null);
   const previousContentSection = useRef<OrbitSection>("chat");
@@ -375,9 +386,18 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const profileRef = useOutsideClose<HTMLDivElement>(showProfileMenu, () => setShowProfileMenu(false));
 
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
+  const selectedRunId = String(selectedRun?.id ?? "").trim();
   const workflowActive = isActiveRun(selectedRun);
-  const pendingAgent = localAgentPending || workflowActive;
+  const pendingAgent = localAgentPending && sameConversation(localPendingConversation, selectedConversation);
   const workflowLanes = useMemo(() => workflowColumns(selectedRun), [selectedRun]);
+  const openHumanRequests = useMemo(
+    () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
+    [selectedRun],
+  );
+  const openApprovalRequests = useMemo(
+    () => Object.fromEntries((selectedRun?.approval_requests ?? []).filter((request) => request.status === "requested").map((request) => [request.id, request])),
+    [selectedRun],
+  );
 
   async function loadConversation(
     nextSession: Session,
@@ -452,6 +472,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       const nextWorkflowActive = isActiveRun(nextSelectedRun);
       if (nextWorkflowActive) {
         setLocalAgentPending(false);
+        setLocalPendingConversation(null);
         setLocalPendingSince(null);
       } else if (
         localAgentPending
@@ -459,6 +480,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         && Date.now() - localPendingSince > LOCAL_AGENT_PENDING_TIMEOUT_MS
       ) {
         setLocalAgentPending(false);
+        setLocalPendingConversation(null);
         setLocalPendingSince(null);
       }
 
@@ -511,6 +533,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     const handle = window.setInterval(() => {
       if (Date.now() - localPendingSince > LOCAL_AGENT_PENDING_TIMEOUT_MS) {
         setLocalAgentPending(false);
+        setLocalPendingConversation(null);
         setLocalPendingSince(null);
       }
     }, 1000);
@@ -744,6 +767,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     const startsWorkIntent = /@?ergo/i.test(body);
     if (startsWorkIntent) {
       setLocalAgentPending(true);
+      setLocalPendingConversation(selectedConversation);
       setLocalPendingSince(Date.now());
     }
 
@@ -760,10 +784,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         }
         return nextMessages;
       });
-      if (!result.work_item) {
-        setLocalAgentPending(false);
-        setLocalPendingSince(null);
-      }
+      setLocalAgentPending(false);
+      setLocalPendingConversation(null);
+      setLocalPendingSince(null);
       setPayload((current) => {
         if (!current) {
           return current;
@@ -774,6 +797,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     } catch (nextError) {
       setMessages((current) => current.filter((message) => message.id !== optimisticId));
       setLocalAgentPending(false);
+      setLocalPendingConversation(null);
       setLocalPendingSince(null);
       setError(nextError instanceof Error ? nextError.message : "Unable to send the message.");
     }
@@ -979,6 +1003,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               onOpenCreateChannel={() => setShowCreateChannel(true)}
               onOpenStartDm={() => setShowStartDm(true)}
               pendingAgent={pendingAgent}
+              selectedRunId={selectedRunId}
+              openHumanRequests={openHumanRequests}
+              openApprovalRequests={openApprovalRequests}
+              workflowAnswers={workflowAnswers}
+              onWorkflowAnswerChange={(requestId, value) => setWorkflowAnswers((current) => ({ ...current, [requestId]: value }))}
+              onAnswerHumanRequest={(requestId) => void onAnswerHumanRequest(requestId)}
+              onResolveApproval={(requestId, approved) => void onResolveApproval(requestId, approved)}
             />
           ) : null}
 

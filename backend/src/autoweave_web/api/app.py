@@ -525,6 +525,150 @@ def create_app(
             "workflow_ref": work_item.workflow_run_id,
         }
 
+    def _workflow_origin_target(
+        db: Session,
+        orbit: Orbit,
+        *,
+        workflow_run_id: str | None,
+    ) -> tuple[str | None, str | None]:
+        run_id = (workflow_run_id or "").strip()
+        if not run_id:
+            return None, None
+        messages = db.scalars(
+            select(Message)
+            .where(Message.orbit_id == orbit.id)
+            .order_by(Message.created_at.desc())
+        ).all()
+        for message in messages:
+            metadata = message.metadata_json or {}
+            if not isinstance(metadata, dict):
+                continue
+            if not metadata.get("workflow_origin"):
+                continue
+            if str(metadata.get("workflow_run_id") or "").strip() != run_id:
+                continue
+            return message.channel_id, message.dm_thread_id
+        return None, None
+
+    def _project_workflow_prompts_into_chat(db: Session, orbit: Orbit, workflow_snapshot: dict[str, Any]) -> None:
+        runs = workflow_snapshot.get("runs")
+        if not isinstance(runs, list) or not runs:
+            return
+
+        messages = db.scalars(
+            select(Message)
+            .where(Message.orbit_id == orbit.id)
+            .order_by(Message.created_at.asc())
+        ).all()
+        existing_prompt_keys: set[tuple[str, str, str, str]] = set()
+        seen_prompt_ids: set[tuple[str, str, str]] = set()
+        duplicate_prompt_messages: list[Message] = []
+        for message in messages:
+            metadata = message.metadata_json or {}
+            if not isinstance(metadata, dict):
+                continue
+            request_kind = str(metadata.get("workflow_prompt_type") or "").strip()
+            request_phase = str(metadata.get("workflow_prompt_phase") or "").strip()
+            run_id = str(metadata.get("workflow_run_id") or "").strip()
+            request_id = str(metadata.get("request_id") or "").strip()
+            if request_kind and request_phase and request_id:
+                dedupe_key = (run_id, request_id, request_kind, request_phase)
+                if dedupe_key in existing_prompt_keys:
+                    duplicate_prompt_messages.append(message)
+                    continue
+                existing_prompt_keys.add(dedupe_key)
+                request_key = (run_id, request_id, request_kind)
+                if request_phase == "open":
+                    if request_key in seen_prompt_ids:
+                        duplicate_prompt_messages.append(message)
+                        continue
+                    seen_prompt_ids.add(request_key)
+
+        for message in duplicate_prompt_messages:
+            db.delete(message)
+
+        fallback_general = _orbit_channel(db, orbit.id)
+
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            run_id = str(run.get("id") or "").strip()
+            if not run_id:
+                continue
+            target_channel_id, target_dm_thread_id = _workflow_origin_target(db, orbit, workflow_run_id=run_id)
+            if not target_channel_id and not target_dm_thread_id:
+                target_channel_id = fallback_general.id
+
+            human_requests = run.get("human_requests")
+            if isinstance(human_requests, list):
+                for request in human_requests:
+                    if not isinstance(request, dict):
+                        continue
+                    request_id = str(request.get("id") or "").strip()
+                    if not request_id:
+                        continue
+                    if str(request.get("status") or "").strip().lower() != "open":
+                        continue
+                    key = (run_id, request_id, "human_request", "open")
+                    if key in existing_prompt_keys:
+                        continue
+                    question = str(request.get("question") or "").strip() or "I need a clarification before continuing."
+                    db.add(
+                        Message(
+                            orbit_id=orbit.id,
+                            channel_id=target_channel_id,
+                            dm_thread_id=target_dm_thread_id,
+                            author_kind="agent",
+                            author_name="ERGO",
+                            body=f"Clarification needed: {question}",
+                            metadata_json={
+                                "workflow_prompt": True,
+                                "workflow_prompt_type": "human_request",
+                                "workflow_prompt_phase": "open",
+                                "workflow_run_id": run_id,
+                                "request_id": request_id,
+                                "task_id": request.get("task_id"),
+                                "question": question,
+                            },
+                        )
+                    )
+                    existing_prompt_keys.add(key)
+
+            approval_requests = run.get("approval_requests")
+            if isinstance(approval_requests, list):
+                for request in approval_requests:
+                    if not isinstance(request, dict):
+                        continue
+                    request_id = str(request.get("id") or "").strip()
+                    if not request_id:
+                        continue
+                    if str(request.get("status") or "").strip().lower() != "requested":
+                        continue
+                    key = (run_id, request_id, "approval_request", "open")
+                    if key in existing_prompt_keys:
+                        continue
+                    reason = str(request.get("reason") or "").strip() or "Approval required to continue execution."
+                    db.add(
+                        Message(
+                            orbit_id=orbit.id,
+                            channel_id=target_channel_id,
+                            dm_thread_id=target_dm_thread_id,
+                            author_kind="agent",
+                            author_name="ERGO",
+                            body=f"Approval required: {reason}",
+                            metadata_json={
+                                "workflow_prompt": True,
+                                "workflow_prompt_type": "approval_request",
+                                "workflow_prompt_phase": "open",
+                                "workflow_run_id": run_id,
+                                "request_id": request_id,
+                                "task_id": request.get("task_id"),
+                                "reason": reason,
+                            },
+                        )
+                    )
+                    existing_prompt_keys.add(key)
+
     @app.get("/api/health")
     def health() -> dict[str, Any]:
         return {
@@ -782,14 +926,15 @@ def create_app(
         ]
         channels = db.scalars(select(Channel).where(Channel.orbit_id == orbit.id).order_by(Channel.slug)).all()
         dms = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
-        general = _orbit_channel(db, orbit.id)
-        messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
         prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id).order_by(PullRequestSnapshot.updated_at.desc())).all()
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
         workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
         _sync_work_items_from_snapshot(db, orbit, workflow)
+        _project_workflow_prompts_into_chat(db, orbit, workflow)
+        general = _orbit_channel(db, orbit.id)
+        messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
         db.commit()
         return OrbitPayload(
             orbit=_serialize_orbit(orbit),
@@ -888,6 +1033,16 @@ def create_app(
             db.add(reply)
         if should_start_work:
             work_item_payload = _start_work_item(db, orbit, user, request_text=payload.body, summary=ergo_body)
+            workflow_ref = str(work_item_payload.get("workflow_ref") or "").strip()
+            if reply is not None and workflow_ref:
+                reply.metadata_json = {
+                    "workflow_origin": True,
+                    "workflow_run_id": workflow_ref,
+                    "surface": "channel",
+                    "channel_id": channel.id,
+                }
+            if workflow_ref:
+                work_item_payload["origin"] = {"kind": "channel", "id": channel.id}
         db.commit()
         return {
             "channel": _serialize_channel(channel),
@@ -957,6 +1112,7 @@ def create_app(
         orbit = _orbit_for_member(db, orbit_id, user)
         workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
         _sync_work_items_from_snapshot(db, orbit, workflow)
+        _project_workflow_prompts_into_chat(db, orbit, workflow)
         db.commit()
         return workflow
 
@@ -974,15 +1130,29 @@ def create_app(
             request_id=payload.request_id,
             answer_text=payload.answer_text,
         )
-        general = _orbit_channel(db, orbit.id)
+        target_channel_id, target_dm_thread_id = _workflow_origin_target(
+            db,
+            orbit,
+            workflow_run_id=payload.workflow_run_id,
+        )
+        if not target_channel_id and not target_dm_thread_id:
+            target_channel_id = _orbit_channel(db, orbit.id).id
         db.add(
             Message(
                 orbit_id=orbit.id,
-                channel_id=general.id,
+                channel_id=target_channel_id,
+                dm_thread_id=target_dm_thread_id,
                 author_kind="system",
                 author_name="system",
                 body=f"{user.display_name} answered an ERGO clarification request.",
-                metadata_json={"workflow_run_id": payload.workflow_run_id, "request_id": payload.request_id},
+                metadata_json={
+                    "workflow_prompt": True,
+                    "workflow_prompt_type": "human_request",
+                    "workflow_prompt_phase": "resolved",
+                    "workflow_run_id": payload.workflow_run_id,
+                    "request_id": payload.request_id,
+                    "answer_text": payload.answer_text,
+                },
             )
         )
         db.commit()
@@ -1002,15 +1172,29 @@ def create_app(
             request_id=payload.request_id,
             approved=payload.approved,
         )
-        general = _orbit_channel(db, orbit.id)
+        target_channel_id, target_dm_thread_id = _workflow_origin_target(
+            db,
+            orbit,
+            workflow_run_id=payload.workflow_run_id,
+        )
+        if not target_channel_id and not target_dm_thread_id:
+            target_channel_id = _orbit_channel(db, orbit.id).id
         db.add(
             Message(
                 orbit_id=orbit.id,
-                channel_id=general.id,
+                channel_id=target_channel_id,
+                dm_thread_id=target_dm_thread_id,
                 author_kind="system",
                 author_name="system",
                 body=f"{user.display_name} {'approved' if payload.approved else 'rejected'} an ERGO release signoff.",
-                metadata_json={"workflow_run_id": payload.workflow_run_id, "request_id": payload.request_id},
+                metadata_json={
+                    "workflow_prompt": True,
+                    "workflow_prompt_type": "approval_request",
+                    "workflow_prompt_phase": "resolved",
+                    "workflow_run_id": payload.workflow_run_id,
+                    "request_id": payload.request_id,
+                    "approved": payload.approved,
+                },
             )
         )
         db.commit()
@@ -1132,6 +1316,16 @@ def create_app(
             db.add(reply)
         if should_start_work:
             work_item_payload = _start_work_item(db, orbit, user, request_text=payload.body, summary=ergo_body)
+            workflow_ref = str(work_item_payload.get("workflow_ref") or "").strip()
+            if reply is not None and workflow_ref:
+                reply.metadata_json = {
+                    "workflow_origin": True,
+                    "workflow_run_id": workflow_ref,
+                    "surface": "dm",
+                    "dm_thread_id": thread.id,
+                }
+            if workflow_ref:
+                work_item_payload["origin"] = {"kind": "dm", "id": thread.id}
         db.commit()
         return {
             "message": _serialize_message(message),
