@@ -37,13 +37,15 @@ import {
   EmptyState as SharedEmptyState,
   FieldLabel,
   GhostButton,
-  IconButton,
   InlineNotice,
   LeftSlidePanel,
   MenuItem,
   Panel,
   PageLoader,
   PopoverMenu,
+  RailButton,
+  RailCluster,
+  RailSidebar,
   RightDetailPanel,
   ScrollPanel,
   SectionTitle,
@@ -384,24 +386,6 @@ function useOutsideClose<T extends HTMLElement>(open: boolean, onClose: () => vo
   }, [open, onClose]);
 
   return ref;
-}
-
-function OrbitRailButton({
-  active = false,
-  title,
-  onClick,
-  children,
-}: {
-  active?: boolean;
-  title: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <IconButton aria-label={title} title={title} active={active} className="h-10 w-10 rounded-[11px]" onClick={onClick}>
-      {children}
-    </IconButton>
-  );
 }
 
 function BoardCard({
@@ -1497,11 +1481,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   return (
     <AppShell
       sidebar={
-        <aside className="flex h-dvh w-[88px] flex-col items-center justify-between border-r border-line bg-panel px-3 py-4">
-          <div className="flex flex-col items-center gap-3">
-            <OrbitRailButton title="Back to dashboard" onClick={() => router.push("/app")}>
+        <RailSidebar>
+          <RailCluster>
+            <RailButton title="Back to dashboard" onClick={() => router.push("/app")}>
               <ArrowLeft className="h-4 w-4" />
-            </OrbitRailButton>
+            </RailButton>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-panelStrong">
               <AvatarMark label={payload.orbit.name} src={payload.orbit.logo} className="h-11 w-11 rounded-[12px]" />
@@ -1509,37 +1493,37 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
             <Divider className="w-8" />
 
-            <OrbitRailButton title="Search" onClick={() => setActiveLeftPanel("search")}>
+            <RailButton title="Search" onClick={() => setActiveLeftPanel("search")}>
               <Search className="h-4 w-4" />
-            </OrbitRailButton>
+            </RailButton>
 
-            <OrbitRailButton title="Command palette" onClick={() => setShowCommandPalette(true)}>
+            <RailButton title="Command palette" onClick={() => setShowCommandPalette(true)}>
               <CommandIcon className="h-4 w-4" />
-            </OrbitRailButton>
+            </RailButton>
 
             {ORBIT_SECTIONS.map(({ key, label, icon: Icon }) => (
-              <OrbitRailButton
+              <RailButton
                 key={key}
                 title={label}
                 active={section === key}
                 onClick={() => void onSectionChange(key)}
               >
                 <Icon className="h-4 w-4" />
-              </OrbitRailButton>
+              </RailButton>
             ))}
-          </div>
+          </RailCluster>
 
-          <div className="flex flex-col items-center gap-3">
-            <OrbitRailButton title="Orbit settings" onClick={() => setShowOrbitSettings(true)}>
+          <RailCluster>
+            <RailButton title="Orbit settings" onClick={() => setShowOrbitSettings(true)}>
               <Settings2 className="h-4 w-4" />
-            </OrbitRailButton>
-            <OrbitRailButton title="Notifications" onClick={() => setActiveLeftPanel("notifications")}>
+            </RailButton>
+            <RailButton title="Notifications" onClick={() => setActiveLeftPanel("notifications")}>
               <Bell className="h-4 w-4" />
-            </OrbitRailButton>
+            </RailButton>
             <div className="relative" ref={profileRef}>
-              <OrbitRailButton title="Profile" onClick={() => setShowProfileMenu((current) => !current)}>
+              <RailButton title="Profile" onClick={() => setShowProfileMenu((current) => !current)}>
                 <User2 className="h-4 w-4" />
-              </OrbitRailButton>
+              </RailButton>
               <PopoverMenu open={showProfileMenu} className="bottom-0 left-full top-auto ml-3 mt-0">
                 <div className="px-3 py-2">
                   <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
@@ -1560,8 +1544,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </MenuItem>
               </PopoverMenu>
             </div>
-          </div>
-        </aside>
+          </RailCluster>
+        </RailSidebar>
       }
     >
       <ShellMain>

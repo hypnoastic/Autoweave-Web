@@ -333,6 +333,68 @@ export function PageLoader({
   );
 }
 
+export function RailSidebar({
+  className,
+  children,
+}: PropsWithChildren<{ className?: string }>) {
+  return (
+    <aside
+      className={clsx(
+        "flex h-dvh w-[76px] shrink-0 flex-col justify-between border-r border-line bg-panel px-3 py-4 md:w-[88px]",
+        className,
+      )}
+    >
+      {children}
+    </aside>
+  );
+}
+
+export function RailCluster({
+  className,
+  children,
+}: PropsWithChildren<{ className?: string }>) {
+  return <div className={clsx("flex flex-col items-center gap-3", className)}>{children}</div>;
+}
+
+export function RailButton({
+  active = false,
+  title,
+  onClick,
+  children,
+  className,
+}: PropsWithChildren<{ active?: boolean; title: string; onClick: () => void; className?: string }>) {
+  return (
+    <IconButton aria-label={title} title={title} active={active} className={clsx("h-10 w-10 rounded-[11px]", className)} onClick={onClick}>
+      {children}
+    </IconButton>
+  );
+}
+
+export function ContextSidebar({
+  eyebrow,
+  title,
+  detail,
+  action,
+  className,
+  children,
+}: PropsWithChildren<{
+  eyebrow?: string;
+  title: string;
+  detail?: string;
+  action?: ReactNode;
+  className?: string;
+}>) {
+  return (
+    <aside className={clsx("hidden h-dvh w-[264px] shrink-0 flex-col border-r border-line bg-panelMuted/40 lg:flex", className)}>
+      <div className="border-b border-line px-4 py-4">
+        <SectionTitle eyebrow={eyebrow} title={title} detail={detail} dense />
+        {action ? <div className="mt-4">{action}</div> : null}
+      </div>
+      <ScrollPanel className="flex-1 px-3 py-3">{children}</ScrollPanel>
+    </aside>
+  );
+}
+
 export function ListRow({
   title,
   detail,

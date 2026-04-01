@@ -64,8 +64,23 @@
 - the theme layer now has semantic focus/state/motion tokens plus reduced-motion handling
 - dashboard/orbit/chat now consume the new loader/notice/empty-state/header foundation in a bounded proof pass
 - current local validation for this slice:
-  - `cd frontend && npm test -- --run` -> `19 passed`
+  - `cd frontend && npm test -- --run` -> `20 passed`
   - `cd frontend && npm run build` -> success
+
+## Phase 0C Shell State
+
+- dashboard and orbit now share:
+  - `RailSidebar`
+  - `RailCluster`
+  - `RailButton`
+- dashboard now uses a persistent contextual home sidebar via `ContextSidebar`
+- orbit no longer relies on a local rail-button helper
+- current local validation for this slice:
+  - `cd frontend && npm test -- --run` -> `20 passed`
+  - `cd frontend && npm run build` -> success
+- current live validation limitation:
+  - rebuilt browser sessions still stall in `Loading dashboard…` and `Loading orbit…`
+  - dashboard stall is currently explained by backend CORS on `localhost:3000` -> `localhost:8000`
 
 ## Open Implementation Threads
 

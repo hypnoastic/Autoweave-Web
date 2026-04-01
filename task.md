@@ -64,7 +64,7 @@
 - [x] restore Playwright validation through the CLI session harness
 - [x] capture authenticated dashboard and orbit baseline artifacts
 - [x] standardize shared UI foundation and design-system base
-- [ ] unify authenticated dashboard and orbit shells
+- [x] unify authenticated dashboard and orbit shells
 - [ ] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [ ] harden runtime/UI behavior after shell refactors

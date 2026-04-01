@@ -198,6 +198,28 @@ Known live validation issue still open after the foundation slice:
 - fresh Playwright browser sessions on `127.0.0.1:3000` are currently blocked by CORS when the frontend calls `127.0.0.1:8000`
 - fresh authenticated orbit sessions still stall in `Loading orbit…`
 
+## Phase 0C - Authenticated Shell Unification
+
+This shell slice is now implemented locally.
+
+Scope landed:
+
+- added shared authenticated-shell primitives for the primary rail and contextual sidebar
+- moved dashboard to the same primary rail grammar as orbit
+- moved orbit off its local rail-button helper and onto the shared rail primitives
+- added a dashboard shell test so the new framing is covered in automated validation
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `20 passed`
+- `cd frontend && npm run build` -> success
+- `docker compose up -d --build frontend` rebuilt the live frontend for validation
+
+Known live validation issue still open after the shell slice:
+
+- dashboard still stalls in `Loading dashboard…` in browser validation because backend CORS is blocking `localhost:3000` -> `localhost:8000`
+- orbit still stalls in `Loading orbit…` after an 8 second browser wait
+
 ## UI Redesign Pass
 
 This redesign pass focused on turning the V1 product from a stitched set of screens into a coherent product shell.

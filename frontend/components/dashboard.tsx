@@ -2,10 +2,8 @@
 
 import {
   Bell,
-  ChevronLeft,
   ChevronRight,
   Home,
-  ImagePlus,
   LogOut,
   Moon,
   Plus,
@@ -36,19 +34,24 @@ import {
   AppShell,
   AvatarMark,
   CenteredModal,
+  ContextSidebar,
   cx,
+  Divider,
   EmptyState,
   FieldHint,
   FieldLabel,
   GhostButton,
-  IconButton,
   InlineNotice,
+  ListRow,
   LeftSlidePanel,
   MenuItem,
   Panel,
   PageHeader,
   PageLoader,
   PopoverMenu,
+  RailButton,
+  RailCluster,
+  RailSidebar,
   ScrollPanel,
   SectionTitle,
   ShellMain,
@@ -75,6 +78,7 @@ const EMPTY_ORBIT_DRAFT: OrbitDraft = {
   inviteEmails: "",
   private: true,
 };
+const DASHBOARD_RAIL_OFFSET = 88;
 
 type LeftPanelKind = "search" | "notifications" | null;
 
@@ -117,7 +121,6 @@ export function DashboardScreen() {
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [orbits, setOrbits] = useState<Orbit[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanelKind>(null);
   const [showCreateOrbit, setShowCreateOrbit] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -171,7 +174,6 @@ export function DashboardScreen() {
     return orbits.filter((orbit) => `${orbit.name} ${orbit.description} ${orbit.repo_full_name ?? ""}`.toLowerCase().includes(term));
   }, [orbits, search]);
 
-  const sidebarWidth = collapsed ? 76 : 216;
   const notifications = useMemo(() => {
     if (!payload) {
       return [];
@@ -240,124 +242,78 @@ export function DashboardScreen() {
   return (
     <AppShell
       sidebar={
-        <aside
-          className={cx(
-            "relative flex h-dvh flex-col border-r border-line bg-panel px-2.5 py-3.5 transition-[width]",
-            collapsed ? "w-[76px]" : "w-[216px]",
-          )}
-        >
-          <div className={cx("flex gap-2 px-1", collapsed ? "flex-col items-center" : "items-center justify-between")}>
-            <button
-              className={cx(
-                "flex min-w-0 items-center gap-3 rounded-[14px] px-1.5 py-1.5 text-left transition hover:bg-panelMuted",
-                collapsed && "justify-center",
-              )}
-              onClick={() => router.push("/app")}
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-[#161616] text-[12px] font-semibold tracking-[-0.02em] text-white dark:bg-[#f5f5f5] dark:text-[#141414]">
+        <>
+          <RailSidebar>
+            <RailCluster>
+              <button
+                className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[#161616] text-[12px] font-semibold tracking-[-0.02em] text-white transition hover:opacity-90 dark:bg-[#f5f5f5] dark:text-[#141414]"
+                onClick={() => router.push("/app")}
+                aria-label="AutoWeave home"
+              >
                 AW
-              </div>
-              {!collapsed ? (
-                <div className="min-w-0">
-                  <p className="text-[13px] font-semibold tracking-[-0.02em] text-ink">AutoWeave</p>
-                  <p className="truncate text-[11px] text-quiet">Workspace OS</p>
-                </div>
-              ) : null}
-            </button>
-            <IconButton
-              className="h-8 w-8 shrink-0 text-faint hover:bg-panelStrong hover:text-ink"
-              onClick={() => setCollapsed((current) => !current)}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-            </IconButton>
-          </div>
-
-          <nav className="mt-5 space-y-0.5">
-            {[
-              { icon: Home, label: "Home", action: () => router.push("/app") },
-              { icon: Plus, label: "New orbit", action: () => setShowCreateOrbit(true) },
-              { icon: Search, label: "Search", action: () => setActiveLeftPanel("search") },
-            ].map(({ icon: Icon, label, action }) => (
-              <button
-                key={label}
-                className={cx(
-                  "flex w-full items-center gap-3 rounded-[12px] px-2.5 py-2 text-[13px] text-quiet transition hover:bg-panelMuted hover:text-ink",
-                  collapsed && "justify-center px-0",
-                )}
-                onClick={action}
-              >
-                <Icon className="h-4 w-4" />
-                {!collapsed ? <span>{label}</span> : null}
               </button>
-            ))}
-          </nav>
 
-          <div className="mt-5 min-h-0 flex-1">
-            {!collapsed ? <p className="px-2.5 text-[10px] font-medium uppercase tracking-[0.18em] text-faint">Recent orbits</p> : null}
-            <ScrollPanel className="mt-2 h-full pr-1">
-              <div className="space-y-1">
-                {payload.recent_orbits.slice(0, 5).map((orbit) => (
-                  <Link
-                    key={orbit.id}
-                    href={`/app/orbits/${orbit.id}`}
-                    className={cx(
-                      "flex items-center gap-3 rounded-[12px] px-2.5 py-2 transition hover:bg-panelMuted",
-                      collapsed && "justify-center px-0",
-                    )}
-                  >
-                    <AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} className="h-8 w-8 rounded-[11px]" />
-                    {!collapsed ? (
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-medium text-ink">{orbit.name}</p>
-                        <p className="truncate text-[11px] text-quiet">{orbit.repo_full_name || "Repository pending"}</p>
-                      </div>
-                    ) : null}
-                  </Link>
-                ))}
-              </div>
-            </ScrollPanel>
-          </div>
+              <Divider className="w-8" />
 
-          <div className="mt-4 space-y-0.5 border-t border-line pt-3.5">
-            <button
-              className={cx("flex w-full items-center gap-3 rounded-[12px] px-2.5 py-2 text-[13px] text-quiet transition hover:bg-panelMuted hover:text-ink", collapsed && "justify-center px-0")}
-              onClick={() => setActiveLeftPanel("notifications")}
-            >
-              <Bell className="h-4 w-4" />
-              {!collapsed ? <span>Notifications</span> : null}
-            </button>
-            <div className="relative" ref={profileRef}>
-              <button
-                className={cx("flex w-full items-center gap-3 rounded-[12px] px-2.5 py-2 text-[13px] text-quiet transition hover:bg-panelMuted hover:text-ink", collapsed && "justify-center px-0")}
-                onClick={() => setShowProfileMenu((current) => !current)}
-              >
-                <AvatarMark label={session.user.display_name} src={session.user.avatar_url} className="h-8 w-8" />
-                {!collapsed ? (
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{session.user.display_name}</p>
-                    <p className="truncate text-xs text-quiet">{session.user.github_login}</p>
+              <RailButton title="Home" active onClick={() => router.push("/app")}>
+                <Home className="h-4 w-4" />
+              </RailButton>
+              <RailButton title="New orbit" onClick={() => setShowCreateOrbit(true)}>
+                <Plus className="h-4 w-4" />
+              </RailButton>
+              <RailButton title="Search" onClick={() => setActiveLeftPanel("search")}>
+                <Search className="h-4 w-4" />
+              </RailButton>
+            </RailCluster>
+
+            <RailCluster>
+              <RailButton title="Notifications" onClick={() => setActiveLeftPanel("notifications")}>
+                <Bell className="h-4 w-4" />
+              </RailButton>
+              <div className="relative" ref={profileRef}>
+                <RailButton title="Profile" onClick={() => setShowProfileMenu((current) => !current)}>
+                  <User2 className="h-4 w-4" />
+                </RailButton>
+                <PopoverMenu open={showProfileMenu} className="bottom-0 left-full top-auto ml-3 mt-0">
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
+                    <p className="text-xs text-quiet">{session.user.github_login}</p>
                   </div>
-                ) : null}
-              </button>
-              <PopoverMenu open={showProfileMenu} className={collapsed ? "right-[-172px] top-0 mt-0" : ""}>
-                <div className="px-3 py-2">
-                  <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
-                  <p className="text-xs text-quiet">{session.user.github_login}</p>
-                </div>
-                <MenuItem onClick={() => { setShowSettings(true); setShowProfileMenu(false); }}>
-                  <Settings2 className="h-4 w-4" />
-                  Global settings
-                </MenuItem>
-                <MenuItem onClick={signOut}>
-                  <LogOut className="h-4 w-4" />
-                  Sign out
-                </MenuItem>
-              </PopoverMenu>
+                  <MenuItem onClick={() => { setShowSettings(true); setShowProfileMenu(false); }}>
+                    <Settings2 className="h-4 w-4" />
+                    Global settings
+                  </MenuItem>
+                  <MenuItem onClick={signOut}>
+                    <LogOut className="h-4 w-4" />
+                    Sign out
+                  </MenuItem>
+                </PopoverMenu>
+              </div>
+            </RailCluster>
+          </RailSidebar>
+
+          <ContextSidebar
+            eyebrow="Home"
+            title="Workspace OS"
+            detail="Recent orbits stay close to the main canvas so the dashboard and orbit views feel like one working frame."
+          >
+            <div className="space-y-2">
+              {payload.recent_orbits.slice(0, 6).length ? (
+                payload.recent_orbits.slice(0, 6).map((orbit) => (
+                  <ListRow
+                    key={orbit.id}
+                    title={orbit.name}
+                    detail={orbit.repo_full_name || "Repository pending"}
+                    leading={<AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} className="h-8 w-8 rounded-[11px]" />}
+                    onClick={() => router.push(`/app/orbits/${orbit.id}`)}
+                  />
+                ))
+              ) : (
+                <EmptyState title="No recent orbits" detail="Create a new orbit or open one from search to keep it in this context rail." />
+              )}
             </div>
-          </div>
-        </aside>
+          </ContextSidebar>
+        </>
       }
     >
       <ShellMain>
@@ -462,7 +418,7 @@ export function DashboardScreen() {
         <LeftSlidePanel
           open={activeLeftPanel === "search"}
           onClose={() => setActiveLeftPanel(null)}
-          offset={sidebarWidth}
+          offset={DASHBOARD_RAIL_OFFSET}
           title="Search orbits"
           description="Jump to a recent orbit or scan the current product surface quickly."
         >
@@ -492,7 +448,7 @@ export function DashboardScreen() {
         <LeftSlidePanel
           open={activeLeftPanel === "notifications"}
           onClose={() => setActiveLeftPanel(null)}
-          offset={sidebarWidth}
+          offset={DASHBOARD_RAIL_OFFSET}
           title="Notifications"
           description="The broader activity stream, including the high-signal items already surfaced in Priority."
         >
