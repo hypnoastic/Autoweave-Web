@@ -44,14 +44,16 @@
 ## Current Constraints
 
 - Figma MCP was not available during this redesign pass, so the redesign was executed repo-first and validated against the running product instead of being driven from live Figma nodes
-- Docker rebuild context is currently larger than it should be because runtime/output residue is still included during image builds
-- browser-level validation of the rebuilt stack is the remaining step for this pass
+- GitHub OAuth is not configured in the current local environment, so the real login path under test is the token-backed local auth flow
+- MCP Playwright browser control is currently unreliable in this workspace; the active browser-validation path is the Playwright CLI session harness
+- the authenticated orbit shell can still stick on `Loading orbit…` from a fresh browser session even when the backend returns `200` for both orbit payload and workflow payload requests
+- dashboard and orbit still keep hidden overlay surfaces mounted in the DOM, so the shared overlay/focus system remains the first Phase 0 UI foundation target
 
 ## Open Implementation Threads
 
-- finalize GitHub OAuth + session strategy
-- finalize workspace editor container launch details
-- finalize demo publish heuristics from generated workspaces
-- reduce Docker build context size with stricter ignores
-- run full browser UI validation pass (intentionally deferred in this pass)
+- stabilize the authenticated orbit load path before broad shell refactors
+- standardize the shared overlay, focus, and state system across dashboard and orbit
+- unify dashboard shell and orbit shell into one authenticated product frame
+- add full-canvas workspace and artifact open modes after shell standardization
+- finalize GitHub OAuth + session strategy for environments beyond token-backed local development
 - restore Figma-connected design workflow once edit-capable MCP access is available

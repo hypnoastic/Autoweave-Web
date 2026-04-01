@@ -55,6 +55,20 @@
 - [ ] run full browser validation on the rebuilt Docker stack (deferred in this pass by request)
 - [x] tighten `.dockerignore` / build context so Docker rebuilds stay local-dev friendly
 
+## Phase 0 Stabilization
+
+- [x] baseline capture and risk audit
+- [x] verify both repos are clean before starting Phase 0 implementation
+- [x] verify live Docker stack health and installed-package boundary
+- [x] verify token-backed local auth/session path
+- [x] restore Playwright validation through the CLI session harness
+- [x] capture authenticated dashboard and orbit baseline artifacts
+- [ ] standardize shared UI foundation and design-system base
+- [ ] unify authenticated dashboard and orbit shells
+- [ ] professionalize high-traffic product surfaces
+- [ ] add full-canvas workspace and artifact modes
+- [ ] harden runtime/UI behavior after shell refactors
+
 ## Verification
 
 - [x] backend tests

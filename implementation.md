@@ -157,6 +157,25 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation
 
+## Phase 0 Stabilization Baseline (2026-04-02)
+
+- both repos are clean before the new Phase 0 execution begins
+- the live Docker stack is healthy and the backend still confirms the installed-package boundary through `/api/health`
+- GitHub OAuth is not configured in the current local environment, so the real sign-in path under test is the token-backed local auth flow
+- Playwright validation is active through the CLI session harness because the MCP browser context is not stable in this workspace
+- the authenticated dashboard shell is a valid baseline and still hydrates successfully
+- the authenticated orbit shell is not yet a safe baseline: from a fresh session it can remain on `Loading orbit…` while backend logs still show `200` responses for `/api/orbits/{id}` and `/api/orbits/{id}/workflow`
+- hidden drawers and modals still remain mounted when visually closed, which confirms the shared overlay system as the first UI-foundation target for Phase 0
+
+## Phase 0 Execution Order
+
+1. baseline capture and risk audit
+2. shared UI foundation and design-system base
+3. authenticated shell unification
+4. product surface professionalization
+5. workspace and artifact full-canvas modes
+6. runtime/UI hardening after shell refactors
+
 ## UI Redesign Pass
 
 This redesign pass focused on turning the V1 product from a stitched set of screens into a coherent product shell.
