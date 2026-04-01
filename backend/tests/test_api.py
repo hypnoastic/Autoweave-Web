@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import httpx
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session as OrmSession
 
 import autoweave_web.api.app as app_module
 from autoweave_web.api.app import create_app
 from autoweave_web.core.settings import get_settings
 from autoweave_web.db.session import Base, get_engine, reset_database_state
+from autoweave_web.models.entities import Channel, ConversationState, OrbitRepositoryBinding, RepoGrant, RepositoryConnection
 from conftest import FakeContainerOrchestrator, FakeGitHubGateway, FakeNavigationStore, FakeRuntimeManager
 
 
@@ -601,7 +604,7 @@ def test_mentions_and_dm_messages_create_contextual_notifications(client):
     teammate_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
     mention_notification = next(item for item in teammate_orbit["notifications"] if item["kind"] == "mention")
     assert mention_notification["channel_id"] == general["id"]
-    assert mention_notification["status"] == "unread"
+    assert mention_notification["status"] == "read"
 
     channel_view = client.get(
         f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
@@ -1077,3 +1080,121 @@ def test_multi_repo_binding_requires_feature_flag_for_secondary_repo(client):
     )
     assert response.status_code == 400
     assert "Multi-repo bindings are not enabled" in response.json()["detail"]
+
+
+def test_available_repository_listing_is_feature_flagged(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    client.app.state.settings.feature_flags = ""
+    disabled = client.get(f"/api/orbits/{orbit['id']}/available-repositories", headers=headers)
+    assert disabled.status_code == 404
+
+    client.app.state.settings.feature_flags = "ff_repo_installations_v1"
+    enabled = client.get(f"/api/orbits/{orbit['id']}/available-repositories", headers=headers)
+    assert enabled.status_code == 200
+    assert any(item["full_name"] == "octocat/platform-ops" for item in enabled.json())
+
+
+def test_get_orbit_backfills_primary_repository_binding_from_legacy_orbit_fields(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+    engine = get_engine()
+
+    with OrmSession(engine) as db:
+        db.query(RepoGrant).filter(RepoGrant.orbit_id == orbit["id"]).delete()
+        db.query(OrbitRepositoryBinding).filter(OrbitRepositoryBinding.orbit_id == orbit["id"]).delete()
+        db.query(RepositoryConnection).delete()
+        db.commit()
+
+    response = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["orbit"]["repo_full_name"] == "octocat/orbit-control"
+    assert payload["repositories"][0]["full_name"] == "octocat/orbit-control"
+
+    with OrmSession(engine) as db:
+        rebuilt_binding = db.scalar(
+            select(OrbitRepositoryBinding).where(
+                OrbitRepositoryBinding.orbit_id == orbit["id"],
+                OrbitRepositoryBinding.is_primary.is_(True),
+            )
+        )
+        assert rebuilt_binding is not None
+        rebuilt_repository = db.get(RepositoryConnection, rebuilt_binding.repository_connection_id)
+        assert rebuilt_repository is not None
+        assert rebuilt_repository.full_name == "octocat/orbit-control"
+
+
+def test_get_orbit_marks_general_conversation_seen(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+    engine = get_engine()
+
+    post_message = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "General channel should count as seen on orbit load."},
+        headers=headers,
+    )
+    assert post_message.status_code == 200
+    last_message_id = post_message.json()["message"]["id"]
+
+    orbit_response = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_response.status_code == 200
+
+    with OrmSession(engine) as db:
+        general = db.scalar(select(Channel).where(Channel.orbit_id == orbit["id"], Channel.slug == "general"))
+        assert general is not None
+        state = db.scalar(
+            select(ConversationState).where(
+                ConversationState.orbit_id == orbit["id"],
+                ConversationState.user_id == orbit_response.json()["members"][0]["user_id"],
+                ConversationState.channel_id == general.id,
+            )
+        )
+        assert state is not None
+        assert state.last_seen_message_id == last_message_id
+
+
+def test_contributor_cannot_publish_demo_but_manager_can(client):
+    owner_token, _ = _login(client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    orbit = _create_orbit(client, owner_headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    teammate_id = second_login.json()["user"]["id"]
+    teammate_headers = {"Authorization": f"Bearer {second_login.json()['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=teammate_headers)
+    assert accept.status_code == 200
+
+    denied = client.post(
+        f"/api/orbits/{orbit['id']}/demos",
+        json={"title": "Teammate demo", "source_path": "orbits/orbit-control/codespaces/demo"},
+        headers=teammate_headers,
+    )
+    assert denied.status_code == 403
+
+    promote = client.put(
+        f"/api/orbits/{orbit['id']}/members/{teammate_id}/role",
+        json={"role": "manager"},
+        headers=owner_headers,
+    )
+    assert promote.status_code == 200
+
+    allowed = client.post(
+        f"/api/orbits/{orbit['id']}/demos",
+        json={"title": "Teammate demo", "source_path": "orbits/orbit-control/codespaces/demo"},
+        headers=teammate_headers,
+    )
+    assert allowed.status_code == 200

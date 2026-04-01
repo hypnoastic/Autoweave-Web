@@ -294,6 +294,20 @@ function mergeProvisionalWorkflow(
   };
 }
 
+function payloadConversationData(nextPayload: OrbitPayload, selection: ConversationSelection) {
+  if (selection.kind !== "channel") {
+    return null;
+  }
+  const general = nextPayload.channels.find((channel) => channel.slug === "general") ?? nextPayload.channels[0];
+  if (!general || general.id !== selection.id) {
+    return null;
+  }
+  return {
+    messages: nextPayload.messages,
+    humanLoopItems: nextPayload.human_loop_items ?? [],
+  };
+}
+
 function workflowColumns(run: WorkflowRun | null) {
   const tasks = run?.tasks ?? [];
   return [
@@ -491,6 +505,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     const currentRequestId = requestId ?? conversationRequestRef.current + 1;
     if (requestId == null) {
       conversationRequestRef.current = currentRequestId;
+    }
+    const payloadData = payloadConversationData(nextPayload, nextSelection);
+    if (payloadData) {
+      setMessages(payloadData.messages);
+      setHumanLoopItems(payloadData.humanLoopItems);
+      return;
     }
     if (nextSelection.kind === "dm") {
       const thread = await fetchDmThread(nextSession.token, orbitId, nextSelection.id);
@@ -1760,7 +1780,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                     detail="Draft PRs and demos stay linked to their repo scope instead of disappearing into workflow side effects."
                     dense
                   />
-                  <ActionButton onClick={() => void onPublishDemo()}>
+                  <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
                     <MonitorPlay className="h-4 w-4" />
                     Publish demo
                   </ActionButton>
@@ -2254,17 +2274,21 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
             <SurfaceCard className="bg-panelStrong">
               <SectionTitle eyebrow="Invites" title="Invite collaborators" detail="Members are added to the repo and introduced in chat when they join." dense />
-              <div className="mt-4 flex items-center gap-3">
-                <TextInput
-                  value={inviteEmail}
-                  onChange={(event) => setInviteEmail(event.target.value)}
-                  placeholder="teammate@example.com"
-                />
-                <ActionButton onClick={() => void onInvite()} disabled={!inviteEmail.trim()}>
-                  <MailPlus className="h-4 w-4" />
-                  Invite
-                </ActionButton>
-              </div>
+              {payload.permissions?.can_manage_members ? (
+                <div className="mt-4 flex items-center gap-3">
+                  <TextInput
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    placeholder="teammate@example.com"
+                  />
+                  <ActionButton onClick={() => void onInvite()} disabled={!inviteEmail.trim()}>
+                    <MailPlus className="h-4 w-4" />
+                    Invite
+                  </ActionButton>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-quiet">Only orbit managers and owners can send invitations.</p>
+              )}
             </SurfaceCard>
 
             <SurfaceCard className="bg-panelStrong">

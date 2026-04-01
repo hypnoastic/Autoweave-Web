@@ -1849,9 +1849,17 @@ def create_app(
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
-        workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=False)
+        workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=0.35, sync_projection=False)
         general = _orbit_channel(db, orbit.id)
         messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
+        last_general_message_id = messages[-1].id if messages else None
+        mark_conversation_seen(
+            db,
+            user_id=user.id,
+            orbit_id=orbit.id,
+            channel_id=general.id,
+            last_seen_message_id=last_general_message_id,
+        )
         try:
             _sync_runtime_projection_if_due(db, orbit, workflow)
             db.commit()
@@ -1862,6 +1870,22 @@ def create_app(
                 orbit.id,
                 exc,
             )
+            try:
+                mark_conversation_seen(
+                    db,
+                    user_id=user.id,
+                    orbit_id=orbit.id,
+                    channel_id=general.id,
+                    last_seen_message_id=last_general_message_id,
+                )
+                db.commit()
+            except OperationalError as seen_exc:
+                db.rollback()
+                logger.warning(
+                    "Conversation read-state update failed for orbit %s after projection rollback: %s",
+                    orbit.id,
+                    seen_exc,
+                )
         conversation_items = human_loop_items_for_conversation(db, orbit_id=orbit.id, channel_id=general.id)
         orbit_notifications = notifications_for_user(db, user_id=user.id, orbit_id=orbit.id)
         orbit_artifacts = artifacts_for_orbit(db, orbit_id=orbit.id)
@@ -2516,6 +2540,11 @@ def create_app(
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
+        permissions = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        _require_permission(
+            permissions.can_publish_artifact(),
+            "You do not have permission to publish artifacts in this orbit.",
+        )
         repository_connection_id = None
         if payload.work_item_id:
             linked_work_item = db.get(WorkItem, payload.work_item_id)
