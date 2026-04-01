@@ -49,9 +49,11 @@ import {
 import {
   AuthSessionError,
   answerWorkflowHumanRequest,
+  connectOrbitRepository,
   createChannel,
   createCodespace,
   createDmThread,
+  fetchAvailableRepositories,
   fetchChannelMessages,
   fetchDmThread,
   fetchOrbit,
@@ -63,15 +65,18 @@ import {
   resolveWorkflowApprovalRequest,
   sendChannelMessage,
   sendDmMessage,
+  setPrimaryOrbitRepository,
   updateNavigation,
   updatePreferences,
   writeSession,
 } from "@/lib/api";
 import type {
+  AvailableRepository,
   BoardItem,
   ConversationMessage,
   ConversationSendResult,
   DmThreadSummary,
+  HumanLoopItem,
   OrbitPayload,
   Session,
   ThemeMode,
@@ -112,6 +117,23 @@ function isActiveRun(run: WorkflowRun | null) {
   return statusValues.some((value) =>
     ["running", "active", "waiting_for_human", "waiting_for_approval", "in_progress"].includes(value),
   );
+}
+
+function conversationMatchesRun(run: WorkflowRun | null, selection: ConversationSelection | null) {
+  if (!run || !selection) {
+    return false;
+  }
+  if (selection.kind === "channel") {
+    return run.source_channel_id === selection.id;
+  }
+  return run.source_dm_thread_id === selection.id;
+}
+
+function sameConversation(left: ConversationSelection | null, right: ConversationSelection | null) {
+  if (!left || !right) {
+    return false;
+  }
+  return left.kind === right.kind && left.id === right.id;
 }
 
 function formatStateLabel(value: string | undefined | null) {
@@ -343,16 +365,6 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function sameConversation(
-  left: ConversationSelection | null,
-  right: ConversationSelection | null,
-): boolean {
-  if (!left || !right) {
-    return false;
-  }
-  return left.kind === right.kind && left.id === right.id;
-}
-
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const router = useRouter();
   const { mode, setMode } = useTheme();
@@ -361,6 +373,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [section, setSection] = useState<OrbitSection>("chat");
   const [selectedConversation, setSelectedConversation] = useState<ConversationSelection | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanelKind>(null);
@@ -368,11 +381,15 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [showOrbitSettings, setShowOrbitSettings] = useState(false);
+  const [showConnectRepository, setShowConnectRepository] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showStartDm, setShowStartDm] = useState(false);
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
   const [dmDraft, setDmDraft] = useState<DmDraft>(DM_DRAFT);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [availableRepositories, setAvailableRepositories] = useState<AvailableRepository[]>([]);
+  const [repositorySearch, setRepositorySearch] = useState("");
+  const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [workflowAnswers, setWorkflowAnswers] = useState<Record<string, string>>({});
   const [leftSearch, setLeftSearch] = useState("");
   const [activeCodespaceId, setActiveCodespaceId] = useState<string | null>(null);
@@ -388,7 +405,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
   const selectedRunId = String(selectedRun?.id ?? "").trim();
   const workflowActive = isActiveRun(selectedRun);
-  const pendingAgent = localAgentPending && sameConversation(localPendingConversation, selectedConversation);
+  const workflowPendingInConversation = conversationMatchesRun(selectedRun, selectedConversation) && workflowActive;
+  const pendingAgent =
+    (localAgentPending && sameConversation(localPendingConversation, selectedConversation)) || workflowPendingInConversation;
   const workflowLanes = useMemo(() => workflowColumns(selectedRun), [selectedRun]);
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
@@ -415,6 +434,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         return;
       }
       setMessages(thread.messages);
+      setHumanLoopItems(thread.human_loop_items ?? []);
       return;
     }
     const channelPayload = await fetchChannelMessages(nextSession.token, orbitId, nextSelection.id);
@@ -422,6 +442,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       return;
     }
     setMessages(channelPayload.messages);
+    setHumanLoopItems(channelPayload.human_loop_items ?? []);
   }
 
   function deriveSelection(nextPayload: OrbitPayload, requested?: ConversationSelection | null) {
@@ -495,6 +516,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         }
       } else {
         setMessages([]);
+        setHumanLoopItems([]);
       }
 
       const nextCodespace =
@@ -505,6 +527,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         setSession(null);
         setPayload(null);
         setMessages([]);
+        setHumanLoopItems([]);
         router.replace("/");
         return;
       }
@@ -643,6 +666,19 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (!payload) {
       return [];
     }
+    if ((payload.notifications ?? []).length) {
+      return (payload.notifications ?? []).slice(0, 8).map((notification) => ({
+        key: notification.id,
+        label: notification.title,
+        detail: notification.detail,
+        tone:
+          notification.kind === "approval"
+            ? ("accent" as const)
+            : notification.kind === "clarification"
+              ? ("accent" as const)
+              : ("muted" as const),
+      }));
+    }
     const notifications: Array<{ key: string; label: string; detail: string; tone: "muted" | "accent" | "success" | "danger" }> = [];
     for (const request of selectedRun?.approval_requests ?? []) {
       if (request.status === "requested") {
@@ -682,6 +718,20 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
     return notifications;
   }, [payload, selectedRun]);
+
+  const connectedRepositoryIds = useMemo(() => new Set((payload?.repositories ?? []).map((repository) => repository.id)), [payload]);
+
+  const repositoryOptions = useMemo(() => {
+    const term = repositorySearch.trim().toLowerCase();
+    return availableRepositories
+      .filter((repository) => !connectedRepositoryIds.has(repository.id ?? ""))
+      .filter((repository) => {
+        if (!term) {
+          return true;
+        }
+        return `${repository.full_name} ${repository.default_branch}`.toLowerCase().includes(term);
+      });
+  }, [availableRepositories, connectedRepositoryIds, repositorySearch]);
 
   if (!session || !payload) {
     return <div className="flex min-h-dvh items-center justify-center text-sm text-quiet">Loading orbit…</div>;
@@ -784,9 +834,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         }
         return nextMessages;
       });
-      setLocalAgentPending(false);
-      setLocalPendingConversation(null);
-      setLocalPendingSince(null);
+      if (!result.work_item) {
+        setLocalAgentPending(false);
+        setLocalPendingConversation(null);
+        setLocalPendingSince(null);
+      }
       setPayload((current) => {
         if (!current) {
           return current;
@@ -847,6 +899,49 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       await reload(selectedConversation);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to send the invite.");
+    }
+  }
+
+  async function onOpenRepositoryPicker() {
+    if (!session) {
+      return;
+    }
+    setShowConnectRepository(true);
+    setLoadingAvailableRepositories(true);
+    setRepositorySearch("");
+    try {
+      const repositories = await fetchAvailableRepositories(session.token, orbitId);
+      setAvailableRepositories(repositories);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to load repositories.");
+    } finally {
+      setLoadingAvailableRepositories(false);
+    }
+  }
+
+  async function onConnectRepository(repoFullName: string) {
+    if (!session) {
+      return;
+    }
+    try {
+      await connectOrbitRepository(session.token, orbitId, { repo_full_name: repoFullName, make_primary: false });
+      setShowConnectRepository(false);
+      setAvailableRepositories([]);
+      await reload(selectedConversation);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to connect that repository.");
+    }
+  }
+
+  async function onMakeRepositoryPrimary(repositoryId: string) {
+    if (!session) {
+      return;
+    }
+    try {
+      await setPrimaryOrbitRepository(session.token, orbitId, repositoryId);
+      await reload(selectedConversation);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to change the primary repository.");
     }
   }
 
@@ -993,12 +1088,17 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               directMessages={payload.direct_messages}
               selectedConversation={selectedConversation}
               messages={filteredMessages}
+              humanLoopItems={humanLoopItems}
               conversationTitle={currentConversationTitle}
               conversationSearch={conversationSearch}
               onConversationSearchChange={setConversationSearch}
               messageBody={messageBody}
               onMessageBodyChange={setMessageBody}
               onSendMessage={() => void onSendMessage()}
+              humanLoopAnswers={workflowAnswers}
+              onHumanLoopAnswerChange={(requestId, value) => setWorkflowAnswers((current) => ({ ...current, [requestId]: value }))}
+              onSubmitHumanLoopAnswer={(requestId) => void onAnswerHumanRequest(requestId)}
+              onResolveApproval={(requestId, approved) => void onResolveApproval(requestId, approved)}
               onSelectConversation={(next) => void onSelectConversation(next)}
               onOpenCreateChannel={() => setShowCreateChannel(true)}
               onOpenStartDm={() => setShowStartDm(true)}
@@ -1009,7 +1109,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               workflowAnswers={workflowAnswers}
               onWorkflowAnswerChange={(requestId, value) => setWorkflowAnswers((current) => ({ ...current, [requestId]: value }))}
               onAnswerHumanRequest={(requestId) => void onAnswerHumanRequest(requestId)}
-              onResolveApproval={(requestId, approved) => void onResolveApproval(requestId, approved)}
             />
           ) : null}
 
@@ -1590,13 +1689,62 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         >
           <div className="space-y-5">
             <SurfaceCard className="bg-panelStrong">
-              <SectionTitle eyebrow="Repository" title={payload.orbit.repo_full_name || "Repository pending"} detail={payload.orbit.description || "Single-repository orbit"} dense />
-              {payload.orbit.repo_url ? (
-                <a href={payload.orbit.repo_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-ink">
-                  Open GitHub repository
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              ) : null}
+              <div className="flex items-start justify-between gap-4">
+                <SectionTitle
+                  eyebrow="Repositories"
+                  title={payload.repositories[0]?.full_name || payload.orbit.repo_full_name || "Repository pending"}
+                  detail={payload.repositories.length > 1 ? `${payload.repositories.length} connected repositories` : "Primary repository drives legacy flows"}
+                  dense
+                />
+                {payload.permissions?.can_bind_repo ? (
+                  <GhostButton onClick={() => void onOpenRepositoryPicker()}>
+                    <Plus className="h-4 w-4" />
+                    Connect repository
+                  </GhostButton>
+                ) : null}
+              </div>
+              <div className="mt-4 space-y-3">
+                {payload.repositories.length ? (
+                  payload.repositories.map((repository) => {
+                    const repoGrant = payload.permissions?.repo_grants?.[repository.id];
+                    return (
+                      <SurfaceCard key={repository.id} className="bg-panel">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-ink">{repository.full_name}</p>
+                            <p className="mt-1 truncate text-xs text-quiet">
+                              {repository.default_branch} branch
+                              {repoGrant ? ` · ${repoGrant} access` : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {repository.is_primary ? <StatusPill tone="accent">Primary</StatusPill> : null}
+                            <StatusPill tone={repository.health_state === "healthy" ? "success" : "muted"}>{repository.health_state || "healthy"}</StatusPill>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {repository.url ? (
+                            <a
+                              href={repository.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 text-sm font-medium text-ink"
+                            >
+                              Open GitHub repository
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                          {!repository.is_primary && payload.permissions?.can_bind_repo ? (
+                            <GhostButton onClick={() => void onMakeRepositoryPrimary(repository.id)}>Make primary</GhostButton>
+                          ) : null}
+                        </div>
+                      </SurfaceCard>
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-quiet">No connected repositories yet.</p>
+                )}
+              </div>
             </SurfaceCard>
 
             <SurfaceCard className="bg-panelStrong">
@@ -1613,6 +1761,47 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </ActionButton>
               </div>
             </SurfaceCard>
+          </div>
+        </CenteredModal>
+
+        <CenteredModal
+          open={showConnectRepository}
+          onClose={() => setShowConnectRepository(false)}
+          title="Connect repository"
+          description="Bind another GitHub repository to this orbit without breaking the current primary repo flow."
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <GhostButton onClick={() => setShowConnectRepository(false)}>Close</GhostButton>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <TextInput
+              value={repositorySearch}
+              onChange={(event) => setRepositorySearch(event.target.value)}
+              placeholder="Search repositories"
+            />
+            <div className="max-h-[360px] space-y-3 overflow-auto">
+              {loadingAvailableRepositories ? (
+                <EmptyState text="Loading available repositories…" />
+              ) : repositoryOptions.length ? (
+                repositoryOptions.map((repository) => (
+                  <SurfaceCard key={repository.full_name} className="bg-panelStrong">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">{repository.full_name}</p>
+                        <p className="mt-1 truncate text-xs text-quiet">
+                          {repository.default_branch} branch · {repository.is_private ? "Private" : "Public"}
+                        </p>
+                      </div>
+                      <ActionButton onClick={() => void onConnectRepository(repository.full_name)}>Connect</ActionButton>
+                    </div>
+                  </SurfaceCard>
+                ))
+              ) : (
+                <EmptyState text="No additional repositories are available to connect." />
+              )}
+            </div>
           </div>
         </CenteredModal>
       </ShellMain>

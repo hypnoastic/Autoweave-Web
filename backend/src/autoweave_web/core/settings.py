@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     demo_image: str = "python:3.12-slim"
 
     default_repo_private: bool = True
+    feature_flags: str = "ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2"
 
     @property
     def github_oauth_callback_url(self) -> str:
@@ -122,6 +123,14 @@ class Settings(BaseSettings):
             "AUTOWEAVE_GRAPH_BACKEND": "neo4j" if self.resolved_runtime_neo4j_url else "sqlite",
             "AUTOWEAVE_POSTGRES_SCHEMA": self.runtime_postgres_schema,
         }
+
+    @property
+    def enabled_feature_flags(self) -> set[str]:
+        raw_values = self.feature_flags.replace(";", ",").replace(" ", ",")
+        return {value.strip() for value in raw_values.split(",") if value.strip()}
+
+    def feature_enabled(self, flag_name: str) -> bool:
+        return flag_name in self.enabled_feature_flags
 
     @property
     def is_sqlite(self) -> bool:

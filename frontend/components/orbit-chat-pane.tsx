@@ -1,12 +1,13 @@
 "use client";
 
-import { Hash, MessageSquarePlus, Plus, Search, SendHorizonal, Users } from "lucide-react";
 import { useMemo } from "react";
+import { Check, Hash, MessageSquarePlus, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
 
 import type {
   ChannelSummary,
   ConversationMessage,
   DmThreadSummary,
+  HumanLoopItem,
   Session,
   WorkflowRequest,
 } from "@/lib/types";
@@ -35,35 +36,44 @@ export function OrbitChatPane({
   directMessages,
   selectedConversation,
   messages,
+  humanLoopItems = [],
   conversationTitle,
   conversationSearch,
   onConversationSearchChange,
   messageBody,
   onMessageBodyChange,
   onSendMessage,
+  humanLoopAnswers = {},
+  onHumanLoopAnswerChange = () => {},
+  onSubmitHumanLoopAnswer = () => {},
+  onResolveApproval = () => {},
   onSelectConversation,
   onOpenCreateChannel,
   onOpenStartDm,
   pendingAgent,
-  selectedRunId,
-  openHumanRequests,
-  openApprovalRequests,
-  workflowAnswers,
-  onWorkflowAnswerChange,
-  onAnswerHumanRequest,
-  onResolveApproval,
+  selectedRunId = "",
+  openHumanRequests = {},
+  openApprovalRequests = {},
+  workflowAnswers = {},
+  onWorkflowAnswerChange = () => {},
+  onAnswerHumanRequest = () => {},
 }: {
   session: Session;
   channels: ChannelSummary[];
   directMessages: DmThreadSummary[];
   selectedConversation: ConversationSelection | null;
   messages: ConversationMessage[];
+  humanLoopItems: HumanLoopItem[];
   conversationTitle: string;
   conversationSearch: string;
   onConversationSearchChange: (value: string) => void;
   messageBody: string;
   onMessageBodyChange: (value: string) => void;
   onSendMessage: () => void;
+  humanLoopAnswers: Record<string, string>;
+  onHumanLoopAnswerChange: (requestId: string, value: string) => void;
+  onSubmitHumanLoopAnswer: (requestId: string) => void;
+  onResolveApproval: (requestId: string, approved: boolean) => void;
   onSelectConversation: (next: ConversationSelection) => void;
   onOpenCreateChannel: () => void;
   onOpenStartDm: () => void;
@@ -74,7 +84,6 @@ export function OrbitChatPane({
   workflowAnswers: Record<string, string>;
   onWorkflowAnswerChange: (requestId: string, value: string) => void;
   onAnswerHumanRequest: (requestId: string) => void;
-  onResolveApproval: (requestId: string, approved: boolean) => void;
 }) {
   const actionableMessageIds = useMemo(() => {
     const latestByKey = new Map<string, string>();
@@ -95,6 +104,13 @@ export function OrbitChatPane({
     }
     return new Set(latestByKey.values());
   }, [messages, selectedRunId]);
+  const timeline = useMemo(() => {
+    return [...messages, ...humanLoopItems].sort((left, right) => {
+      const leftDate = new Date("created_at" in left ? left.created_at : 0).getTime();
+      const rightDate = new Date("created_at" in right ? right.created_at : 0).getTime();
+      return leftDate - rightDate;
+    });
+  }, [humanLoopItems, messages]);
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden rounded-card border border-line bg-panel shadow-panel">
@@ -193,8 +209,64 @@ export function OrbitChatPane({
 
         <ScrollPanel className="flex-1 px-5 py-5">
           <div className="space-y-4">
-            {messages.length ? (
-              messages.map((message) => {
+            {timeline.length ? (
+              timeline.map((entry) => {
+                if ("request_kind" in entry) {
+                  const isApproval = entry.request_kind === "approval";
+                  const open = ["open", "requested"].includes(entry.status);
+                  const answerValue = humanLoopAnswers[entry.request_id] || "";
+                  return (
+                    <SurfaceCard key={entry.id} className="border-line bg-panelStrong">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-ink">{entry.title}</p>
+                          <p className="mt-1 text-xs text-quiet">
+                            {new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <StatusPill tone={open ? "accent" : "muted"}>
+                          {entry.status.replaceAll("_", " ")}
+                        </StatusPill>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-ink">{entry.detail}</p>
+                      {entry.response_text ? (
+                        <div className="mt-3 rounded-pane border border-line bg-panel px-3 py-2 text-xs text-quiet">
+                          Response: {entry.response_text}
+                        </div>
+                      ) : null}
+                      {open ? (
+                        isApproval ? (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <ActionButton onClick={() => onResolveApproval(entry.request_id, true)}>
+                              <Check className="h-4 w-4" />
+                              Approve
+                            </ActionButton>
+                            <GhostButton className="h-10 px-3" onClick={() => onResolveApproval(entry.request_id, false)}>
+                              <X className="h-4 w-4" />
+                              Reject
+                            </GhostButton>
+                          </div>
+                        ) : (
+                          <div className="mt-4 space-y-3">
+                            <TextArea
+                              value={answerValue}
+                              onChange={(event) => onHumanLoopAnswerChange(entry.request_id, event.target.value)}
+                              placeholder="Answer ERGO and resume the workflow"
+                              className="min-h-[96px]"
+                            />
+                            <div className="flex justify-end">
+                              <ActionButton onClick={() => onSubmitHumanLoopAnswer(entry.request_id)} disabled={!answerValue.trim()}>
+                                <SendHorizonal className="h-4 w-4" />
+                                Send answer
+                              </ActionButton>
+                            </div>
+                          </div>
+                        )
+                      ) : null}
+                    </SurfaceCard>
+                  );
+                }
+                const message = entry;
                 const isCurrentUser = message.author_kind === "user" && message.author_name === session.user.display_name;
                 const metadata = message.metadata ?? {};
                 const requestId = typeof metadata.request_id === "string" ? metadata.request_id : "";

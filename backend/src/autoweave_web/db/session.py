@@ -57,8 +57,13 @@ def init_database() -> None:
         with engine.begin() as connection:
             connection.execute(text("SELECT 1"))
     from autoweave_web.models import entities  # noqa: F401
+    from autoweave_web.db.migrations import run_additive_migrations
+    from autoweave_web.services.product_state import backfill_product_models
 
     Base.metadata.create_all(bind=engine)
+    run_additive_migrations(engine)
+    with db_session() as db:
+        backfill_product_models(db)
 
 
 def get_db() -> Generator[Session, None, None]:

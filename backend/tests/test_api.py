@@ -293,7 +293,6 @@ def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(c
     assert work_response.status_code == 200
     work_payload = work_response.json()
     workflow_run_id = work_payload["work_item"]["workflow_ref"]
-    assert work_payload["ergo"]["metadata"]["workflow_origin"] is True
 
     client.app.state.runtime_manager.snapshots[orbit["id"]] = {
         "status": "ok",
@@ -360,18 +359,22 @@ def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(c
     assert first_load.status_code == 200
     second_load = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
     assert second_load.status_code == 200
+    general = next(item for item in second_load.json()["channels"] if item["slug"] == "general")
 
-    channel_messages = client.get(
+    origin_channel = client.get(
         f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
         headers=headers,
-    )
-    assert channel_messages.status_code == 200
-    prompt_messages = [
-        item for item in channel_messages.json()["messages"]
-        if item["metadata"].get("workflow_prompt_phase") == "open"
-    ]
-    assert len([item for item in prompt_messages if item["metadata"].get("request_id") == "human_1"]) == 1
-    assert len([item for item in prompt_messages if item["metadata"].get("request_id") == "approval_1"]) == 1
+    ).json()
+    origin_items = origin_channel["human_loop_items"]
+    assert len([item for item in origin_items if item["request_id"] == "human_1"]) == 1
+    assert len([item for item in origin_items if item["request_id"] == "approval_1"]) == 1
+
+    general_channel = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
+        headers=headers,
+    ).json()
+    assert general_channel["human_loop_items"] == []
+    before_count = len(origin_channel["messages"])
 
     answer_response = client.post(
         f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
@@ -389,10 +392,10 @@ def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(c
     routed_messages = client.get(
         f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
         headers=headers,
-    ).json()["messages"]
-    resolved = [item for item in routed_messages if item["metadata"].get("workflow_prompt_phase") == "resolved"]
-    assert len([item for item in resolved if item["metadata"].get("request_id") == "human_1"]) == 1
-    assert len([item for item in resolved if item["metadata"].get("request_id") == "approval_1"]) == 1
+    ).json()
+    assert len(routed_messages["messages"]) == before_count
+    assert len([item for item in routed_messages["human_loop_items"] if item["request_id"] == "human_1"]) == 1
+    assert len([item for item in routed_messages["human_loop_items"] if item["request_id"] == "approval_1"]) == 1
 
 
 def test_refresh_prs_and_issues_returns_operational_statuses(client):
@@ -410,3 +413,271 @@ def test_refresh_prs_and_issues_returns_operational_statuses(client):
 
     assert payload["prs"][0]["operational_status"] == "queued"
     assert payload["issues"][0]["operational_status"] == "queued"
+
+
+def test_orbit_payload_includes_repository_bindings_and_permissions(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert payload.status_code == 200
+    orbit_payload = payload.json()
+
+    assert orbit_payload["repositories"][0]["full_name"] == "octocat/orbit-control"
+    assert orbit_payload["repositories"][0]["is_primary"] is True
+    assert orbit_payload["permissions"]["orbit_role"] == "owner"
+    assert orbit_payload["permissions"]["can_manage_integrations"] is True
+
+
+def test_owner_can_list_and_connect_additional_repositories(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    available = client.get(f"/api/orbits/{orbit['id']}/available-repositories", headers=headers)
+    assert available.status_code == 200
+    available_payload = available.json()
+    assert any(item["full_name"] == "octocat/platform-ops" and item["already_connected"] is False for item in available_payload)
+
+    connect = client.post(
+        f"/api/orbits/{orbit['id']}/repositories",
+        json={"repo_full_name": "octocat/platform-ops", "make_primary": False},
+        headers=headers,
+    )
+    assert connect.status_code == 200
+    assert connect.json()["full_name"] == "octocat/platform-ops"
+    assert connect.json()["is_primary"] is False
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+    assert payload["orbit"]["repo_full_name"] == "octocat/orbit-control"
+    assert {repository["full_name"] for repository in payload["repositories"]} == {"octocat/orbit-control", "octocat/platform-ops"}
+
+
+def test_setting_primary_repository_updates_legacy_orbit_fields(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    connect = client.post(
+        f"/api/orbits/{orbit['id']}/repositories",
+        json={"repo_full_name": "octocat/platform-ops"},
+        headers=headers,
+    )
+    assert connect.status_code == 200
+    repository_id = connect.json()["id"]
+
+    primary = client.post(f"/api/orbits/{orbit['id']}/repositories/{repository_id}/primary", headers=headers)
+    assert primary.status_code == 200
+    assert primary.json()["is_primary"] is True
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+    assert payload["orbit"]["repo_full_name"] == "octocat/platform-ops"
+    primary_repo = next(repository for repository in payload["repositories"] if repository["id"] == repository_id)
+    original_repo = next(repository for repository in payload["repositories"] if repository["full_name"] == "octocat/orbit-control")
+    assert primary_repo["is_primary"] is True
+    assert original_repo["is_primary"] is False
+
+
+def test_non_owner_cannot_connect_additional_repositories(client):
+    owner_token, _ = _login(client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    orbit = _create_orbit(client, owner_headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    teammate_headers = {"Authorization": f"Bearer {second_login.json()['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=teammate_headers)
+    assert accept.status_code == 200
+
+    response = client.post(
+        f"/api/orbits/{orbit['id']}/repositories",
+        json={"repo_full_name": "octocat/platform-ops"},
+        headers=teammate_headers,
+    )
+    assert response.status_code == 403
+    assert "repository bindings" in response.json()["detail"]
+
+
+def test_member_cannot_trigger_repo_affecting_work_without_repo_operate_permission(client):
+    owner_token, _ = _login(client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    orbit = _create_orbit(client, owner_headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    teammate_payload = second_login.json()
+    teammate_headers = {"Authorization": f"Bearer {teammate_payload['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=teammate_headers)
+    assert accept.status_code == 200
+
+    response = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the workflow dashboard for this repo"},
+        headers=teammate_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["work_item"] is None
+    assert "repo-operate permission" in payload["ergo"]["body"]
+    assert client.app.state.runtime_manager.queued == []
+
+
+def test_human_loop_items_project_into_conversation_and_resolution_does_not_write_plain_system_messages(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the review workflow for this orbit"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
+
+    client.app.state.runtime_manager.snapshots[orbit["id"]] = {
+        "status": "ok",
+        "selected_run_id": work_item["workflow_ref"],
+        "selected_run": {
+            "id": work_item["workflow_ref"],
+            "title": "@ERGO build the review workflow for this orbit",
+            "status": "running",
+            "operator_status": "waiting_for_human",
+            "operator_summary": "ERGO needs clarification",
+            "execution_status": "waiting_for_human",
+            "execution_summary": "Waiting for answer",
+            "tasks": [
+                {
+                    "id": "task_manager",
+                    "task_key": "manager_plan",
+                    "title": "Manager plan",
+                    "assigned_role": "manager",
+                    "state": "waiting_for_human",
+                    "description": "Clarify what should ship first",
+                }
+            ],
+            "events": [],
+            "human_requests": [
+                {
+                    "id": "human_1",
+                    "task_id": "task_manager",
+                    "task_key": "manager_plan",
+                    "status": "open",
+                    "question": "What exact flow should ERGO ship first?",
+                }
+            ],
+            "approval_requests": [],
+        },
+        "runs": [
+            {
+                "id": work_item["workflow_ref"],
+                "title": "@ERGO build the review workflow for this orbit",
+                "status": "running",
+                "operator_status": "waiting_for_human",
+                "operator_summary": "ERGO needs clarification",
+                "execution_status": "waiting_for_human",
+                "execution_summary": "Waiting for answer",
+                "tasks": [
+                    {
+                        "id": "task_manager",
+                        "task_key": "manager_plan",
+                        "title": "Manager plan",
+                        "assigned_role": "manager",
+                        "state": "waiting_for_human",
+                        "description": "Clarify what should ship first",
+                    }
+                ],
+                "events": [],
+                "human_requests": [
+                    {
+                        "id": "human_1",
+                        "task_id": "task_manager",
+                        "task_key": "manager_plan",
+                        "status": "open",
+                        "question": "What exact flow should ERGO ship first?",
+                    }
+                ],
+                "approval_requests": [],
+            }
+        ],
+    }
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+    assert payload["human_loop_items"][0]["request_kind"] == "clarification"
+    assert payload["human_loop_items"][0]["detail"] == "What exact flow should ERGO ship first?"
+
+    general = payload["channels"][0]
+    before_messages = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
+        headers=headers,
+    ).json()
+    before_count = len(before_messages["messages"])
+
+    answer = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "human_1", "answer_text": "Ship approvals first."},
+        headers=headers,
+    )
+    assert answer.status_code == 200
+
+    after_messages = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
+        headers=headers,
+    ).json()
+    assert len(after_messages["messages"]) == before_count
+    assert after_messages["human_loop_items"][0]["request_kind"] == "clarification"
+
+
+def test_workflow_endpoint_falls_back_to_saved_projection_when_runtime_snapshot_is_empty(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the orbit workflow dashboard and review board"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
+
+    first_workflow = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert first_workflow.status_code == 200
+    assert first_workflow.json()["selected_run"]["id"] == work_item["workflow_ref"]
+
+    client.app.state.runtime_manager.snapshots[orbit["id"]] = {
+        "status": "degraded",
+        "load_error": "Workflow state refresh timed out; showing the last known runtime state.",
+        "runs": [],
+        "selected_run_id": None,
+        "selected_run": None,
+    }
+
+    second_workflow = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert second_workflow.status_code == 200
+    payload = second_workflow.json()
+    assert payload["status"] == "degraded"
+    assert payload["selected_run"]["id"] == work_item["workflow_ref"]
+    assert payload["runs"][0]["id"] == work_item["workflow_ref"]

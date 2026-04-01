@@ -40,6 +40,29 @@ class GitHubGateway:
             response.raise_for_status()
             return response.json()
 
+    def list_repositories(self, token: str, *, per_page: int = 100) -> list[dict]:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                f"{self.settings.github_api_base_url}/user/repos",
+                headers=self._headers(token),
+                params={
+                    "per_page": min(max(per_page, 1), 100),
+                    "sort": "updated",
+                    "affiliation": "owner,collaborator,organization_member",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    def get_repository(self, token: str, repo_full_name: str) -> dict:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                f"{self.settings.github_api_base_url}/repos/{repo_full_name}",
+                headers=self._headers(token),
+            )
+            response.raise_for_status()
+            return response.json()
+
     def list_pull_requests(self, token: str, repo_full_name: str) -> list[dict]:
         with httpx.Client(timeout=30.0) as client:
             response = client.get(

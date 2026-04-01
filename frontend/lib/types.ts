@@ -25,6 +25,35 @@ export type Orbit = {
   default_branch: string;
 };
 
+export type OrbitRepository = {
+  id: string;
+  provider: string;
+  full_name: string;
+  owner_name: string;
+  repo_name: string;
+  url?: string | null;
+  is_private: boolean;
+  default_branch: string;
+  status: string;
+  health_state?: string | null;
+  is_primary?: boolean;
+  binding_status?: string | null;
+};
+
+export type AvailableRepository = {
+  id?: string | null;
+  provider: string;
+  full_name: string;
+  owner_name: string;
+  repo_name: string;
+  url?: string | null;
+  is_private: boolean;
+  default_branch: string;
+  status: string;
+  health_state?: string | null;
+  already_connected?: boolean;
+};
+
 export type ConversationMessage = {
   id: string;
   author_kind: string;
@@ -35,6 +64,26 @@ export type ConversationMessage = {
   channel_id?: string | null;
   dm_thread_id?: string | null;
   pending?: boolean;
+};
+
+export type HumanLoopItem = {
+  id: string;
+  request_id: string;
+  request_kind: string;
+  workflow_run_id: string;
+  work_item_id?: string | null;
+  task_id?: string | null;
+  task_key?: string | null;
+  status: string;
+  title: string;
+  detail: string;
+  response_text?: string | null;
+  channel_id?: string | null;
+  dm_thread_id?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string | null;
 };
 
 export type ConversationSendResult = {
@@ -83,6 +132,7 @@ export type OrbitMember = {
 export type DmThreadPayload = {
   thread: DmThreadSummary;
   messages: ConversationMessage[];
+  human_loop_items: HumanLoopItem[];
 };
 
 export type WorkflowTask = {
@@ -125,6 +175,10 @@ export type WorkflowRun = {
   operator_summary: string;
   execution_status: string;
   execution_summary: string;
+  work_item_id?: string | null;
+  source_channel_id?: string | null;
+  source_dm_thread_id?: string | null;
+  repository_ids?: string[];
   tasks: WorkflowTask[];
   events: WorkflowEvent[];
   human_requests: WorkflowRequest[];
@@ -171,12 +225,39 @@ export type UserPreferences = {
   theme_preference: ThemeMode;
 };
 
+export type NotificationItem = {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  status: string;
+  channel_id?: string | null;
+  dm_thread_id?: string | null;
+  source_kind: string;
+  source_id: string;
+  created_at: string;
+};
+
+export type PermissionSnapshot = {
+  orbit_role: string;
+  repo_grants: Record<string, string>;
+  can_manage_members: boolean;
+  can_manage_settings: boolean;
+  can_manage_integrations: boolean;
+  can_bind_repo: boolean;
+  can_publish_artifact: boolean;
+};
+
 export type OrbitPayload = {
   orbit: Orbit;
+  repositories: OrbitRepository[];
   members: OrbitMember[];
   channels: ChannelSummary[];
   direct_messages: DmThreadSummary[];
   messages: ConversationMessage[];
+  human_loop_items: HumanLoopItem[];
+  notifications: NotificationItem[];
+  permissions?: PermissionSnapshot | null;
   workflow: WorkflowSnapshot;
   prs: BoardItem[];
   issues: BoardItem[];

@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  AvailableRepository,
   ChannelSummary,
   CodespaceSummary,
   ConversationMessage,
@@ -9,6 +10,7 @@ import type {
   DemoSummary,
   DmThreadPayload,
   DmThreadSummary,
+  HumanLoopItem,
   Orbit,
   OrbitPayload,
   Session,
@@ -124,8 +126,20 @@ export async function fetchOrbit(token: string, orbitId: string) {
   return request<OrbitPayload>(`/api/orbits/${orbitId}`, {}, token);
 }
 
+export async function fetchAvailableRepositories(token: string, orbitId: string) {
+  return request<AvailableRepository[]>(`/api/orbits/${orbitId}/available-repositories`, {}, token);
+}
+
+export async function connectOrbitRepository(token: string, orbitId: string, payload: { repo_full_name: string; make_primary?: boolean }) {
+  return request(`/api/orbits/${orbitId}/repositories`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function setPrimaryOrbitRepository(token: string, orbitId: string, repositoryId: string) {
+  return request(`/api/orbits/${orbitId}/repositories/${repositoryId}/primary`, { method: "POST" }, token);
+}
+
 export async function fetchChannelMessages(token: string, orbitId: string, channelId: string) {
-  return request<{ channel: ChannelSummary; messages: ConversationMessage[] }>(
+  return request<{ channel: ChannelSummary; messages: ConversationMessage[]; human_loop_items: HumanLoopItem[] }>(
     `/api/orbits/${orbitId}/channels/${channelId}/messages`,
     {},
     token,

@@ -29,6 +29,30 @@ class FakeGitHubGateway:
         self.created_branches: list[dict[str, Any]] = []
         self.created_prs: list[dict[str, Any]] = []
         self.collaborators: list[dict[str, Any]] = []
+        self.repository_catalog: list[dict[str, Any]] = [
+            {
+                "id": 501,
+                "name": "orbit-control",
+                "description": "Coordinate ERGO and the repo workflow.",
+                "private": True,
+                "owner": {"login": "octocat"},
+                "full_name": "octocat/orbit-control",
+                "html_url": "https://github.com/octocat/orbit-control",
+                "default_branch": "main",
+                "pushed_at": "2026-03-30T10:00:00Z",
+            },
+            {
+                "id": 502,
+                "name": "platform-ops",
+                "description": "Shared platform work",
+                "private": True,
+                "owner": {"login": "octocat"},
+                "full_name": "octocat/platform-ops",
+                "html_url": "https://github.com/octocat/platform-ops",
+                "default_branch": "main",
+                "pushed_at": "2026-03-31T10:00:00Z",
+            },
+        ]
 
     def get_authenticated_user(self, token: str) -> dict[str, Any]:
         if token.endswith("_second"):
@@ -52,6 +76,7 @@ class FakeGitHubGateway:
 
     def create_repository(self, token: str, *, name: str, description: str, private: bool) -> dict[str, Any]:
         payload = {
+            "id": 500 + len(self.repository_catalog) + len(self.created_repositories) + 1,
             "name": name,
             "description": description,
             "private": private,
@@ -59,9 +84,20 @@ class FakeGitHubGateway:
             "full_name": f"octocat/{name}",
             "html_url": f"https://github.com/octocat/{name}",
             "default_branch": "main",
+            "pushed_at": "2026-03-31T10:00:00Z",
         }
         self.created_repositories.append(payload)
+        self.repository_catalog = [payload, *[item for item in self.repository_catalog if item["full_name"] != payload["full_name"]]]
         return payload
+
+    def list_repositories(self, token: str, *, per_page: int = 100) -> list[dict[str, Any]]:
+        return self.repository_catalog[:per_page]
+
+    def get_repository(self, token: str, repo_full_name: str) -> dict[str, Any]:
+        for repository in self.repository_catalog:
+            if repository["full_name"] == repo_full_name:
+                return repository
+        raise AssertionError(f"Repository not found in fake catalog: {repo_full_name}")
 
     def list_pull_requests(self, token: str, repo_full_name: str) -> list[dict[str, Any]]:
         return [

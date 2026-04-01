@@ -143,6 +143,9 @@ class WorkItem(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     draft_pr_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     workflow_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    source_channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    source_dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    repo_scope_mode: Mapped[str] = mapped_column(String(64), default="legacy_primary")
     current_agent: Mapped[str] = mapped_column(String(255), default="ERGO")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -237,4 +240,209 @@ class ProductEvent(Base):
     orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(128))
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class IntegrationInstallation(Base):
+    __tablename__ = "product_integration_installations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("install"))
+    provider: Mapped[str] = mapped_column(String(64), default="github")
+    installation_kind: Mapped[str] = mapped_column(String(64), default="user_token_dev")
+    installation_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="Local development GitHub access")
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RepositoryConnection(Base):
+    __tablename__ = "product_repository_connections"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("repo"))
+    provider: Mapped[str] = mapped_column(String(64), default="github")
+    installation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_integration_installations.id"),
+        nullable=True,
+        index=True,
+    )
+    external_repo_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    owner_name: Mapped[str] = mapped_column(String(255))
+    repo_name: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_private: Mapped[bool] = mapped_column(Boolean, default=True)
+    default_branch: Mapped[str] = mapped_column(String(255), default="main")
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    health_state: Mapped[str] = mapped_column(String(64), default="healthy")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class OrbitRepositoryBinding(Base):
+    __tablename__ = "product_orbit_repository_bindings"
+    __table_args__ = (
+        UniqueConstraint("orbit_id", "repository_connection_id", name="uq_product_orbit_repository_binding"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("binding"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    repository_connection_id: Mapped[str] = mapped_column(ForeignKey("product_repository_connections.id"), index=True)
+    added_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RepoGrant(Base):
+    __tablename__ = "product_repo_grants"
+    __table_args__ = (
+        UniqueConstraint("orbit_id", "repository_connection_id", "user_id", name="uq_product_repo_grant"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("grant"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    repository_connection_id: Mapped[str] = mapped_column(ForeignKey("product_repository_connections.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    grant_level: Mapped[str] = mapped_column(String(64), default="view")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WorkItemRepoScope(Base):
+    __tablename__ = "product_work_item_repo_scopes"
+    __table_args__ = (
+        UniqueConstraint("work_item_id", "repository_connection_id", name="uq_product_work_item_repo_scope"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("wscope"))
+    work_item_id: Mapped[str] = mapped_column(ForeignKey("product_work_items.id"), index=True)
+    repository_connection_id: Mapped[str] = mapped_column(ForeignKey("product_repository_connections.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RunRepoScope(Base):
+    __tablename__ = "product_run_repo_scopes"
+    __table_args__ = (
+        UniqueConstraint("workflow_run_id", "repository_connection_id", name="uq_product_run_repo_scope"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("rscope"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    workflow_run_id: Mapped[str] = mapped_column(String(255), index=True)
+    repository_connection_id: Mapped[str] = mapped_column(ForeignKey("product_repository_connections.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RuntimeRunProjection(Base):
+    __tablename__ = "product_runtime_runs"
+    __table_args__ = (
+        UniqueConstraint("orbit_id", "workflow_run_id", name="uq_product_runtime_run"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("runview"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    workflow_run_id: Mapped[str] = mapped_column(String(255), index=True)
+    work_item_id: Mapped[str | None] = mapped_column(ForeignKey("product_work_items.id"), nullable=True, index=True)
+    source_channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    source_dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="created")
+    operator_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    execution_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RuntimeHumanLoopItem(Base):
+    __tablename__ = "product_runtime_human_loop_items"
+    __table_args__ = (
+        UniqueConstraint("orbit_id", "request_id", name="uq_product_runtime_human_loop_item"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("loop"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    workflow_run_id: Mapped[str] = mapped_column(String(255), index=True)
+    work_item_id: Mapped[str | None] = mapped_column(ForeignKey("product_work_items.id"), nullable=True, index=True)
+    request_kind: Mapped[str] = mapped_column(String(64))
+    request_id: Mapped[str] = mapped_column(String(255), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    task_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    source_dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(64), default="open")
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str] = mapped_column(Text)
+    response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Notification(Base):
+    __tablename__ = "product_notifications"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_kind", "source_id", name="uq_product_notification_source"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("notif"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    orbit_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbits.id"), nullable=True, index=True)
+    channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="unread")
+    source_kind: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[str] = mapped_column(String(255), index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NotificationPreference(Base):
+    __tablename__ = "product_notification_preferences"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_product_notification_preference"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("npref"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    inbox_mode: Mapped[str] = mapped_column(String(32), default="mentions_only")
+    dm_mode: Mapped[str] = mapped_column(String(32), default="all_activity")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ConversationState(Base):
+    __tablename__ = "product_conversation_states"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("cstate"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    notification_mode: Mapped[str] = mapped_column(String(32), default="all_activity")
+    last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditEvent(Base):
+    __tablename__ = "product_audit_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("audit"))
+    orbit_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbits.id"), nullable=True, index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(128))
+    target_kind: Mapped[str] = mapped_column(String(64))
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

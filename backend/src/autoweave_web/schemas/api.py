@@ -21,6 +21,11 @@ class InviteRequest(BaseModel):
     email: str
 
 
+class OrbitRepositoryConnectRequest(BaseModel):
+    repo_full_name: str
+    make_primary: bool = False
+
+
 class MessageCreateRequest(BaseModel):
     body: str
 
@@ -92,10 +97,14 @@ class DashboardPayload(BaseModel):
 
 class OrbitPayload(BaseModel):
     orbit: dict
+    repositories: list[dict] = Field(default_factory=list)
     members: list[dict]
     channels: list[dict]
     direct_messages: list[dict]
     messages: list[dict]
+    human_loop_items: list[dict] = Field(default_factory=list)
+    notifications: list[dict] = Field(default_factory=list)
+    permissions: dict | None = None
     workflow: dict
     prs: list[dict]
     issues: list[dict]
