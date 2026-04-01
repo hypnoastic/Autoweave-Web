@@ -113,8 +113,8 @@ export function OrbitChatPane({
   }, [humanLoopItems, messages]);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden rounded-card border border-line bg-panel shadow-panel">
-      <aside className="flex w-[280px] min-w-[280px] flex-col border-r border-line bg-panelMuted/60">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-line bg-panel shadow-panel lg:flex-row">
+      <aside className="flex w-full flex-col border-b border-line bg-panelMuted/60 lg:w-[280px] lg:min-w-[280px] lg:border-b-0 lg:border-r">
         <div className="border-b border-line px-4 py-4">
           <SectionTitle
             eyebrow="Chat"
@@ -124,8 +124,8 @@ export function OrbitChatPane({
           />
         </div>
 
-        <ScrollPanel className="flex-1 px-3 py-3">
-          <div className="space-y-5">
+        <ScrollPanel className="max-h-[240px] flex-1 px-3 py-3 lg:max-h-none">
+          <div className="space-y-5 lg:space-y-5">
             <div>
               <div className="mb-2 flex items-center justify-between px-2">
                 <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Channels</p>
@@ -188,7 +188,7 @@ export function OrbitChatPane({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
+        <div className="flex flex-col gap-3 border-b border-line px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {selectedConversation?.kind === "channel" ? <Hash className="h-4 w-4 text-quiet" /> : <Users className="h-4 w-4 text-quiet" />}
@@ -196,7 +196,7 @@ export function OrbitChatPane({
             </div>
             <p className="mt-1 text-xs text-quiet">Chat stays calm. Workflow detail belongs on the execution board, not in the channel.</p>
           </div>
-          <div className="w-full max-w-[260px]">
+          <div className="w-full lg:max-w-[260px]">
             <TextInput
               value={conversationSearch}
               onChange={(event) => onConversationSearchChange(event.target.value)}
@@ -207,7 +207,7 @@ export function OrbitChatPane({
           </div>
         </div>
 
-        <ScrollPanel className="flex-1 px-5 py-5">
+        <ScrollPanel className="flex-1 px-4 py-4 sm:px-5 sm:py-5">
           <div className="space-y-4">
             {timeline.length ? (
               timeline.map((entry) => {
@@ -281,7 +281,7 @@ export function OrbitChatPane({
                 return (
                   <div key={message.id} className={cx("flex gap-3", isCurrentUser && "justify-end")}>
                     {!isCurrentUser ? <AvatarMark label={message.author_name} className="h-8 w-8 shrink-0" /> : null}
-                    <div className={cx("max-w-[680px] min-w-0", isCurrentUser && "items-end")}>
+                    <div className={cx("max-w-full min-w-0 sm:max-w-[680px]", isCurrentUser && "items-end")}>
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-ink">{message.author_name}</p>
                         <span className="text-[11px] text-faint">
@@ -351,7 +351,7 @@ export function OrbitChatPane({
           </div>
         </ScrollPanel>
 
-        <div className="border-t border-line px-5 py-4">
+        <div className="border-t border-line px-4 py-4 sm:px-5">
           <div className="rounded-pane border border-line bg-panelStrong p-3">
             <TextArea
               value={messageBody}
@@ -359,7 +359,7 @@ export function OrbitChatPane({
               placeholder="@ERGO clean up the task board and keep chat calm"
               className="min-h-[120px] border-0 bg-transparent px-0 py-0"
             />
-            <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-quiet">Your message appears immediately. Chat is for human-facing replies, clarifications, and approvals.</p>
               <ActionButton onClick={onSendMessage} disabled={!messageBody.trim()}>
                 <SendHorizonal className="h-4 w-4" />

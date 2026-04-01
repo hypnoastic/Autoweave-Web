@@ -158,6 +158,15 @@ def test_theme_preferences_channel_scoped_messages_and_member_dm_flow(client):
     assert len(scoped_payload["messages"]) == 1
     assert scoped_payload["messages"][0]["body"] == "Need tighter spacing in the workflow lane."
 
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+
     orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
     assert orbit_payload.status_code == 200
     member = orbit_payload.json()["members"][0]
@@ -360,11 +369,11 @@ def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(c
         ],
     }
 
-    first_load = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
-    assert first_load.status_code == 200
-    second_load = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
-    assert second_load.status_code == 200
-    general = next(item for item in second_load.json()["channels"] if item["slug"] == "general")
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    general = next(item for item in orbit_payload.json()["channels"] if item["slug"] == "general")
 
     origin_channel = client.get(
         f"/api/orbits/{orbit['id']}/channels/{channel['id']}/messages",
@@ -411,6 +420,12 @@ def test_refresh_prs_and_issues_returns_operational_statuses(client):
     refresh = client.post(f"/api/orbits/{orbit['id']}/prs-issues/refresh", headers=headers)
     assert refresh.status_code == 200
     assert refresh.json() == {"prs": 1, "issues": 1, "failed_repositories": []}
+
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
 
     orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
     assert orbit_payload.status_code == 200
@@ -764,6 +779,9 @@ def test_human_loop_items_project_into_conversation_and_resolution_does_not_writ
         ],
     }
 
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
+
     orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
     assert orbit_payload.status_code == 200
     payload = orbit_payload.json()
@@ -825,21 +843,33 @@ def test_workflow_endpoint_falls_back_to_saved_projection_when_runtime_snapshot_
     assert payload["runs"][0]["id"] == work_item["workflow_ref"]
 
 
-def test_orbit_payload_hot_read_skips_runtime_projection_sync(client, monkeypatch):
+def test_orbit_payload_hot_read_is_projection_first_and_uses_work_item_fallback(client, monkeypatch):
     token, _ = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
     orbit = _create_orbit(client, headers)
 
-    first_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
-    assert first_payload.status_code == 200
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the orbit workflow dashboard and review board"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
 
-    called = False
+    runtime_called = False
+    projection_called = False
+
+    def failing_monitoring_snapshot(*args, **kwargs):
+        nonlocal runtime_called
+        runtime_called = True
+        raise AssertionError("Hot orbit reads should not call the runtime snapshot path.")
 
     def failing_sync_runtime_projection(*args, **kwargs):
-        nonlocal called
-        called = True
+        nonlocal projection_called
+        projection_called = True
         raise OperationalError("INSERT INTO product_runtime_runs ...", {}, Exception("ssl eof"))
 
+    monkeypatch.setattr(client.app.state.runtime_manager, "monitoring_snapshot", failing_monitoring_snapshot)
     monkeypatch.setattr(app_module, "sync_runtime_projection", failing_sync_runtime_projection)
 
     payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
@@ -847,7 +877,9 @@ def test_orbit_payload_hot_read_skips_runtime_projection_sync(client, monkeypatc
     orbit_payload = payload.json()
     assert orbit_payload["orbit"]["id"] == orbit["id"]
     assert orbit_payload["channels"][0]["slug"] == "general"
-    assert called is False
+    assert orbit_payload["workflow"]["selected_run"]["id"] == work_item["workflow_ref"]
+    assert runtime_called is False
+    assert projection_called is False
 
 
 def test_answer_workflow_human_request_is_idempotent(client):
@@ -896,8 +928,8 @@ def test_answer_workflow_human_request_is_idempotent(client):
         ],
     }
 
-    first_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
-    assert first_orbit.status_code == 200
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
 
     first_answer = client.post(
         f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
@@ -970,8 +1002,8 @@ def test_resolve_workflow_approval_is_idempotent(client):
         ],
     }
 
-    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
-    assert orbit_payload.status_code == 200
+    workflow_sync = client.get(f"/api/orbits/{orbit['id']}/workflow", headers=headers)
+    assert workflow_sync.status_code == 200
 
     first_resolution = client.post(
         f"/api/orbits/{orbit['id']}/workflow/approval-requests/resolve",

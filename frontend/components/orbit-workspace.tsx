@@ -63,6 +63,7 @@ import {
   fetchOrbit,
   fetchOrbitSearch,
   fetchPreferences,
+  fetchWorkflow,
   inviteOrbitMember,
   publishDemo,
   readSession,
@@ -476,8 +477,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [localPendingSince, setLocalPendingSince] = useState<number | null>(null);
   const previousContentSection = useRef<OrbitSection>("chat");
+  const payloadRef = useRef<OrbitPayload | null>(null);
   const reloadRequestRef = useRef(0);
   const conversationRequestRef = useRef(0);
+  const workflowPollRequestRef = useRef(0);
   const profileRef = useOutsideClose<HTMLDivElement>(showProfileMenu, () => setShowProfileMenu(false));
 
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
@@ -496,17 +499,22 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     [selectedRun],
   );
 
+  useEffect(() => {
+    payloadRef.current = payload;
+  }, [payload]);
+
   async function loadConversation(
     nextSession: Session,
     nextPayload: OrbitPayload,
     nextSelection: ConversationSelection,
     requestId?: number,
+    options?: { preferPayload?: boolean },
   ) {
     const currentRequestId = requestId ?? conversationRequestRef.current + 1;
     if (requestId == null) {
       conversationRequestRef.current = currentRequestId;
     }
-    const payloadData = payloadConversationData(nextPayload, nextSelection);
+    const payloadData = options?.preferPayload === false ? null : payloadConversationData(nextPayload, nextSelection);
     if (payloadData) {
       setMessages(payloadData.messages);
       setHumanLoopItems(payloadData.humanLoopItems);
@@ -527,6 +535,60 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
     setMessages(channelPayload.messages);
     setHumanLoopItems(channelPayload.human_loop_items ?? []);
+  }
+
+  async function refreshActiveWorkflow() {
+    const currentPayload = payloadRef.current;
+    if (!session || !currentPayload) {
+      return;
+    }
+    const pollRequestId = workflowPollRequestRef.current + 1;
+    workflowPollRequestRef.current = pollRequestId;
+    try {
+      const nextWorkflow = await fetchWorkflow(session.token, orbitId);
+      if (pollRequestId !== workflowPollRequestRef.current) {
+        return;
+      }
+      const nextPayload = {
+        ...currentPayload,
+        workflow: nextWorkflow,
+      };
+      setPayload(nextPayload);
+      setError(null);
+
+      const nextSelectedRun = nextWorkflow.selected_run ?? nextWorkflow.runs?.[0] ?? null;
+      const nextWorkflowActive = isActiveRun(nextSelectedRun);
+      if (nextWorkflowActive) {
+        setLocalAgentPending(false);
+        setLocalPendingConversation(null);
+        setLocalPendingSince(null);
+      } else if (
+        localAgentPending
+        && localPendingSince != null
+        && Date.now() - localPendingSince > LOCAL_AGENT_PENDING_TIMEOUT_MS
+      ) {
+        setLocalAgentPending(false);
+        setLocalPendingConversation(null);
+        setLocalPendingSince(null);
+      }
+
+      if (selectedConversation) {
+        await loadConversation(session, nextPayload, selectedConversation, undefined, { preferPayload: false });
+      }
+      if (!nextWorkflowActive && workflowActive) {
+        await reload(selectedConversation);
+      }
+    } catch (nextError) {
+      if (nextError instanceof AuthSessionError) {
+        setSession(null);
+        setPayload(null);
+        setMessages([]);
+        setHumanLoopItems([]);
+        router.replace("/");
+        return;
+      }
+      setError(nextError instanceof Error ? nextError.message : "Unable to refresh workflow state.");
+    }
   }
 
   function deriveSelection(nextPayload: OrbitPayload, requested?: ConversationSelection | null) {
@@ -627,11 +689,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (!session || !payload || (!workflowActive && !localAgentPending)) {
       return;
     }
+    void refreshActiveWorkflow();
     const handle = window.setInterval(() => {
-      void reload(selectedConversation);
+      void refreshActiveWorkflow();
     }, 4000);
     return () => window.clearInterval(handle);
-  }, [session, payload, workflowActive, localAgentPending, orbitId, selectedConversation]);
+  }, [session, workflowActive, localAgentPending, orbitId, selectedConversation]);
 
   useEffect(() => {
     if (!localAgentPending || localPendingSince == null) {

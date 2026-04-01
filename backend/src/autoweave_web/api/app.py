@@ -106,6 +106,7 @@ from autoweave_web.services.policy import (
 from autoweave_web.services.runtime import RuntimeManager, slugify
 
 logger = logging.getLogger(__name__)
+ORBIT_HOT_READ_MESSAGE_LIMIT = 120
 
 
 def create_app(
@@ -729,6 +730,88 @@ def create_app(
             "selected_run": selected_run,
         }
         return _attach_work_item_context(db, orbit, hydrated_snapshot)
+
+    def _workflow_payload_from_work_item(db: Session, work_item: WorkItem) -> dict[str, Any]:
+        normalized_status = str(work_item.status or "").strip().lower()
+        if normalized_status == "completed":
+            status = "completed"
+            operator_status = "completed"
+            execution_status = "completed"
+        elif normalized_status in {"blocked", "failed"}:
+            status = "failed"
+            operator_status = "failed"
+            execution_status = "failed"
+        elif normalized_status == "needs_input":
+            status = "running"
+            operator_status = "waiting_for_human"
+            execution_status = "waiting_for_human"
+        elif normalized_status == "in_review":
+            status = "running"
+            operator_status = "waiting_for_approval"
+            execution_status = "waiting_for_approval"
+        elif normalized_status in {"queued", "ready"}:
+            status = "queued"
+            operator_status = "queued"
+            execution_status = "queued"
+        else:
+            status = "running"
+            operator_status = "active"
+            execution_status = "active"
+        summary = work_item.summary or "Workflow detail will refresh from the runtime board shortly."
+        return {
+            "id": work_item.workflow_run_id,
+            "title": work_item.title or work_item.request_text or work_item.workflow_run_id,
+            "status": status,
+            "operator_status": operator_status,
+            "operator_summary": summary,
+            "execution_status": execution_status,
+            "execution_summary": summary,
+            "tasks": [],
+            "events": [],
+            "human_requests": [],
+            "approval_requests": [],
+            "work_item_id": work_item.id,
+            "source_channel_id": work_item.source_channel_id,
+            "source_dm_thread_id": work_item.source_dm_thread_id,
+            "repository_ids": repository_ids_for_work_item(db, work_item),
+        }
+
+    def _workflow_hot_read(db: Session, orbit: Orbit) -> dict[str, Any]:
+        empty_snapshot = {
+            "status": "ok",
+            "load_error": None,
+            "selected_run_id": None,
+            "selected_run": None,
+            "runs": [],
+        }
+        hydrated = _hydrate_workflow_from_projection(db, orbit, empty_snapshot)
+        runs = hydrated.get("runs")
+        if isinstance(runs, list) and runs:
+            return hydrated
+        work_items = db.scalars(
+            select(WorkItem)
+            .where(
+                WorkItem.orbit_id == orbit.id,
+                WorkItem.workflow_run_id.is_not(None),
+            )
+            .order_by(WorkItem.updated_at.desc(), WorkItem.created_at.desc())
+        ).all()
+        fallback_runs = [
+            _workflow_payload_from_work_item(db, item)
+            for item in work_items
+            if str(item.workflow_run_id or "").strip()
+        ]
+        if not fallback_runs:
+            return empty_snapshot
+        selected_run = fallback_runs[0]
+        return {
+            "status": "degraded",
+            "load_error": "Serving the last saved workflow view while runtime sync catches up.",
+            "stale": True,
+            "selected_run_id": selected_run["id"],
+            "selected_run": selected_run,
+            "runs": fallback_runs,
+        }
 
     def _orbit_membership_for_user(db: Session, orbit_id: str, user_id: str) -> OrbitMembership | None:
         return db.scalar(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit_id, OrbitMembership.user_id == user_id))
@@ -1849,9 +1932,18 @@ def create_app(
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
-        workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=0.35, sync_projection=False)
+        workflow = _workflow_hot_read(db, orbit)
         general = _orbit_channel(db, orbit.id)
-        messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
+        messages = list(
+            reversed(
+                db.scalars(
+                    select(Message)
+                    .where(Message.orbit_id == orbit.id, Message.channel_id == general.id)
+                    .order_by(Message.created_at.desc())
+                    .limit(ORBIT_HOT_READ_MESSAGE_LIMIT)
+                ).all()
+            )
+        )
         last_general_message_id = messages[-1].id if messages else None
         mark_conversation_seen(
             db,
@@ -1861,31 +1953,14 @@ def create_app(
             last_seen_message_id=last_general_message_id,
         )
         try:
-            _sync_runtime_projection_if_due(db, orbit, workflow)
             db.commit()
         except OperationalError as exc:
             db.rollback()
             logger.warning(
-                "Deferred runtime projection update failed for orbit %s; serving orbit payload with existing projections: %s",
+                "Orbit read-state update failed for orbit %s; serving orbit payload without committing read markers: %s",
                 orbit.id,
                 exc,
             )
-            try:
-                mark_conversation_seen(
-                    db,
-                    user_id=user.id,
-                    orbit_id=orbit.id,
-                    channel_id=general.id,
-                    last_seen_message_id=last_general_message_id,
-                )
-                db.commit()
-            except OperationalError as seen_exc:
-                db.rollback()
-                logger.warning(
-                    "Conversation read-state update failed for orbit %s after projection rollback: %s",
-                    orbit.id,
-                    seen_exc,
-                )
         conversation_items = human_loop_items_for_conversation(db, orbit_id=orbit.id, channel_id=general.id)
         orbit_notifications = notifications_for_user(db, user_id=user.id, orbit_id=orbit.id)
         orbit_artifacts = artifacts_for_orbit(db, orbit_id=orbit.id)
