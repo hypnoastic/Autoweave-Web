@@ -3,9 +3,13 @@
 import {
   ArrowLeft,
   Bell,
+  Command as CommandIcon,
   ExternalLink,
   FileCode2,
+  Filter,
   GitPullRequest,
+  Inbox,
+  Keyboard,
   LayoutGrid,
   MailPlus,
   MessageSquare,
@@ -57,6 +61,7 @@ import {
   fetchChannelMessages,
   fetchDmThread,
   fetchOrbit,
+  fetchOrbitSearch,
   fetchPreferences,
   inviteOrbitMember,
   publishDemo,
@@ -67,6 +72,7 @@ import {
   sendDmMessage,
   setPrimaryOrbitRepository,
   updateNavigation,
+  updateOrbitMemberRole,
   updatePreferences,
   writeSession,
 } from "@/lib/api";
@@ -79,6 +85,7 @@ import type {
   HumanLoopItem,
   NotificationItem,
   OrbitPayload,
+  OrbitSearchResult,
   Session,
   ThemeMode,
   WorkflowRequest,
@@ -96,6 +103,15 @@ const ORBIT_SECTIONS = [
 
 type OrbitSection = (typeof ORBIT_SECTIONS)[number]["key"];
 type LeftPanelKind = "search" | "notifications" | null;
+type SavedViewKey =
+  | "all"
+  | "my_work"
+  | "needs_approval"
+  | "needs_clarification"
+  | "review_queue"
+  | "blocked_work"
+  | "failed_runs"
+  | "recent_artifacts";
 type DetailPanel =
   | { kind: "task"; task: WorkflowTask }
   | { kind: "pr"; item: BoardItem }
@@ -109,6 +125,16 @@ const CHANNEL_DRAFT: ChannelDraft = { name: "" };
 const DM_DRAFT: DmDraft = { targetUserId: "" };
 const RAIL_WIDTH = 88;
 const LOCAL_AGENT_PENDING_TIMEOUT_MS = 120_000;
+const SAVED_VIEWS: Array<{ key: SavedViewKey; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "my_work", label: "My work" },
+  { key: "needs_approval", label: "Approvals" },
+  { key: "needs_clarification", label: "Clarifications" },
+  { key: "review_queue", label: "Review queue" },
+  { key: "blocked_work", label: "Blocked" },
+  { key: "failed_runs", label: "Failed runs" },
+  { key: "recent_artifacts", label: "Artifacts" },
+];
 
 function isActiveRun(run: WorkflowRun | null) {
   if (!run) {
@@ -414,6 +440,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [showOrbitSettings, setShowOrbitSettings] = useState(false);
   const [showConnectRepository, setShowConnectRepository] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showStartDm, setShowStartDm] = useState(false);
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
@@ -424,6 +451,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [workflowAnswers, setWorkflowAnswers] = useState<Record<string, string>>({});
   const [leftSearch, setLeftSearch] = useState("");
+  const [commandQuery, setCommandQuery] = useState("");
+  const [remoteCommandResults, setRemoteCommandResults] = useState<OrbitSearchResult[]>([]);
+  const [loadingCommandResults, setLoadingCommandResults] = useState(false);
+  const [activeSavedView, setActiveSavedView] = useState<SavedViewKey>("all");
+  const [updatingMemberRole, setUpdatingMemberRole] = useState<string | null>(null);
   const [activeCodespaceId, setActiveCodespaceId] = useState<string | null>(null);
   const [localAgentPending, setLocalAgentPending] = useState(false);
   const [localPendingConversation, setLocalPendingConversation] = useState<ConversationSelection | null>(null);
@@ -595,6 +627,56 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     return () => window.clearInterval(handle);
   }, [localAgentPending, localPendingSince]);
 
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") {
+        return;
+      }
+      event.preventDefault();
+      setShowCommandPalette(true);
+      setCommandQuery("");
+    }
+
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (!showCommandPalette || !session) {
+      return;
+    }
+    const term = commandQuery.trim();
+    if (!term) {
+      setRemoteCommandResults([]);
+      setLoadingCommandResults(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCommandResults(true);
+    const handle = window.setTimeout(() => {
+      void fetchOrbitSearch(session.token, orbitId, term, 18)
+        .then((results) => {
+          if (!cancelled) {
+            setRemoteCommandResults(results);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRemoteCommandResults([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingCommandResults(false);
+          }
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [showCommandPalette, session, orbitId, commandQuery]);
+
   const currentConversationTitle = useMemo(() => {
     if (!payload || !selectedConversation) {
       return "Chat";
@@ -721,79 +803,257 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     return items.filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(term)).slice(0, 14);
   }, [payload, leftSearch, messages, currentConversationTitle, session]);
 
-  const notificationItems = useMemo(() => {
+  const triageItems = useMemo(() => {
     if (!payload) {
-      return [];
+      return [] as Array<{
+        key: string;
+        label: string;
+        detail: string;
+        tone: "muted" | "accent" | "success" | "danger";
+        status: string;
+        viewKeys: SavedViewKey[];
+        item?: NotificationItem;
+        action?: () => void;
+      }>;
     }
-    if ((payload.notifications ?? []).length) {
-      return (payload.notifications ?? []).slice(0, 8).map((notification) => ({
-        key: notification.id,
-        label: notification.title,
-        detail: (() => {
-          const repositoryIds = Array.isArray(notification.metadata?.repository_ids)
-            ? notification.metadata.repository_ids
-            : [];
-          const repositoryName = typeof notification.metadata?.repository_full_name === "string"
-            ? notification.metadata.repository_full_name
-            : repositoryIds.map((value) => repositoryNameById.get(String(value))).find(Boolean);
-          const context = repositoryName ? `${repositoryName} · ` : "";
-          return `${context}${notification.detail}`;
-        })(),
-        tone: notificationTone(notification.kind, notification.status),
-        status: notificationStatusLabel(notification),
-        item: notification,
-      }));
-    }
-    const notifications: Array<{
+    const items: Array<{
       key: string;
       label: string;
       detail: string;
       tone: "muted" | "accent" | "success" | "danger";
       status: string;
+      viewKeys: SavedViewKey[];
       item?: NotificationItem;
+      action?: () => void;
     }> = [];
-    for (const request of selectedRun?.approval_requests ?? []) {
-      if (request.status === "requested") {
-        notifications.push({
-          key: `approval-${request.id}`,
-          label: "Release signoff needed",
-          detail: request.reason || "A run is waiting for human approval before release.",
-          tone: "accent",
-          status: "Active",
-        });
+    const seen = new Set<string>();
+    const pushItem = (item: (typeof items)[number]) => {
+      if (seen.has(item.key)) {
+        return;
       }
-    }
-    for (const request of selectedRun?.human_requests ?? []) {
-      if (request.status === "open") {
-        notifications.push({
-          key: `human-${request.id}`,
-          label: "ERGO needs clarification",
-          detail: request.question || "A human answer is required to continue.",
-          tone: "accent",
-          status: "Active",
-        });
+      seen.add(item.key);
+      items.push(item);
+    };
+
+    for (const notification of payload.notifications ?? []) {
+      const repositoryIds = Array.isArray(notification.metadata?.repository_ids)
+        ? notification.metadata.repository_ids
+        : [];
+      const repositoryName = typeof notification.metadata?.repository_full_name === "string"
+        ? notification.metadata.repository_full_name
+        : repositoryIds.map((value) => repositoryNameById.get(String(value))).find(Boolean);
+      const context = repositoryName ? `${repositoryName} · ` : "";
+      const viewKeys: SavedViewKey[] = ["all"];
+      if (["mention", "dm", "channel_activity", "run_completed"].includes(notification.kind)) {
+        viewKeys.push("my_work");
       }
+      if (notification.kind === "approval") {
+        viewKeys.push("needs_approval");
+      }
+      if (notification.kind === "clarification") {
+        viewKeys.push("needs_clarification");
+      }
+      if (notification.kind === "run_failed") {
+        viewKeys.push("blocked_work", "failed_runs");
+      }
+      if (notification.kind === "artifact") {
+        viewKeys.push("recent_artifacts");
+      }
+      pushItem({
+        key: notification.id,
+        label: notification.title,
+        detail: `${context}${notification.detail}`,
+        tone: notificationTone(notification.kind, notification.status),
+        status: notificationStatusLabel(notification),
+        viewKeys,
+        item: notification,
+        action: () => void onOpenNotification(notification),
+      });
     }
-    for (const task of (selectedRun?.tasks ?? []).slice(0, 4)) {
-      notifications.push({
-        key: `task-${task.id}`,
+
+    for (const pr of payload.prs.filter((item) => ["awaiting_review", "changes_requested"].includes(String(item.operational_status || "").toLowerCase()))) {
+      pushItem({
+        key: `review-${pr.id}`,
+        label: `Review queue · ${pr.title}`,
+        detail: pr.repository_full_name || "Pull request awaiting review",
+        tone: boardTone(pr.operational_status),
+        status: formatStateLabel(pr.operational_status || pr.state),
+        viewKeys: ["all", "review_queue"],
+        action: () => {
+          setDetailPanel({ kind: "pr", item: pr });
+          void onSectionChange("prs");
+          setActiveLeftPanel(null);
+        },
+      });
+    }
+
+    for (const task of (selectedRun?.tasks ?? []).filter((item) => item.state === "blocked")) {
+      pushItem({
+        key: `blocked-task-${task.id}`,
         label: task.title || task.task_key,
-        detail: formatStateLabel(task.state),
-        tone: taskTone(task.state),
-        status: "Active",
+        detail: task.block_reason || task.description || "Blocked work item",
+        tone: "danger",
+        status: "Blocked",
+        viewKeys: ["all", "blocked_work"],
+        action: () => {
+          setDetailPanel({ kind: "task", task });
+          void onSectionChange("workflow");
+          setActiveLeftPanel(null);
+        },
       });
     }
-    for (const demo of payload.demos.slice(0, 2)) {
-      notifications.push({
-        key: `demo-${demo.id}`,
-        label: demo.title,
-        detail: demo.status === "running" && demo.url ? "Demo is live" : formatStateLabel(demo.status),
-        tone: demo.status === "running" ? "success" : "muted",
-        status: "Active",
+
+    for (const run of payload.workflow.runs.filter((item) => String(item.status || "").toLowerCase() === "failed")) {
+      pushItem({
+        key: `failed-run-${run.id}`,
+        label: run.title,
+        detail: run.execution_summary || run.operator_summary || "Run failed",
+        tone: "danger",
+        status: "Failed",
+        viewKeys: ["all", "blocked_work", "failed_runs"],
+        action: () => {
+          void onSectionChange("workflow");
+          setActiveLeftPanel(null);
+        },
       });
     }
-    return notifications;
+
+    for (const artifact of (payload.artifacts ?? []).slice(0, 6)) {
+      pushItem({
+        key: `artifact-${artifact.id}`,
+        label: artifact.title,
+        detail: artifact.repository_full_name || artifact.summary || formatStateLabel(artifact.artifact_kind),
+        tone: artifact.status === "ready" || artifact.status === "running" ? "success" : "muted",
+        status: formatStateLabel(artifact.status),
+        viewKeys: ["all", "recent_artifacts"],
+        action: () => {
+          void onSectionChange("demos");
+          setActiveLeftPanel(null);
+        },
+      });
+    }
+
+    return items;
   }, [payload, repositoryNameById, selectedRun]);
+
+  const filteredTriageItems = useMemo(() => {
+    if (activeSavedView === "all") {
+      return triageItems;
+    }
+    return triageItems.filter((item) => item.viewKeys.includes(activeSavedView));
+  }, [activeSavedView, triageItems]);
+
+  const savedViewCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        SAVED_VIEWS.map((view) => [view.key, triageItems.filter((item) => item.viewKeys.includes(view.key)).length]),
+      ) as Record<SavedViewKey, number>,
+    [triageItems],
+  );
+
+  const commandPaletteItems = useMemo(() => {
+    if (!payload) {
+      return [] as Array<{
+        key: string;
+        label: string;
+        detail: string;
+        action: () => void;
+      }>;
+    }
+    if (commandQuery.trim()) {
+      if (remoteCommandResults.length) {
+        return remoteCommandResults.map((result) => ({
+          key: result.key,
+          label: result.label,
+          detail: result.detail,
+          action: () => void onSelectSearchResult(result),
+        }));
+      }
+      return searchResults.slice(0, 10).map((item) => ({
+        ...item,
+        action: () => {
+          item.action();
+          setShowCommandPalette(false);
+        },
+      }));
+    }
+    return [
+      {
+        key: "cmd-chat",
+        label: "Open chat",
+        detail: "Move to the chat surface",
+        action: () => {
+          void onSectionChange("chat");
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-workflow",
+        label: "Open workflow",
+        detail: "Move to the execution board",
+        action: () => {
+          void onSectionChange("workflow");
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-inbox",
+        label: "Open inbox",
+        detail: "See mentions, approvals, and run outcomes",
+        action: () => {
+          setActiveLeftPanel("notifications");
+          setActiveSavedView("all");
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-search",
+        label: "Open orbit search",
+        detail: "Browse conversations, runs, and artifacts",
+        action: () => {
+          setActiveLeftPanel("search");
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-create-channel",
+        label: "Create channel",
+        detail: "Open the channel creation modal",
+        action: () => {
+          setShowCreateChannel(true);
+          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-start-dm",
+        label: "Start direct message",
+        detail: "Open the DM picker",
+        action: () => {
+          setShowStartDm(true);
+          setShowCommandPalette(false);
+        },
+      },
+      ...SAVED_VIEWS.filter((view) => view.key !== "all").map((view) => ({
+        key: `cmd-view-${view.key}`,
+        label: `${view.label} (${savedViewCounts[view.key] || 0})`,
+        detail: "Open the inbox with this saved triage filter",
+        action: () => {
+          setActiveSavedView(view.key);
+          setActiveLeftPanel("notifications");
+          setShowCommandPalette(false);
+        },
+      })),
+      {
+        key: "cmd-theme",
+        label: mode === "dark" ? "Switch to light theme" : "Switch to dark theme",
+        detail: "Toggle the product theme immediately",
+        action: () => {
+          void onChangeTheme(mode === "dark" ? "light" : "dark");
+          setShowCommandPalette(false);
+        },
+      },
+    ];
+  }, [payload, commandQuery, remoteCommandResults, searchResults, savedViewCounts, mode]);
 
   const connectedRepositoryIds = useMemo(() => new Set((payload?.repositories ?? []).map((repository) => repository.id)), [payload]);
 
@@ -858,6 +1118,36 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (notification.source_kind === "approval" || notification.source_kind === "clarification") {
       await onSectionChange("chat");
       return;
+    }
+  }
+
+  async function onSelectSearchResult(result: OrbitSearchResult) {
+    setShowCommandPalette(false);
+    if (result.conversation_kind && result.conversation_id) {
+      await onSelectConversation({ kind: result.conversation_kind, id: result.conversation_id });
+      return;
+    }
+    if (result.section === "prs" && result.detail_kind === "pr" && result.detail_id) {
+      const item = payload?.prs.find((entry) => entry.id === result.detail_id);
+      if (item) {
+        setDetailPanel({ kind: "pr", item });
+      }
+    }
+    if (result.section === "prs" && result.detail_kind === "issue" && result.detail_id) {
+      const item = payload?.issues.find((entry) => entry.id === result.detail_id);
+      if (item) {
+        setDetailPanel({ kind: "issue", item });
+      }
+    }
+    if (result.section === "codespaces" && result.detail_id) {
+      setActiveCodespaceId(result.detail_id);
+    }
+    if (result.workflow_run_id && payload?.workflow.runs.some((run) => run.id === result.workflow_run_id)) {
+      void onSectionChange("workflow");
+      return;
+    }
+    if (result.section && ORBIT_SECTIONS.some((item) => item.key === result.section)) {
+      await onSectionChange(result.section as OrbitSection);
     }
   }
 
@@ -1002,6 +1292,21 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
   }
 
+  async function onUpdateMemberRole(memberUserId: string, role: string) {
+    if (!session) {
+      return;
+    }
+    setUpdatingMemberRole(memberUserId);
+    try {
+      await updateOrbitMemberRole(session.token, orbitId, memberUserId, role);
+      await reload(selectedConversation);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to change that member role.");
+    } finally {
+      setUpdatingMemberRole(null);
+    }
+  }
+
   async function onOpenRepositoryPicker() {
     if (!session) {
       return;
@@ -1126,6 +1431,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               <Search className="h-4 w-4" />
             </OrbitRailButton>
 
+            <OrbitRailButton title="Command palette" onClick={() => setShowCommandPalette(true)}>
+              <CommandIcon className="h-4 w-4" />
+            </OrbitRailButton>
+
             {ORBIT_SECTIONS.map(({ key, label, icon: Icon }) => (
               <OrbitRailButton
                 key={key}
@@ -1174,7 +1483,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       }
     >
       <ShellMain>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-5 py-5 lg:px-6">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
           {error ? (
             <SurfaceCard className="mb-4 border-red-500/20 bg-red-500/10 text-sm text-red-700 dark:text-red-300">
               {error}
@@ -1523,6 +1832,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           open={activeLeftPanel === "search"}
           onClose={() => setActiveLeftPanel(null)}
           offset={RAIL_WIDTH}
+          width="min(380px, calc(100vw - 104px))"
           title="Search this orbit"
           description="Jump between conversations, members, PRs, issues, codespaces, artifacts, and clean message context."
         >
@@ -1552,17 +1862,36 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           open={activeLeftPanel === "notifications"}
           onClose={() => setActiveLeftPanel(null)}
           offset={RAIL_WIDTH}
+          width="min(420px, calc(100vw - 104px))"
           title="Inbox"
-          description="Mentions, DMs, approvals, clarifications, run outcomes, and artifact alerts live here without noisy global agent presence."
+          description="Triage saved views keep approvals, reviews, failures, and deliverables visible without noisy global agent presence."
         >
-          <div className="space-y-3">
-            {notificationItems.length ? (
-              notificationItems.map((item) => (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {SAVED_VIEWS.map((view) => (
+                <button
+                  key={view.key}
+                  className={cx(
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                    activeSavedView === view.key
+                      ? "border-accent bg-accent text-accentContrast"
+                      : "border-line bg-panelStrong text-ink hover:bg-panelMuted",
+                  )}
+                  onClick={() => setActiveSavedView(view.key)}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  {view.label}
+                  <span className="text-[11px] opacity-80">{savedViewCounts[view.key] || 0}</span>
+                </button>
+              ))}
+            </div>
+            {filteredTriageItems.length ? (
+              filteredTriageItems.map((item) => (
                 <button
                   key={item.key}
                   className="w-full text-left"
-                  onClick={() => (item.item ? void onOpenNotification(item.item) : undefined)}
-                  disabled={!item.item}
+                  onClick={() => (item.action ? item.action() : undefined)}
+                  disabled={!item.action}
                 >
                   <SurfaceCard className="bg-panelStrong">
                     <div className="flex items-start justify-between gap-3">
@@ -1576,7 +1905,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </button>
               ))
             ) : (
-              <EmptyState text="No important activity yet." />
+              <EmptyState text="Nothing matches this saved view right now." />
             )}
           </div>
         </LeftSlidePanel>
@@ -1683,6 +2012,53 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
             </div>
           ) : null}
         </RightDetailPanel>
+
+        <CenteredModal
+          open={showCommandPalette}
+          onClose={() => setShowCommandPalette(false)}
+          title="Command palette"
+          description="Jump between work, conversations, and triage views with Cmd/Ctrl+K."
+          footer={
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-quiet">Typed search uses the orbit search API. Empty state shows quick actions.</p>
+              <GhostButton onClick={() => setShowCommandPalette(false)}>Close</GhostButton>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div className="relative">
+              <Keyboard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-quiet" />
+              <TextInput
+                value={commandQuery}
+                onChange={(event) => setCommandQuery(event.target.value)}
+                placeholder="Search or run a command"
+                className="pl-10"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-[420px] space-y-2 overflow-auto">
+              {loadingCommandResults ? (
+                <EmptyState text="Searching this orbit…" />
+              ) : commandPaletteItems.length ? (
+                commandPaletteItems.map((item) => (
+                  <button
+                    key={item.key}
+                    className="flex w-full items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 text-left transition hover:bg-panelMuted"
+                    onClick={item.action}
+                  >
+                    <CommandIcon className="mt-0.5 h-4 w-4 shrink-0 text-quiet" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{item.label}</p>
+                      <p className="truncate text-xs text-quiet">{item.detail}</p>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <EmptyState text="No commands matched that search." />
+              )}
+            </div>
+          </div>
+        </CenteredModal>
 
         <CenteredModal
           open={showCreateChannel}
@@ -1888,6 +2264,56 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   <MailPlus className="h-4 w-4" />
                   Invite
                 </ActionButton>
+              </div>
+            </SurfaceCard>
+
+            <SurfaceCard className="bg-panelStrong">
+              <SectionTitle
+                eyebrow="Members"
+                title="Workspace roles"
+                detail="Orbit membership and repo scope stay separate. Owners can adjust workspace roles here."
+                dense
+              />
+              <div className="mt-4 space-y-3">
+                {payload.members.map((member) => (
+                  <SurfaceCard key={member.user_id} className="bg-panel">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">{member.display_name || member.login || member.github_login}</p>
+                        <p className="mt-1 truncate text-xs text-quiet">
+                          {[member.github_login || member.login, member.is_self ? "You" : null].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: "owner", label: "Owner" },
+                          { value: "manager", label: "Manager" },
+                          { value: "contributor", label: "Contributor" },
+                          { value: "viewer", label: "Viewer" },
+                        ].map((option) => (
+                          <button
+                            key={`${member.user_id}-${option.value}`}
+                            className={cx(
+                              "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                              member.role === option.value
+                                ? "border-accent bg-accent text-accentContrast"
+                                : "border-line bg-panelStrong text-ink hover:bg-panelMuted",
+                            )}
+                            onClick={() => void onUpdateMemberRole(member.user_id, option.value)}
+                            disabled={
+                              !payload.permissions?.can_manage_roles
+                              || updatingMemberRole === member.user_id
+                              || member.role === option.value
+                              || (member.is_self && option.value !== "owner")
+                            }
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </SurfaceCard>
+                ))}
               </div>
             </SurfaceCard>
           </div>

@@ -276,10 +276,25 @@ export type PermissionSnapshot = {
   orbit_role: string;
   repo_grants: Record<string, string>;
   can_manage_members: boolean;
+  can_manage_roles: boolean;
   can_manage_settings: boolean;
   can_manage_integrations: boolean;
   can_bind_repo: boolean;
   can_publish_artifact: boolean;
+};
+
+export type OrbitSearchResult = {
+  key: string;
+  kind: string;
+  label: string;
+  detail: string;
+  section: string;
+  conversation_kind?: "channel" | "dm" | null;
+  conversation_id?: string | null;
+  detail_kind?: "pr" | "issue" | null;
+  detail_id?: string | null;
+  workflow_run_id?: string | null;
+  metadata: Record<string, unknown>;
 };
 
 export type OrbitPayload = {

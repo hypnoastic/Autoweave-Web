@@ -21,6 +21,10 @@ class InviteRequest(BaseModel):
     email: str
 
 
+class OrbitMemberRoleUpdateRequest(BaseModel):
+    role: str
+
+
 class OrbitRepositoryConnectRequest(BaseModel):
     repo_full_name: str
     make_primary: bool = False

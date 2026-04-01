@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   fetchChannelMessages: vi.fn(),
   fetchDmThread: vi.fn(),
   fetchOrbit: vi.fn(),
+  fetchOrbitSearch: vi.fn(),
   fetchPreferences: vi.fn(),
   inviteOrbitMember: vi.fn(),
   publishDemo: vi.fn(),
@@ -23,6 +24,7 @@ const api = vi.hoisted(() => ({
   sendDmMessage: vi.fn(),
   setPrimaryOrbitRepository: vi.fn(),
   updatePreferences: vi.fn(),
+  updateOrbitMemberRole: vi.fn(),
   updateNavigation: vi.fn(),
   writeSession: vi.fn(),
 }));
@@ -560,7 +562,7 @@ describe("OrbitWorkspace", () => {
     expect(await screen.findByText("octocat/orbit-one · Release notes draft is ready.")).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /search/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
     });
     const searchInput = screen.getByPlaceholderText("Search orbit surfaces");
     await act(async () => {
@@ -571,6 +573,261 @@ describe("OrbitWorkspace", () => {
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: "release notes" } });
     });
+    expect((await screen.findAllByText("Release notes draft")).length).toBeGreaterThan(0);
+  });
+
+  it("opens the command palette with Ctrl+K and renders remote orbit search results", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [
+        {
+          id: "repo_1",
+          provider: "github",
+          full_name: "octocat/orbit-one",
+          owner_name: "octocat",
+          repo_name: "orbit-one",
+          is_private: true,
+          default_branch: "main",
+          status: "active",
+          health_state: "healthy",
+          is_primary: true,
+          binding_status: "active",
+        },
+      ],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat" }],
+      channels: [{ id: "channel_1", slug: "general", name: "general" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
+      messages: [],
+      human_loop_items: [],
+      notifications: [],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: { repo_1: "admin" },
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      codespaces: [],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+    });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchDmThread.mockResolvedValue({
+      thread: { id: "dm_1", title: "ERGO" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchOrbitSearch.mockResolvedValue([
+      {
+        key: "artifact-1",
+        kind: "artifact",
+        label: "Release notes draft",
+        detail: "Artifact · octocat/orbit-one",
+        section: "demos",
+        metadata: {},
+      },
+    ]);
+    api.updateNavigation.mockResolvedValue({});
+
+    render(
+      <ThemeProvider>
+        <OrbitWorkspace orbitId="orbit_1" />
+      </ThemeProvider>,
+    );
+
+    expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    });
+
+    expect(await screen.findByText("Command palette")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText("Search or run a command"), { target: { value: "release notes" } });
+    });
+
+    await waitFor(() => expect(api.fetchOrbitSearch).toHaveBeenCalledWith("session-token", "orbit_1", "release notes", 18));
     expect(await screen.findByText("Release notes draft")).toBeInTheDocument();
+  });
+
+  it("filters triage saved views and updates member roles from orbit settings", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [
+        {
+          id: "repo_1",
+          provider: "github",
+          full_name: "octocat/orbit-one",
+          owner_name: "octocat",
+          repo_name: "orbit-one",
+          is_private: true,
+          default_branch: "main",
+          status: "active",
+          health_state: "healthy",
+          is_primary: true,
+          binding_status: "active",
+        },
+      ],
+      members: [
+        { id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat", is_self: true },
+        { id: "user_2", user_id: "user_2", role: "contributor", display_name: "Team Mate", login: "teammate" },
+      ],
+      channels: [{ id: "channel_1", slug: "general", name: "general" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
+      messages: [],
+      human_loop_items: [],
+      notifications: [
+        {
+          id: "notif_approval",
+          kind: "approval",
+          title: "Approval required",
+          detail: "Release signoff",
+          status: "unread",
+          source_kind: "approval",
+          source_id: "approval_1",
+          channel_id: "channel_1",
+          dm_thread_id: null,
+          metadata: { repository_ids: ["repo_1"] },
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "notif_artifact",
+          kind: "artifact",
+          title: "Artifact ready",
+          detail: "Release notes draft is ready.",
+          status: "unread",
+          source_kind: "artifact",
+          source_id: "artifact_1",
+          channel_id: null,
+          dm_thread_id: null,
+          metadata: { repository_full_name: "octocat/orbit-one" },
+          created_at: new Date().toISOString(),
+        },
+      ],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: { repo_1: "admin" },
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      codespaces: [],
+      demos: [],
+      artifacts: [
+        {
+          id: "artifact_1",
+          repository_id: "repo_1",
+          repository_full_name: "octocat/orbit-one",
+          repository_url: "https://github.com/octocat/orbit-one",
+          work_item_id: null,
+          workflow_run_id: null,
+          source_kind: "demo",
+          source_id: "demo_1",
+          artifact_kind: "report",
+          title: "Release notes draft",
+          summary: "A ready report artifact",
+          status: "ready",
+          external_url: "https://example.com/artifact",
+          metadata: {},
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+    });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchDmThread.mockResolvedValue({
+      thread: { id: "dm_1", title: "ERGO" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.updateNavigation.mockResolvedValue({});
+    api.updateOrbitMemberRole.mockResolvedValue({ ok: true });
+
+    render(
+      <ThemeProvider>
+        <OrbitWorkspace orbitId="orbit_1" />
+      </ThemeProvider>,
+    );
+
+    expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    });
+    expect(await screen.findByText("Approval required")).toBeInTheDocument();
+
+    const artifactViewButtons = screen.getAllByRole("button", { name: /Artifacts/i });
+    await act(async () => {
+      fireEvent.click(artifactViewButtons[artifactViewButtons.length - 1]);
+    });
+    expect(await screen.findByText("Artifact ready")).toBeInTheDocument();
+    expect(screen.queryByText("Approval required")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /orbit settings/i }));
+    });
+    expect(await screen.findByText("Workspace roles")).toBeInTheDocument();
+
+    const managerButtons = screen.getAllByRole("button", { name: "Manager" });
+    await act(async () => {
+      fireEvent.click(managerButtons[managerButtons.length - 1]);
+    });
+
+    await waitFor(() => expect(api.updateOrbitMemberRole).toHaveBeenCalledWith("session-token", "orbit_1", "user_2", "manager"));
   });
 });

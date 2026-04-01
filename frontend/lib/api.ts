@@ -13,6 +13,7 @@ import type {
   HumanLoopItem,
   Orbit,
   OrbitPayload,
+  OrbitSearchResult,
   Session,
   UserPreferences,
   WorkflowSnapshot,
@@ -130,6 +131,14 @@ export async function fetchAvailableRepositories(token: string, orbitId: string)
   return request<AvailableRepository[]>(`/api/orbits/${orbitId}/available-repositories`, {}, token);
 }
 
+export async function fetchOrbitSearch(token: string, orbitId: string, query: string, limit = 16) {
+  return request<OrbitSearchResult[]>(
+    `/api/orbits/${orbitId}/search?q=${encodeURIComponent(query)}&limit=${encodeURIComponent(String(limit))}`,
+    {},
+    token,
+  );
+}
+
 export async function connectOrbitRepository(token: string, orbitId: string, payload: { repo_full_name: string; make_primary?: boolean }) {
   return request(`/api/orbits/${orbitId}/repositories`, { method: "POST", body: JSON.stringify(payload) }, token);
 }
@@ -216,4 +225,8 @@ export async function updatePreferences(token: string, payload: UserPreferences)
 
 export async function inviteOrbitMember(token: string, orbitId: string, email: string) {
   return request(`/api/orbits/${orbitId}/invites`, { method: "POST", body: JSON.stringify({ email }) }, token);
+}
+
+export async function updateOrbitMemberRole(token: string, orbitId: string, memberUserId: string, role: string) {
+  return request(`/api/orbits/${orbitId}/members/${memberUserId}/role`, { method: "PUT", body: JSON.stringify({ role }) }, token);
 }

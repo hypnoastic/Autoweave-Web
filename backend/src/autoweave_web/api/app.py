@@ -32,6 +32,7 @@ from autoweave_web.models.entities import (
     OrbitInvite,
     OrbitMembership,
     OrbitRepositoryBinding,
+    RepoGrant,
     PullRequestSnapshot,
     RepositoryConnection,
     RuntimeHumanLoopItem,
@@ -53,6 +54,7 @@ from autoweave_web.schemas.api import (
     MessageCreateRequest,
     NavigationStateRequest,
     OrbitCreateRequest,
+    OrbitMemberRoleUpdateRequest,
     OrbitRepositoryConnectRequest,
     OrbitPayload,
     SessionPayload,
@@ -76,20 +78,30 @@ from autoweave_web.services.product_state import (
     ensure_run_repo_scope,
     ensure_work_item_repo_scope,
     human_loop_items_for_conversation,
+    human_loop_submission_receipt,
     mark_conversation_seen,
     notify_artifact_generated,
     notifications_for_user,
     permission_snapshot_for_user,
     primary_repository_for_orbit,
     record_audit_event,
+    record_human_loop_submission,
     repositories_for_orbit,
     repository_ids_for_work_item,
     repository_ids_for_run,
+    runtime_human_loop_item_for_request,
     serialize_permission_snapshot,
     sync_runtime_projection,
     upsert_artifact,
     upsert_repository_connection,
     set_primary_repository_binding,
+)
+from autoweave_web.services.policy import (
+    ORBIT_ROLE_CONTRIBUTOR,
+    ORBIT_ROLE_MANAGER,
+    ORBIT_ROLE_OWNER,
+    ORBIT_ROLE_VIEWER,
+    normalize_orbit_role,
 )
 from autoweave_web.services.runtime import RuntimeManager, slugify
 
@@ -231,6 +243,32 @@ def create_app(
             "created_at": message.created_at.isoformat(),
         }
 
+    def _format_state_label(value: str | None) -> str:
+        normalized = str(value or "").strip().replace("_", " ")
+        if not normalized:
+            return "unknown"
+        return normalized[:1].upper() + normalized[1:]
+
+    def _is_legacy_workflow_prompt_message(message: Message) -> bool:
+        metadata = message.metadata_json or {}
+        if isinstance(metadata, dict) and (
+            metadata.get("workflow_prompt")
+            or metadata.get("workflow_prompt_type")
+            or metadata.get("workflow_prompt_phase")
+        ):
+            return True
+        if message.author_kind != "system":
+            return False
+        body = str(message.body or "").lower()
+        return any(
+            phrase in body
+            for phrase in (
+                "answered an ergo clarification request",
+                "approved an ergo release signoff",
+                "rejected an ergo release signoff",
+            )
+        )
+
     def _serialize_member_summary(member_user: User, membership: OrbitMembership, *, viewer: User) -> dict[str, Any]:
         return {
             "id": member_user.id,
@@ -239,7 +277,7 @@ def create_app(
             "github_login": member_user.github_login,
             "display_name": member_user.display_name,
             "avatar_url": member_user.avatar_url,
-            "role": membership.role,
+            "role": normalize_orbit_role(membership.role),
             "introduced": membership.introduced,
             "is_self": member_user.id == viewer.id,
         }
@@ -392,6 +430,107 @@ def create_app(
             "created_at": item.created_at.isoformat(),
             "metadata": item.metadata_json,
         }
+
+    def _serialize_search_result(
+        *,
+        key: str,
+        kind: str,
+        label: str,
+        detail: str,
+        section: str,
+        conversation_kind: str | None = None,
+        conversation_id: str | None = None,
+        detail_kind: str | None = None,
+        detail_id: str | None = None,
+        workflow_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "key": key,
+            "kind": kind,
+            "label": label,
+            "detail": detail,
+            "section": section,
+            "conversation_kind": conversation_kind,
+            "conversation_id": conversation_id,
+            "detail_kind": detail_kind,
+            "detail_id": detail_id,
+            "workflow_run_id": workflow_run_id,
+            "metadata": metadata or {},
+        }
+
+    def _load_workflow_snapshot(
+        db: Session,
+        orbit: Orbit,
+        *,
+        timeout_seconds: float = 1.25,
+        sync_projection: bool = False,
+    ) -> dict[str, Any]:
+        workflow_snapshot = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=timeout_seconds)
+        workflow_snapshot = _attach_work_item_context(db, orbit, workflow_snapshot)
+        workflow_snapshot = _hydrate_workflow_from_projection(db, orbit, workflow_snapshot)
+        _sync_work_items_from_snapshot(db, orbit, workflow_snapshot)
+        if sync_projection:
+            sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow_snapshot)
+        return workflow_snapshot
+
+    def _projection_refresh_due(
+        db: Session,
+        orbit: Orbit,
+        workflow_snapshot: dict[str, Any],
+        *,
+        minimum_age: timedelta = timedelta(seconds=12),
+    ) -> bool:
+        runs = workflow_snapshot.get("runs")
+        if not isinstance(runs, list) or not runs:
+            return False
+        latest_projection = db.scalar(
+            select(RuntimeRunProjection)
+            .where(RuntimeRunProjection.orbit_id == orbit.id)
+            .order_by(RuntimeRunProjection.updated_at.desc(), RuntimeRunProjection.created_at.desc())
+        )
+        if latest_projection is None:
+            return True
+        latest_projection_updated_at = latest_projection.updated_at
+        if latest_projection_updated_at.tzinfo is None:
+            latest_projection_updated_at = latest_projection_updated_at.replace(tzinfo=utc_now().tzinfo)
+        if latest_projection_updated_at <= utc_now() - minimum_age:
+            return True
+        open_request_ids: set[str] = set()
+        run_ids: set[str] = set()
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            run_id = str(run.get("id") or "").strip()
+            if run_id:
+                run_ids.add(run_id)
+            for request in run.get("human_requests", []):
+                if isinstance(request, dict) and str(request.get("status") or "").strip().lower() == "open":
+                    request_id = str(request.get("id") or "").strip()
+                    if request_id:
+                        open_request_ids.add(request_id)
+            for request in run.get("approval_requests", []):
+                if isinstance(request, dict) and str(request.get("status") or "").strip().lower() == "requested":
+                    request_id = str(request.get("id") or "").strip()
+                    if request_id:
+                        open_request_ids.add(request_id)
+        projected_run_ids = {
+            projection.workflow_run_id
+            for projection in db.scalars(select(RuntimeRunProjection).where(RuntimeRunProjection.orbit_id == orbit.id)).all()
+        }
+        if not run_ids.issubset(projected_run_ids):
+            return True
+        projected_open_request_ids = {
+            item.request_id
+            for item in db.scalars(select(RuntimeHumanLoopItem).where(RuntimeHumanLoopItem.orbit_id == orbit.id)).all()
+            if item.status in {"open", "requested"}
+        }
+        return not open_request_ids.issubset(projected_open_request_ids)
+
+    def _sync_runtime_projection_if_due(db: Session, orbit: Orbit, workflow_snapshot: dict[str, Any]) -> None:
+        if not _projection_refresh_due(db, orbit, workflow_snapshot):
+            return
+        sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow_snapshot)
 
     def _normalize_pull_request_status(item: PullRequestSnapshot) -> str:
         metadata = item.metadata_json or {}
@@ -1007,6 +1146,200 @@ def create_app(
                     )
                     existing_prompt_keys.add(key)
 
+    def _orbit_search(
+        db: Session,
+        orbit: Orbit,
+        *,
+        query: str,
+        viewer: User,
+        limit: int = 16,
+    ) -> list[dict[str, Any]]:
+        term = query.strip().lower()
+        if not term:
+            return []
+
+        members = db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id)).all()
+        channels = db.scalars(select(Channel).where(Channel.orbit_id == orbit.id).order_by(Channel.slug)).all()
+        dms = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at.desc())).all()
+        work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id == orbit.id).order_by(WorkItem.updated_at.desc())).all()
+        run_projections = db.scalars(
+            select(RuntimeRunProjection)
+            .where(RuntimeRunProjection.orbit_id == orbit.id)
+            .order_by(RuntimeRunProjection.updated_at.desc(), RuntimeRunProjection.created_at.desc())
+        ).all()
+        prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id).order_by(PullRequestSnapshot.updated_at.desc())).all()
+        issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
+        codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
+        artifacts = artifacts_for_orbit(db, orbit_id=orbit.id)
+        messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id).order_by(Message.created_at.desc())).all()
+        channel_lookup = {channel.id: channel for channel in channels}
+        dm_lookup = {thread.id: thread for thread in dms}
+        results: list[dict[str, Any]] = []
+
+        def matches(*values: str | None) -> bool:
+            haystack = " ".join(str(value or "").lower() for value in values)
+            return term in haystack
+
+        for channel in channels:
+            if matches(channel.name, channel.slug):
+                results.append(
+                    _serialize_search_result(
+                        key=f"channel-{channel.id}",
+                        kind="channel",
+                        label=f"#{channel.name}",
+                        detail="Channel",
+                        section="chat",
+                        conversation_kind="channel",
+                        conversation_id=channel.id,
+                    )
+                )
+
+        for thread in dms:
+            payload = _serialize_dm_thread(db, thread, viewer=viewer)
+            if matches(thread.title, payload.get("participant", {}).get("display_name"), payload.get("participant", {}).get("login")):
+                results.append(
+                    _serialize_search_result(
+                        key=f"dm-{thread.id}",
+                        kind="dm",
+                        label=str(payload.get("participant", {}).get("display_name") or thread.title),
+                        detail="Direct message",
+                        section="chat",
+                        conversation_kind="dm",
+                        conversation_id=thread.id,
+                    )
+                )
+
+        for membership in members:
+            member_user = db.get(User, membership.user_id)
+            if member_user is None or not matches(member_user.display_name, member_user.github_login, membership.role):
+                continue
+            results.append(
+                _serialize_search_result(
+                    key=f"member-{member_user.id}",
+                    kind="member",
+                    label=member_user.display_name,
+                    detail=f"Member · {normalize_orbit_role(membership.role)}",
+                    section="chat",
+                    metadata={"user_id": member_user.id, "github_login": member_user.github_login},
+                )
+            )
+
+        for item in work_items:
+            if not matches(item.title, item.summary, item.request_text, item.branch_name):
+                continue
+            results.append(
+                    _serialize_search_result(
+                        key=f"work-item-{item.id}",
+                        kind="work_item",
+                        label=item.title,
+                        detail=f"Task · {_format_state_label(item.status)}",
+                        section="workflow",
+                        workflow_run_id=item.workflow_run_id,
+                        metadata={"work_item_id": item.id},
+                    )
+            )
+
+        for projection in run_projections:
+            if not matches(projection.title, projection.summary, projection.workflow_run_id, projection.status):
+                continue
+            results.append(
+                    _serialize_search_result(
+                        key=f"run-{projection.workflow_run_id}",
+                        kind="workflow_run",
+                        label=projection.title or projection.workflow_run_id,
+                        detail=f"Run · {_format_state_label(projection.operator_status or projection.status)}",
+                        section="workflow",
+                        workflow_run_id=projection.workflow_run_id,
+                    )
+                )
+
+        for item in prs:
+            if matches(item.title, item.url, item.branch_name, item.metadata_json.get("repository_full_name")):
+                results.append(
+                    _serialize_search_result(
+                        key=f"pr-{item.id}",
+                        kind="pull_request",
+                        label=item.title,
+                        detail=f"PR #{item.github_number}",
+                        section="prs",
+                        detail_kind="pr",
+                        detail_id=item.id,
+                    )
+                )
+
+        for item in issues:
+            if matches(item.title, item.url, item.metadata_json.get("repository_full_name")):
+                results.append(
+                    _serialize_search_result(
+                        key=f"issue-{item.id}",
+                        kind="issue",
+                        label=item.title,
+                        detail=f"Issue #{item.github_number}",
+                        section="prs",
+                        detail_kind="issue",
+                        detail_id=item.id,
+                    )
+                )
+
+        for item in codespaces:
+            if matches(item.name, item.branch_name, item.workspace_path):
+                results.append(
+                    _serialize_search_result(
+                        key=f"codespace-{item.id}",
+                        kind="codespace",
+                        label=item.name,
+                        detail=item.branch_name,
+                        section="codespaces",
+                        detail_id=item.id,
+                    )
+                )
+
+        for item in artifacts:
+            if matches(item.title, item.summary, item.artifact_kind, item.metadata_json.get("repository_full_name")):
+                results.append(
+                    _serialize_search_result(
+                        key=f"artifact-{item.id}",
+                        kind="artifact",
+                        label=item.title,
+                        detail=item.summary or formatStateLabel(item.artifact_kind),
+                        section="demos",
+                        detail_id=item.id,
+                    )
+                )
+
+        for message in messages:
+            if _is_legacy_workflow_prompt_message(message):
+                continue
+            if not matches(message.body, message.author_name):
+                continue
+            conversation_label = "Chat message"
+            conversation_kind = None
+            conversation_id = None
+            if message.channel_id:
+                channel = channel_lookup.get(message.channel_id)
+                conversation_label = f"Message in #{channel.name}" if channel is not None else "Channel message"
+                conversation_kind = "channel"
+                conversation_id = message.channel_id
+            elif message.dm_thread_id:
+                thread = dm_lookup.get(message.dm_thread_id)
+                conversation_label = f"Message in {thread.title}" if thread is not None else "Direct message"
+                conversation_kind = "dm"
+                conversation_id = message.dm_thread_id
+            results.append(
+                _serialize_search_result(
+                    key=f"message-{message.id}",
+                    kind="message",
+                    label=message.body,
+                    detail=conversation_label,
+                    section="chat",
+                    conversation_kind=conversation_kind,
+                    conversation_id=conversation_id,
+                    metadata={"message_id": message.id},
+                )
+            )
+
+        return results[:limit]
+
     @app.get("/api/health")
     def health() -> dict[str, Any]:
         return {
@@ -1116,14 +1449,6 @@ def create_app(
     def dashboard(user: User = Depends(current_user), db: Session = Depends(get_db)) -> DashboardPayload:
         orbit_ids = [membership.orbit_id for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()]
         orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
-        for orbit in orbits[:5]:
-            ensure_primary_repo_binding(db, orbit)
-            workflow_snapshot = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=0.5)
-            workflow_snapshot = _attach_work_item_context(db, orbit, workflow_snapshot)
-            workflow_snapshot = _hydrate_workflow_from_projection(db, orbit, workflow_snapshot)
-            _sync_work_items_from_snapshot(db, orbit, workflow_snapshot)
-            sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow_snapshot)
-        db.commit()
         work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id.in_(orbit_ids)).order_by(WorkItem.updated_at.desc())).all() if orbit_ids else []
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id.in_(orbit_ids)).order_by(Codespace.created_at.desc())).all() if orbit_ids else []
         demos = db.scalars(select(Demo).where(Demo.orbit_id.in_(orbit_ids)).order_by(Demo.created_at.desc())).all() if orbit_ids else []
@@ -1267,6 +1592,87 @@ def create_app(
         _send_invite_email(invite, orbit)
         return {"id": invite.id, "email": invite.email, "token": invite.token, "status": invite.status}
 
+    @app.put("/api/orbits/{orbit_id}/members/{member_user_id}/role")
+    def update_orbit_member_role(
+        orbit_id: str,
+        member_user_id: str,
+        payload: OrbitMemberRoleUpdateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permissions = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        _require_permission(permissions.can_manage_roles(), "Only orbit owners can change member roles.")
+        target_membership = _orbit_membership_for_user(db, orbit.id, member_user_id)
+        if target_membership is None:
+            raise HTTPException(status_code=404, detail="Member not found")
+
+        next_role = normalize_orbit_role(payload.role)
+        if next_role not in {ORBIT_ROLE_OWNER, ORBIT_ROLE_MANAGER, ORBIT_ROLE_CONTRIBUTOR, ORBIT_ROLE_VIEWER}:
+            raise HTTPException(status_code=400, detail="Unsupported orbit role")
+        current_role = normalize_orbit_role(target_membership.role)
+        if current_role == next_role:
+            target_user = db.get(User, member_user_id)
+            if target_user is None:
+                raise HTTPException(status_code=404, detail="Member not found")
+            return _serialize_member_summary(target_user, target_membership, viewer=user)
+        if member_user_id == user.id and next_role != ORBIT_ROLE_OWNER:
+            raise HTTPException(status_code=400, detail="Owners cannot demote themselves.")
+        if current_role == ORBIT_ROLE_OWNER and next_role != ORBIT_ROLE_OWNER:
+            owner_count = sum(
+                1
+                for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id)).all()
+                if normalize_orbit_role(membership.role) == ORBIT_ROLE_OWNER
+            )
+            if owner_count <= 1:
+                raise HTTPException(status_code=400, detail="At least one orbit owner is required.")
+
+        target_membership.role = next_role
+        bound_repositories = repositories_for_orbit(db, orbit.id)
+        if next_role == ORBIT_ROLE_OWNER:
+            for repository, _ in bound_repositories:
+                ensure_repo_grant(
+                    db,
+                    orbit_id=orbit.id,
+                    repository_connection_id=repository.id,
+                    user_id=member_user_id,
+                    grant_level="admin",
+                )
+        elif next_role in {ORBIT_ROLE_MANAGER, ORBIT_ROLE_CONTRIBUTOR}:
+            existing_grants = db.scalars(
+                select(RepoGrant).where(RepoGrant.orbit_id == orbit.id, RepoGrant.user_id == member_user_id)
+            ).all()
+            for grant in existing_grants:
+                grant.grant_level = "view"
+            for repository, _ in bound_repositories:
+                ensure_repo_grant(
+                    db,
+                    orbit_id=orbit.id,
+                    repository_connection_id=repository.id,
+                    user_id=member_user_id,
+                    grant_level="view",
+                )
+        else:
+            for grant in db.scalars(
+                select(RepoGrant).where(RepoGrant.orbit_id == orbit.id, RepoGrant.user_id == member_user_id)
+            ).all():
+                db.delete(grant)
+
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="orbit.member.role_changed",
+            target_kind="membership",
+            target_id=target_membership.id,
+            metadata_json={"member_user_id": member_user_id, "from_role": current_role, "to_role": next_role},
+        )
+        db.commit()
+        target_user = db.get(User, member_user_id)
+        if target_user is None:
+            raise HTTPException(status_code=404, detail="Member not found")
+        return _serialize_member_summary(target_user, target_membership, viewer=user)
+
     @app.post("/api/invites/{token}/accept")
     def accept_invite(token: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         invite = db.scalar(select(OrbitInvite).where(OrbitInvite.token == token))
@@ -1277,7 +1683,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Orbit missing")
         existing = db.scalar(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id, OrbitMembership.user_id == user.id))
         if existing is None:
-            db.add(OrbitMembership(orbit_id=orbit.id, user_id=user.id, role="member", introduced=True))
+            db.add(OrbitMembership(orbit_id=orbit.id, user_id=user.id, role=ORBIT_ROLE_CONTRIBUTOR, introduced=True))
         invite.status = "accepted"
         invite.accepted_at = utc_now()
         primary_repo = primary_repository_for_orbit(db, orbit)
@@ -1443,19 +1849,16 @@ def create_app(
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
-        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
-        workflow = _attach_work_item_context(db, orbit, workflow)
-        workflow = _hydrate_workflow_from_projection(db, orbit, workflow)
-        _sync_work_items_from_snapshot(db, orbit, workflow)
+        workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=False)
         general = _orbit_channel(db, orbit.id)
         messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
         try:
-            sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
+            _sync_runtime_projection_if_due(db, orbit, workflow)
             db.commit()
         except OperationalError as exc:
             db.rollback()
             logger.warning(
-                "Runtime projection update failed for orbit %s; serving orbit payload without refreshed projections: %s",
+                "Deferred runtime projection update failed for orbit %s; serving orbit payload with existing projections: %s",
                 orbit.id,
                 exc,
             )
@@ -1481,6 +1884,20 @@ def create_app(
             artifacts=[_serialize_artifact(db, item) for item in orbit_artifacts[:16]],
             navigation=navigation.get_state(user.id),
         )
+
+    @app.get("/api/orbits/{orbit_id}/search")
+    def orbit_search(
+        orbit_id: str,
+        q: str = Query(default=""),
+        limit: int = Query(default=16, ge=1, le=40),
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        if not flag_enabled(settings, "ff_search_command_v1"):
+            raise HTTPException(status_code=404, detail="Orbit search is not enabled.")
+        orbit = _orbit_for_member(db, orbit_id, user)
+        ensure_primary_repo_binding(db, orbit)
+        return _orbit_search(db, orbit, query=q, viewer=user, limit=limit)
 
     @app.get("/api/orbits/{orbit_id}/messages")
     def orbit_messages(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
@@ -1718,12 +2135,17 @@ def create_app(
     @app.get("/api/orbits/{orbit_id}/workflow")
     def orbit_workflow(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
-        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
-        workflow = _attach_work_item_context(db, orbit, workflow)
-        workflow = _hydrate_workflow_from_projection(db, orbit, workflow)
-        _sync_work_items_from_snapshot(db, orbit, workflow)
-        sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
-        db.commit()
+        try:
+            workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=True)
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            logger.warning(
+                "Workflow projection refresh failed for orbit %s; serving workflow payload without refreshed projections: %s",
+                orbit.id,
+                exc,
+            )
+            workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=False)
         return workflow
 
     @app.post("/api/orbits/{orbit_id}/workflow/human-requests/answer")
@@ -1740,12 +2162,34 @@ def create_app(
             permissions.can_trigger_run_for_repos(run_repository_ids or list(permissions.repo_grants)),
             "You do not have permission to answer workflow clarification requests for this run.",
         )
+        human_loop_item = runtime_human_loop_item_for_request(
+            db,
+            orbit_id=orbit.id,
+            workflow_run_id=payload.workflow_run_id,
+            request_id=payload.request_id,
+            request_kind="clarification",
+        )
+        existing_receipt = human_loop_submission_receipt(human_loop_item)
+        if existing_receipt is not None:
+            previous_answer = str(existing_receipt.get("response_text") or "").strip()
+            next_answer = payload.answer_text.strip()
+            if previous_answer == next_answer:
+                return {**existing_receipt, "idempotent": True}
+            raise HTTPException(status_code=409, detail="This clarification request has already been answered.")
         receipt = runtime_manager.answer_human_request(
             orbit,
             workflow_run_id=payload.workflow_run_id,
             request_id=payload.request_id,
             answer_text=payload.answer_text,
         )
+        if human_loop_item is not None:
+            record_human_loop_submission(
+                db,
+                orbit=orbit,
+                item=human_loop_item,
+                actor_user_id=user.id,
+                answer_text=payload.answer_text.strip(),
+            )
         record_audit_event(
             db,
             orbit_id=orbit.id,
@@ -1755,11 +2199,18 @@ def create_app(
             target_id=payload.request_id,
             metadata_json={"workflow_run_id": payload.workflow_run_id},
         )
-        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
-        workflow = _attach_work_item_context(db, orbit, workflow)
-        workflow = _hydrate_workflow_from_projection(db, orbit, workflow)
-        sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
         db.commit()
+        try:
+            workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=True)
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            logger.warning(
+                "Workflow clarification projection refresh failed for orbit %s after request %s: %s",
+                orbit.id,
+                payload.request_id,
+                exc,
+            )
         return receipt
 
     @app.post("/api/orbits/{orbit_id}/workflow/approval-requests/resolve")
@@ -1776,12 +2227,33 @@ def create_app(
             permissions.can_resolve_approval_for_repos(run_repository_ids),
             "You do not have permission to resolve this approval request.",
         )
+        approval_item = runtime_human_loop_item_for_request(
+            db,
+            orbit_id=orbit.id,
+            workflow_run_id=payload.workflow_run_id,
+            request_id=payload.request_id,
+            request_kind="approval",
+        )
+        existing_receipt = human_loop_submission_receipt(approval_item)
+        if existing_receipt is not None:
+            previous_approved = bool(existing_receipt.get("approved"))
+            if previous_approved == payload.approved:
+                return {**existing_receipt, "idempotent": True}
+            raise HTTPException(status_code=409, detail="This approval request has already been resolved.")
         receipt = runtime_manager.resolve_approval_request(
             orbit,
             workflow_run_id=payload.workflow_run_id,
             request_id=payload.request_id,
             approved=payload.approved,
         )
+        if approval_item is not None:
+            record_human_loop_submission(
+                db,
+                orbit=orbit,
+                item=approval_item,
+                actor_user_id=user.id,
+                approved=payload.approved,
+            )
         record_audit_event(
             db,
             orbit_id=orbit.id,
@@ -1791,11 +2263,18 @@ def create_app(
             target_id=payload.request_id,
             metadata_json={"workflow_run_id": payload.workflow_run_id, "approved": payload.approved},
         )
-        workflow = runtime_manager.monitoring_snapshot(orbit, timeout_seconds=1.25)
-        workflow = _attach_work_item_context(db, orbit, workflow)
-        workflow = _hydrate_workflow_from_projection(db, orbit, workflow)
-        sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
         db.commit()
+        try:
+            workflow = _load_workflow_snapshot(db, orbit, timeout_seconds=1.25, sync_projection=True)
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            logger.warning(
+                "Workflow approval projection refresh failed for orbit %s after request %s: %s",
+                orbit.id,
+                payload.request_id,
+                exc,
+            )
         return receipt
 
     @app.get("/api/orbits/{orbit_id}/dms")

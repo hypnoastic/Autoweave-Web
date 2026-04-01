@@ -205,7 +205,7 @@ def test_dm_thread_creation_works_with_member_login_and_orbit_payloads_are_rich(
     assert orbit_payload.status_code == 200
     members = orbit_payload.json()["members"]
     teammate = next(member for member in members if member["login"] == "teammate")
-    assert teammate["role"] == "member"
+    assert teammate["role"] == "contributor"
 
     dm_response = client.post(
         f"/api/orbits/{orbit['id']}/dms",
@@ -822,12 +822,19 @@ def test_workflow_endpoint_falls_back_to_saved_projection_when_runtime_snapshot_
     assert payload["runs"][0]["id"] == work_item["workflow_ref"]
 
 
-def test_orbit_payload_survives_runtime_projection_operational_errors(client, monkeypatch):
+def test_orbit_payload_hot_read_skips_runtime_projection_sync(client, monkeypatch):
     token, _ = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
     orbit = _create_orbit(client, headers)
 
+    first_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert first_payload.status_code == 200
+
+    called = False
+
     def failing_sync_runtime_projection(*args, **kwargs):
+        nonlocal called
+        called = True
         raise OperationalError("INSERT INTO product_runtime_runs ...", {}, Exception("ssl eof"))
 
     monkeypatch.setattr(app_module, "sync_runtime_projection", failing_sync_runtime_projection)
@@ -837,3 +844,236 @@ def test_orbit_payload_survives_runtime_projection_operational_errors(client, mo
     orbit_payload = payload.json()
     assert orbit_payload["orbit"]["id"] == orbit["id"]
     assert orbit_payload["channels"][0]["slug"] == "general"
+    assert called is False
+
+
+def test_answer_workflow_human_request_is_idempotent(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the review workflow for this orbit"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
+
+    client.app.state.runtime_manager.snapshots[orbit["id"]] = {
+        "status": "ok",
+        "selected_run_id": work_item["workflow_ref"],
+        "selected_run": {
+            "id": work_item["workflow_ref"],
+            "title": "@ERGO build the review workflow for this orbit",
+            "status": "running",
+            "operator_status": "waiting_for_human",
+            "execution_status": "waiting_for_human",
+            "operator_summary": "Clarification needed",
+            "execution_summary": "Waiting for answer",
+            "tasks": [],
+            "events": [],
+            "human_requests": [{"id": "human_1", "status": "open", "question": "What should ship first?"}],
+            "approval_requests": [],
+        },
+        "runs": [
+            {
+                "id": work_item["workflow_ref"],
+                "title": "@ERGO build the review workflow for this orbit",
+                "status": "running",
+                "operator_status": "waiting_for_human",
+                "execution_status": "waiting_for_human",
+                "operator_summary": "Clarification needed",
+                "execution_summary": "Waiting for answer",
+                "tasks": [],
+                "events": [],
+                "human_requests": [{"id": "human_1", "status": "open", "question": "What should ship first?"}],
+                "approval_requests": [],
+            }
+        ],
+    }
+
+    first_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert first_orbit.status_code == 200
+
+    first_answer = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "human_1", "answer_text": "Ship approvals first."},
+        headers=headers,
+    )
+    assert first_answer.status_code == 200
+    assert len(client.app.state.runtime_manager.answers) == 1
+
+    second_answer = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "human_1", "answer_text": "Ship approvals first."},
+        headers=headers,
+    )
+    assert second_answer.status_code == 200
+    assert second_answer.json()["idempotent"] is True
+    assert len(client.app.state.runtime_manager.answers) == 1
+
+    conflicting_answer = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/human-requests/answer",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "human_1", "answer_text": "Ship chat first."},
+        headers=headers,
+    )
+    assert conflicting_answer.status_code == 409
+
+
+def test_resolve_workflow_approval_is_idempotent(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the release workflow for this orbit"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
+
+    client.app.state.runtime_manager.snapshots[orbit["id"]] = {
+        "status": "ok",
+        "selected_run_id": work_item["workflow_ref"],
+        "selected_run": {
+            "id": work_item["workflow_ref"],
+            "title": "@ERGO build the release workflow for this orbit",
+            "status": "running",
+            "operator_status": "waiting_for_approval",
+            "execution_status": "waiting_for_approval",
+            "operator_summary": "Approval required",
+            "execution_summary": "Waiting for release signoff",
+            "tasks": [],
+            "events": [],
+            "human_requests": [],
+            "approval_requests": [{"id": "approval_1", "status": "requested", "reason": "Release signoff"}],
+        },
+        "runs": [
+            {
+                "id": work_item["workflow_ref"],
+                "title": "@ERGO build the release workflow for this orbit",
+                "status": "running",
+                "operator_status": "waiting_for_approval",
+                "execution_status": "waiting_for_approval",
+                "operator_summary": "Approval required",
+                "execution_summary": "Waiting for release signoff",
+                "tasks": [],
+                "events": [],
+                "human_requests": [],
+                "approval_requests": [{"id": "approval_1", "status": "requested", "reason": "Release signoff"}],
+            }
+        ],
+    }
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+
+    first_resolution = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/approval-requests/resolve",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "approval_1", "approved": True},
+        headers=headers,
+    )
+    assert first_resolution.status_code == 200
+    assert len(client.app.state.runtime_manager.approvals) == 1
+
+    second_resolution = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/approval-requests/resolve",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "approval_1", "approved": True},
+        headers=headers,
+    )
+    assert second_resolution.status_code == 200
+    assert second_resolution.json()["idempotent"] is True
+    assert len(client.app.state.runtime_manager.approvals) == 1
+
+    conflicting_resolution = client.post(
+        f"/api/orbits/{orbit['id']}/workflow/approval-requests/resolve",
+        json={"workflow_run_id": work_item["workflow_ref"], "request_id": "approval_1", "approved": False},
+        headers=headers,
+    )
+    assert conflicting_resolution.status_code == 409
+
+
+def test_owner_can_change_member_roles(client):
+    owner_token, _ = _login(client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    orbit = _create_orbit(client, owner_headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    teammate_headers = {"Authorization": f"Bearer {second_login.json()['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=teammate_headers)
+    assert accept.status_code == 200
+
+    teammate_id = second_login.json()["user"]["id"]
+    promote = client.put(
+        f"/api/orbits/{orbit['id']}/members/{teammate_id}/role",
+        json={"role": "manager"},
+        headers=owner_headers,
+    )
+    assert promote.status_code == 200
+    assert promote.json()["role"] == "manager"
+
+    demote = client.put(
+        f"/api/orbits/{orbit['id']}/members/{teammate_id}/role",
+        json={"role": "viewer"},
+        headers=owner_headers,
+    )
+    assert demote.status_code == 200
+    assert demote.json()["role"] == "viewer"
+
+    teammate_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers)
+    assert teammate_orbit.status_code == 200
+    assert teammate_orbit.json()["permissions"]["orbit_role"] == "viewer"
+    assert teammate_orbit.json()["permissions"]["repo_grants"] == {}
+
+
+def test_orbit_search_endpoint_is_flag_gated_and_returns_artifacts(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    codespace = client.post(
+        f"/api/orbits/{orbit['id']}/codespaces",
+        json={"name": "Search workspace"},
+        headers=headers,
+    )
+    assert codespace.status_code == 200
+    demo = client.post(
+        f"/api/orbits/{orbit['id']}/demos",
+        json={"title": "Release notes demo", "source_path": codespace.json()["workspace_path"]},
+        headers=headers,
+    )
+    assert demo.status_code == 200
+
+    search = client.get(f"/api/orbits/{orbit['id']}/search?q=release%20notes", headers=headers)
+    assert search.status_code == 200
+    payload = search.json()
+    assert any(item["kind"] == "artifact" and item["label"] == "Release notes demo" for item in payload)
+
+    client.app.state.settings.feature_flags = "ff_repo_installations_v1"
+    disabled = client.get(f"/api/orbits/{orbit['id']}/search?q=release", headers=headers)
+    assert disabled.status_code == 404
+
+
+def test_multi_repo_binding_requires_feature_flag_for_secondary_repo(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    client.app.state.settings.feature_flags = "ff_repo_installations_v1"
+    response = client.post(
+        f"/api/orbits/{orbit['id']}/repositories",
+        json={"repo_full_name": "octocat/platform-ops", "make_primary": False},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert "Multi-repo bindings are not enabled" in response.json()["detail"]

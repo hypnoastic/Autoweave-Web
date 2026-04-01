@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     demo_image: str = "python:3.12-slim"
 
     default_repo_private: bool = True
-    feature_flags: str = "ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2"
+    feature_flags: str = "ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2,ff_artifact_center_v1,ff_search_command_v1"
 
     @property
     def github_oauth_callback_url(self) -> str:

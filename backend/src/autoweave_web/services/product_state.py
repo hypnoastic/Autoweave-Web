@@ -68,7 +68,12 @@ def record_audit_event(
     return event
 
 
-def ensure_installation_for_user(db: Session, user: User) -> IntegrationInstallation:
+def ensure_installation_for_user(
+    db: Session,
+    user: User,
+    *,
+    touch: bool = True,
+) -> IntegrationInstallation:
     installation_key = f"github:user_token_dev:{user.id}"
     installation = db.scalar(
         select(IntegrationInstallation).where(IntegrationInstallation.installation_key == installation_key)
@@ -84,7 +89,7 @@ def ensure_installation_for_user(db: Session, user: User) -> IntegrationInstalla
         )
         db.add(installation)
         db.flush()
-    else:
+    elif touch:
         installation.updated_at = utc_now()
     return installation
 
@@ -94,6 +99,7 @@ def upsert_repository_connection(
     *,
     installation: IntegrationInstallation | None,
     repo_payload: dict[str, Any],
+    refresh_existing: bool = True,
 ) -> RepositoryConnection:
     full_name = str(repo_payload.get("full_name") or "").strip()
     if not full_name or "/" not in full_name:
@@ -117,7 +123,7 @@ def upsert_repository_connection(
         )
         db.add(repository)
         db.flush()
-    else:
+    elif refresh_existing:
         repository.installation_id = installation.id if installation else repository.installation_id
         repository.external_repo_id = str(repo_payload.get("id") or repository.external_repo_id or "") or repository.external_repo_id
         repository.owner_name = owner_name or repository.owner_name
@@ -215,7 +221,24 @@ def bind_repository_to_orbit(
     return binding
 
 
-def ensure_primary_repo_binding(db: Session, orbit: Orbit) -> tuple[RepositoryConnection, OrbitRepositoryBinding] | None:
+def ensure_primary_repo_binding(
+    db: Session,
+    orbit: Orbit,
+    *,
+    touch_installation: bool = False,
+    refresh_repository: bool = False,
+) -> tuple[RepositoryConnection, OrbitRepositoryBinding] | None:
+    existing_primary = db.scalar(
+        select(OrbitRepositoryBinding).where(
+            OrbitRepositoryBinding.orbit_id == orbit.id,
+            OrbitRepositoryBinding.is_primary.is_(True),
+            OrbitRepositoryBinding.status == "active",
+        )
+    )
+    if existing_primary is not None:
+        repository = db.get(RepositoryConnection, existing_primary.repository_connection_id)
+        if repository is not None:
+            return repository, existing_primary
     if not orbit.repo_full_name:
         return None
     owner_name, _, repo_name = orbit.repo_full_name.partition("/")
@@ -224,7 +247,7 @@ def ensure_primary_repo_binding(db: Session, orbit: Orbit) -> tuple[RepositoryCo
     installation = None
     owner_user = db.get(User, orbit.created_by_user_id)
     if owner_user is not None:
-        installation = ensure_installation_for_user(db, owner_user)
+        installation = ensure_installation_for_user(db, owner_user, touch=touch_installation)
     repository = upsert_repository_connection(
         db,
         installation=installation,
@@ -236,6 +259,7 @@ def ensure_primary_repo_binding(db: Session, orbit: Orbit) -> tuple[RepositoryCo
             "private": orbit.repo_private,
             "default_branch": orbit.default_branch,
         },
+        refresh_existing=refresh_repository,
     )
     binding = bind_repository_to_orbit(
         db,
@@ -1113,8 +1137,10 @@ def _sync_notifications_for_human_loop_item(
             notification.metadata_json = {"repository_ids": repository_ids, "workflow_run_id": item.workflow_run_id}
             if item.status in {"open", "requested"}:
                 notification.status = "unread"
+                notification.read_at = None
             else:
                 notification.status = "read"
+                notification.read_at = notification.read_at or utc_now()
 
 
 def human_loop_items_for_conversation(
@@ -1141,11 +1167,88 @@ def notifications_for_user(db: Session, *, user_id: str, orbit_id: str | None = 
     return notifications
 
 
+def runtime_human_loop_item_for_request(
+    db: Session,
+    *,
+    orbit_id: str,
+    workflow_run_id: str,
+    request_id: str,
+    request_kind: str,
+) -> RuntimeHumanLoopItem | None:
+    return db.scalar(
+        select(RuntimeHumanLoopItem).where(
+            RuntimeHumanLoopItem.orbit_id == orbit_id,
+            RuntimeHumanLoopItem.workflow_run_id == workflow_run_id,
+            RuntimeHumanLoopItem.request_id == request_id,
+            RuntimeHumanLoopItem.request_kind == request_kind,
+        )
+    )
+
+
+def record_human_loop_submission(
+    db: Session,
+    *,
+    orbit: Orbit,
+    item: RuntimeHumanLoopItem,
+    actor_user_id: str | None,
+    answer_text: str | None = None,
+    approved: bool | None = None,
+) -> dict[str, Any]:
+    submitted_at = utc_now()
+    metadata = dict(item.metadata_json or {})
+    if item.request_kind == "clarification":
+        next_status = "answered"
+        item.response_text = answer_text
+        receipt = {
+            "request_kind": item.request_kind,
+            "workflow_run_id": item.workflow_run_id,
+            "request_id": item.request_id,
+            "status": next_status,
+            "response_text": answer_text,
+            "approved": None,
+            "actor_user_id": actor_user_id,
+            "submitted_at": submitted_at.isoformat(),
+        }
+    else:
+        next_status = "approved" if approved else "rejected"
+        receipt = {
+            "request_kind": item.request_kind,
+            "workflow_run_id": item.workflow_run_id,
+            "request_id": item.request_id,
+            "status": next_status,
+            "response_text": None,
+            "approved": approved,
+            "actor_user_id": actor_user_id,
+            "submitted_at": submitted_at.isoformat(),
+        }
+    metadata["submission_receipt"] = receipt
+    item.status = next_status
+    item.resolved_at = submitted_at
+    item.updated_at = submitted_at
+    item.metadata_json = metadata
+    _sync_notifications_for_human_loop_item(
+        db,
+        orbit=orbit,
+        item=item,
+        repository_ids=[str(value) for value in metadata.get("repository_ids", []) if str(value).strip()],
+    )
+    return receipt
+
+
+def human_loop_submission_receipt(item: RuntimeHumanLoopItem | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+    metadata = item.metadata_json or {}
+    receipt = metadata.get("submission_receipt")
+    return receipt if isinstance(receipt, dict) else None
+
+
 def serialize_permission_snapshot(snapshot: OrbitPermissionSnapshot) -> dict[str, Any]:
     return {
         "orbit_role": snapshot.orbit_role,
         "repo_grants": snapshot.repo_grants,
         "can_manage_members": snapshot.can_manage_members(),
+        "can_manage_roles": snapshot.can_manage_roles(),
         "can_manage_settings": snapshot.can_manage_settings(),
         "can_manage_integrations": snapshot.can_manage_integrations(),
         "can_bind_repo": snapshot.can_bind_repo(),

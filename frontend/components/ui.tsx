@@ -250,7 +250,7 @@ export function LeftSlidePanel({
   open: boolean;
   onClose: () => void;
   offset?: number;
-  width?: number;
+  width?: number | string;
   title: string;
   description?: string;
   children: ReactNode;

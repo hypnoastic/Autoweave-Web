@@ -61,6 +61,9 @@ class OrbitPermissionSnapshot:
     def can_manage_members(self) -> bool:
         return role_at_least(self.orbit_role, ORBIT_ROLE_MANAGER)
 
+    def can_manage_roles(self) -> bool:
+        return role_at_least(self.orbit_role, ORBIT_ROLE_OWNER)
+
     def can_manage_settings(self) -> bool:
         return role_at_least(self.orbit_role, ORBIT_ROLE_MANAGER)
 
