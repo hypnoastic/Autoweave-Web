@@ -37,12 +37,17 @@ import {
   AvatarMark,
   CenteredModal,
   cx,
+  EmptyState,
+  FieldHint,
   FieldLabel,
   GhostButton,
   IconButton,
+  InlineNotice,
   LeftSlidePanel,
   MenuItem,
   Panel,
+  PageHeader,
+  PageLoader,
   PopoverMenu,
   ScrollPanel,
   SectionTitle,
@@ -182,7 +187,7 @@ export function DashboardScreen() {
   }, [payload]);
 
   if (!session || !payload) {
-    return <div className="flex min-h-dvh items-center justify-center text-sm text-quiet">Loading dashboard…</div>;
+    return <PageLoader label="Loading dashboard…" />;
   }
 
   async function onCreateOrbit() {
@@ -357,17 +362,26 @@ export function DashboardScreen() {
     >
       <ShellMain>
         <div className="mx-auto flex min-w-0 w-full max-w-[1440px] flex-1 flex-col overflow-hidden px-5 py-4 lg:px-7">
-          <div className="flex items-start justify-between gap-6">
-            <div className="max-w-[760px]">
-              <p className="text-sm text-quiet">Hello, {payload.me.display_name}</p>
-              <h1 className="mt-1 text-[2rem] font-semibold tracking-[-0.055em] text-ink">Everything important, nothing noisy.</h1>
-              <p className="mt-2 max-w-[640px] text-sm leading-6 text-quiet">Priority surfaces only what needs attention. Codespaces stay visible. Search, notifications, and settings stay off the main canvas until you need them.</p>
-            </div>
-            <ActionButton onClick={() => setShowCreateOrbit(true)}>
-              <Plus className="h-4 w-4" />
-              New Orbit
-            </ActionButton>
-          </div>
+          <PageHeader
+            eyebrow={`Hello, ${payload.me.display_name}`}
+            title="Everything important, nothing noisy."
+            detail="Priority surfaces only what needs attention. Codespaces stay visible. Search, notifications, and settings stay off the main canvas until you need them."
+            actions={
+              <ActionButton onClick={() => setShowCreateOrbit(true)}>
+                <Plus className="h-4 w-4" />
+                New Orbit
+              </ActionButton>
+            }
+          />
+
+          {error ? (
+            <InlineNotice
+              className="mt-4"
+              tone="danger"
+              title="Dashboard action blocked"
+              detail={error}
+            />
+          ) : null}
 
           <div className="mt-5 grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
             <Panel className="flex min-h-0 flex-col overflow-hidden">
@@ -405,9 +419,7 @@ export function DashboardScreen() {
                       </SurfaceCard>
                     ))
                   ) : (
-                    <SurfaceCard className="rounded-[16px] border-dashed bg-panel px-4 py-3.5">
-                      <p className="text-sm text-quiet">Nothing urgent yet. Create an orbit, ask ERGO to build something, and meaningful signals will surface here.</p>
-                    </SurfaceCard>
+                    <EmptyState detail="Create an orbit, ask ERGO to build something, and meaningful signals will surface here." />
                   )}
                 </div>
               </ScrollPanel>
@@ -439,9 +451,7 @@ export function DashboardScreen() {
                       </SurfaceCard>
                     ))
                   ) : (
-                    <SurfaceCard className="rounded-[16px] border-dashed bg-panel px-4 py-3.5">
-                      <p className="text-sm text-quiet">No codespaces yet. They will appear here with a running or stopped state once created inside an orbit.</p>
-                    </SurfaceCard>
+                    <EmptyState detail="Codespaces appear here with a running or stopped state once they are created inside an orbit." />
                   )}
                 </div>
               </ScrollPanel>
@@ -474,9 +484,7 @@ export function DashboardScreen() {
                 </Link>
               ))
             ) : (
-              <SurfaceCard className="border-dashed bg-panel">
-                <p className="text-sm text-quiet">No matching orbits.</p>
-              </SurfaceCard>
+              <EmptyState title="No matching orbits" detail="Try a different orbit name or repository filter." />
             )}
           </div>
         </LeftSlidePanel>
@@ -502,9 +510,7 @@ export function DashboardScreen() {
                 </SurfaceCard>
               ))
             ) : (
-              <SurfaceCard className="border-dashed bg-panel">
-                <p className="text-sm text-quiet">No notifications yet.</p>
-              </SurfaceCard>
+              <EmptyState title="No notifications yet" detail="When approvals, reviews, or run updates need attention, they will surface here." />
             )}
           </div>
         </LeftSlidePanel>
@@ -535,7 +541,7 @@ export function DashboardScreen() {
                 {draft.logoFileName || "Upload logo"}
                 <input type="file" accept="image/*" className="hidden" onChange={(event) => onLogoUpload(event.target.files?.[0])} />
               </label>
-              <p className="text-center text-xs text-quiet">Upload a small square mark. The current backend stores it as a text URL or data URL.</p>
+              <FieldHint>Upload a small square mark. The current backend stores it as a text URL or data URL.</FieldHint>
             </SurfaceCard>
 
             <div className="grid gap-4">
@@ -555,7 +561,6 @@ export function DashboardScreen() {
                 <input type="checkbox" checked={draft.private} onChange={(event) => setDraft((current) => ({ ...current, private: event.target.checked }))} />
                 Create the GitHub repository as private
               </label>
-              {error ? <SurfaceCard className="border-red-500/20 bg-red-500/10 text-sm text-red-700 dark:text-red-300">{error}</SurfaceCard> : null}
             </div>
           </div>
         </CenteredModal>

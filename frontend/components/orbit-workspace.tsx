@@ -34,12 +34,15 @@ import {
   CenteredModal,
   cx,
   Divider,
+  EmptyState as SharedEmptyState,
   FieldLabel,
   GhostButton,
   IconButton,
+  InlineNotice,
   LeftSlidePanel,
   MenuItem,
   Panel,
+  PageLoader,
   PopoverMenu,
   RightDetailPanel,
   ScrollPanel,
@@ -431,11 +434,7 @@ function BoardCard({
 }
 
 function EmptyState({ text }: { text: string }) {
-  return (
-    <SurfaceCard className="border-dashed bg-panel">
-      <p className="text-sm text-quiet">{text}</p>
-    </SurfaceCard>
-  );
+  return <SharedEmptyState detail={text} />;
 }
 
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
@@ -1153,7 +1152,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }, [availableRepositories, connectedRepositoryIds, repositorySearch]);
 
   if (!session || !payload) {
-    return <div className="flex min-h-dvh items-center justify-center text-sm text-quiet">Loading orbit…</div>;
+    return <PageLoader label="Loading orbit…" />;
   }
 
   async function onSectionChange(nextSection: OrbitSection) {
@@ -1568,9 +1567,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       <ShellMain>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
           {error ? (
-            <SurfaceCard className="mb-4 border-red-500/20 bg-red-500/10 text-sm text-red-700 dark:text-red-300">
-              {error}
-            </SurfaceCard>
+            <InlineNotice className="mb-4" tone="danger" title="Orbit action blocked" detail={error} />
           ) : null}
 
           {section === "chat" ? (

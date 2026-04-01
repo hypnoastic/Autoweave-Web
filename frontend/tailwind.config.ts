@@ -9,6 +9,10 @@ const config: Config = {
         ink: "var(--aw-text)",
         quiet: "var(--aw-text-soft)",
         faint: "var(--aw-text-faint)",
+        focusRing: "var(--aw-focus-ring)",
+        stateSuccess: "var(--aw-state-success)",
+        stateDanger: "var(--aw-state-danger)",
+        stateWarning: "var(--aw-state-warning)",
         panel: "var(--aw-panel)",
         panelStrong: "var(--aw-panel-strong)",
         panelMuted: "var(--aw-panel-muted)",
@@ -31,11 +35,20 @@ const config: Config = {
         pane: "var(--aw-radius-md)",
         chip: "var(--aw-radius-sm)",
       },
+      spacing: {
+        gutter: "var(--aw-space-6)",
+        section: "var(--aw-space-7)",
+        panel: "var(--aw-space-5)",
+      },
       height: {
         dvh: "100dvh",
       },
       minHeight: {
         dvh: "100dvh",
+      },
+      transitionTimingFunction: {
+        productive: "var(--aw-ease-productive)",
+        "productive-out": "var(--aw-ease-productive-out)",
       },
     },
   },

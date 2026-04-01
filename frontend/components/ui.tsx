@@ -9,6 +9,7 @@ import type {
   ReactNode,
   TextareaHTMLAttributes,
 } from "react";
+import { useEffect, useId, useRef } from "react";
 
 export function cx(...values: Parameters<typeof clsx>) {
   return clsx(...values);
@@ -62,10 +63,35 @@ export function SectionTitle({
   dense?: boolean;
 }) {
   return (
-    <div className={clsx("space-y-1", dense && "space-y-0.5")}>
+    <div className={clsx("flex flex-col gap-1", dense && "gap-0.5")}>
       {eyebrow ? <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">{eyebrow}</p> : null}
       <h2 className={clsx("font-semibold tracking-[-0.03em] text-ink", dense ? "text-base" : "text-xl")}>{title}</h2>
       {detail ? <p className={clsx("text-quiet", dense ? "text-xs" : "text-sm")}>{detail}</p> : null}
+    </div>
+  );
+}
+
+export function PageHeader({
+  eyebrow,
+  title,
+  detail,
+  actions,
+  className,
+}: {
+  eyebrow?: string;
+  title: string;
+  detail?: string;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={clsx("flex items-start justify-between gap-6", className)}>
+      <div className="min-w-0">
+        {eyebrow ? <p className="text-sm text-quiet">{eyebrow}</p> : null}
+        <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-ink">{title}</h1>
+        {detail ? <p className="mt-2 max-w-[64ch] text-sm leading-6 text-quiet">{detail}</p> : null}
+      </div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -74,15 +100,25 @@ export function FieldLabel({ children }: { children: ReactNode }) {
   return <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">{children}</span>;
 }
 
+export function FieldHint({ children }: { children: ReactNode }) {
+  return <p className="text-xs leading-5 text-quiet">{children}</p>;
+}
+
+export function FieldError({ children }: { children: ReactNode }) {
+  return <p role="alert" className="text-xs leading-5 text-stateDanger">{children}</p>;
+}
+
 export function ActionButton({
   className,
   children,
   ...rest
 }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) {
+  const buttonType = rest.type ?? "button";
   return (
     <button
+      type={buttonType}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-chip border border-accent bg-accent px-4 py-2.5 text-sm font-medium text-accentContrast transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45",
+        "inline-flex items-center justify-center gap-2 rounded-chip border border-accent bg-accent px-4 py-2.5 text-sm font-medium text-accentContrast transition-[transform,opacity,background-color,border-color,color,box-shadow] duration-200 ease-productive hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-45",
         className,
       )}
       {...rest}
@@ -97,10 +133,12 @@ export function GhostButton({
   children,
   ...rest
 }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) {
+  const buttonType = rest.type ?? "button";
   return (
     <button
+      type={buttonType}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-chip border border-line bg-panelStrong px-4 py-2.5 text-sm font-medium text-ink transition hover:border-lineStrong hover:bg-panelMuted disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-chip border border-line bg-panelStrong px-4 py-2.5 text-sm font-medium text-ink transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-productive hover:border-lineStrong hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...rest}
@@ -116,10 +154,12 @@ export function IconButton({
   children,
   ...rest
 }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }>) {
+  const buttonType = rest.type ?? "button";
   return (
     <button
+      type={buttonType}
       className={clsx(
-        "inline-flex h-10 w-10 items-center justify-center rounded-chip text-quiet transition hover:bg-panelMuted hover:text-ink",
+        "inline-flex h-10 w-10 items-center justify-center rounded-chip text-quiet transition-[transform,background-color,color,box-shadow] duration-200 ease-productive hover:bg-panelMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none",
         active && "bg-accent text-accentContrast hover:bg-accent hover:text-accentContrast",
         className,
       )}
@@ -137,7 +177,7 @@ export function TextInput({
   return (
     <input
       className={clsx(
-        "w-full rounded-chip border border-line bg-panelStrong px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-faint focus:border-lineStrong focus:bg-panel",
+        "w-full rounded-chip border border-line bg-panelStrong px-3.5 py-2.5 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panel focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
       )}
       {...rest}
@@ -152,7 +192,7 @@ export function TextArea({
   return (
     <textarea
       className={clsx(
-        "min-h-24 w-full resize-none rounded-chip border border-line bg-panelStrong px-3.5 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-lineStrong focus:bg-panel",
+        "min-h-24 w-full resize-none rounded-chip border border-line bg-panelStrong px-3.5 py-3 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panel focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
       )}
       {...rest}
@@ -181,14 +221,16 @@ export function AvatarMark({
 export function StatusPill({
   tone = "neutral",
   children,
-}: PropsWithChildren<{ tone?: "neutral" | "accent" | "success" | "danger" | "muted" }>) {
+}: PropsWithChildren<{ tone?: "neutral" | "accent" | "success" | "danger" | "muted" | "warning" }>) {
   const toneClass =
     tone === "accent"
       ? "border-accent bg-accent text-accentContrast"
       : tone === "success"
-        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+        ? "border-stateSuccess/20 bg-stateSuccess/10 text-stateSuccess"
         : tone === "danger"
-          ? "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300"
+          ? "border-stateDanger/20 bg-stateDanger/10 text-stateDanger"
+          : tone === "warning"
+            ? "border-stateWarning/20 bg-stateWarning/10 text-stateWarning"
           : tone === "muted"
             ? "border-line bg-panel text-faint"
             : "border-line bg-panelStrong text-quiet";
@@ -199,20 +241,208 @@ export function SurfaceHeader({
   title,
   detail,
   action,
+  titleId,
 }: {
   title: string;
   detail?: string;
   action?: ReactNode;
+  titleId?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
       <div className="min-w-0">
-        <h3 className="text-sm font-semibold tracking-[-0.02em] text-ink">{title}</h3>
+        <h3 id={titleId} className="text-sm font-semibold tracking-[-0.02em] text-ink">{title}</h3>
         {detail ? <p className="mt-1 text-xs leading-5 text-quiet">{detail}</p> : null}
       </div>
       {action}
     </div>
   );
+}
+
+export function InlineNotice({
+  tone = "neutral",
+  title,
+  detail,
+  className,
+}: {
+  tone?: "neutral" | "success" | "danger" | "warning";
+  title?: string;
+  detail: string;
+  className?: string;
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-stateSuccess/20 bg-stateSuccess/10 text-stateSuccess"
+      : tone === "danger"
+        ? "border-stateDanger/20 bg-stateDanger/10 text-stateDanger"
+        : tone === "warning"
+          ? "border-stateWarning/20 bg-stateWarning/10 text-stateWarning"
+          : "border-line bg-panelStrong text-quiet";
+  return (
+    <div
+      role={tone === "danger" || tone === "warning" ? "alert" : "status"}
+      aria-live={tone === "danger" || tone === "warning" ? "assertive" : "polite"}
+      className={clsx("rounded-pane border px-4 py-3 text-sm", toneClass, className)}
+    >
+      {title ? <p className="font-medium">{title}</p> : null}
+      <p className={clsx(title ? "mt-1" : undefined)}>{detail}</p>
+    </div>
+  );
+}
+
+export function EmptyState({
+  title = "Nothing here yet",
+  detail,
+  action,
+  className,
+}: {
+  title?: string;
+  detail?: string;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={clsx("rounded-pane border border-dashed border-line bg-panel px-4 py-4 text-sm text-quiet", className)}>
+      <p className="font-medium text-ink">{title}</p>
+      {detail ? <p className="mt-1 leading-6">{detail}</p> : null}
+      {action ? <div className="mt-3 flex items-center gap-2">{action}</div> : null}
+    </div>
+  );
+}
+
+export function SkeletonBlock({
+  className,
+}: {
+  className?: string;
+}) {
+  return <div aria-hidden="true" className={clsx("animate-pulse rounded-pane bg-panelMuted motion-reduce:animate-none", className)} />;
+}
+
+export function PageLoader({
+  label = "Loading…",
+}: {
+  label?: string;
+}) {
+  return (
+    <div role="status" aria-live="polite" className="flex min-h-dvh items-center justify-center px-6">
+      <div className="flex items-center gap-3 rounded-pane border border-line bg-panel px-4 py-3 text-sm text-quiet shadow-soft">
+        <span className="h-2.5 w-2.5 rounded-full bg-accent animate-pulse motion-reduce:animate-none" />
+        {label}
+      </div>
+    </div>
+  );
+}
+
+export function ListRow({
+  title,
+  detail,
+  leading,
+  trailing,
+  onClick,
+  className,
+}: {
+  title: string;
+  detail?: string;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  onClick?: () => void;
+  className?: string;
+}) {
+  const content = (
+    <>
+      {leading ? <div className="mt-0.5 shrink-0 text-quiet">{leading}</div> : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-ink">{title}</p>
+        {detail ? <p className="mt-1 truncate text-xs text-quiet">{detail}</p> : null}
+      </div>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={clsx(
+          "flex w-full items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 text-left transition-[background-color,border-color,transform,box-shadow] duration-200 ease-productive hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+          className,
+        )}
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    );
+  }
+  return <div className={clsx("flex items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3", className)}>{content}</div>;
+}
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(", ");
+
+function useOverlaySurface<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const surfaceRef = useRef<T | null>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => {
+      const surface = surfaceRef.current;
+      if (!surface) {
+        return;
+      }
+      const firstFocusable = surface.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      (firstFocusable ?? surface).focus();
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!surfaceRef.current) {
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = Array.from(surfaceRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (node) => !node.hasAttribute("disabled") && node.getAttribute("aria-hidden") !== "true",
+      );
+      if (!focusable.length) {
+        event.preventDefault();
+        surfaceRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      previousActiveElement?.focus();
+    };
+  }, [open, onClose]);
+
+  return { surfaceRef, titleId };
 }
 
 export function OverlayBackdrop({
@@ -224,14 +454,17 @@ export function OverlayBackdrop({
   onClick: () => void;
   subtle?: boolean;
 }) {
+  if (!visible) {
+    return null;
+  }
   return (
     <button
-      aria-hidden={!visible}
+      type="button"
+      aria-label="Close overlay"
       tabIndex={-1}
       onClick={onClick}
       className={clsx(
-        "fixed inset-0 z-30 transition",
-        visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        "aw-motion-fade fixed inset-0 z-30 transition-[opacity] duration-200 ease-productive-out motion-reduce:transition-none",
         subtle ? "bg-overlay/40" : "bg-overlay/80 backdrop-blur-[2px]",
       )}
     />
@@ -255,18 +488,27 @@ export function LeftSlidePanel({
   description?: string;
   children: ReactNode;
 }) {
+  const { surfaceRef, titleId } = useOverlaySurface<HTMLElement>(open, onClose);
+  if (!open) {
+    return null;
+  }
   return (
     <>
       <OverlayBackdrop visible={open} onClick={onClose} />
       <aside
-        className="fixed bottom-0 top-0 z-40 border-r border-line bg-panel shadow-soft transition-transform"
+        ref={surfaceRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="aw-motion-slide-left fixed bottom-0 top-0 z-40 border-r border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
         style={{
           left: offset,
           width,
-          transform: open ? "translateX(0)" : `translateX(calc(-100% - ${offset}px))`,
+          transform: "translateX(0)",
         }}
       >
-        <SurfaceHeader title={title} detail={description} />
+        <SurfaceHeader title={title} detail={description} titleId={titleId} />
         <div className="scroll-region h-[calc(100dvh-73px)] px-5 py-5">{children}</div>
       </aside>
     </>
@@ -286,14 +528,22 @@ export function RightDetailPanel({
   description?: string;
   children: ReactNode;
 }) {
+  const { surfaceRef, titleId } = useOverlaySurface<HTMLElement>(open, onClose);
+  if (!open) {
+    return null;
+  }
   return (
     <>
       <OverlayBackdrop visible={open} onClick={onClose} subtle />
       <aside
-        className="fixed bottom-0 right-0 top-0 z-40 w-full max-w-[420px] border-l border-line bg-panel shadow-soft transition-transform"
-        style={{ transform: open ? "translateX(0)" : "translateX(100%)" }}
+        ref={surfaceRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="aw-motion-slide-right fixed bottom-0 right-0 top-0 z-40 w-full max-w-[420px] border-l border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
       >
-        <SurfaceHeader title={title} detail={description} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
+        <SurfaceHeader title={title} detail={description} titleId={titleId} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
         <div className="scroll-region h-[calc(100dvh-73px)] px-5 py-5">{children}</div>
       </aside>
     </>
@@ -315,12 +565,23 @@ export function CenteredModal({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const { surfaceRef, titleId } = useOverlaySurface<HTMLDivElement>(open, onClose);
+  if (!open) {
+    return null;
+  }
   return (
     <>
       <OverlayBackdrop visible={open} onClick={onClose} />
-      <div className={clsx("fixed inset-0 z-40 flex items-center justify-center px-4 transition", open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0")}>
-        <div className="flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panel shadow-soft">
-          <SurfaceHeader title={title} detail={description} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center px-4 transition-[opacity] duration-200 ease-productive-out motion-reduce:transition-none">
+        <div
+          ref={surfaceRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          className="aw-motion-pop flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
+        >
+          <SurfaceHeader title={title} detail={description} titleId={titleId} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
           <div className="scroll-region px-5 py-5">{children}</div>
           {footer ? <div className="border-t border-line px-5 py-4">{footer}</div> : null}
         </div>
@@ -334,11 +595,14 @@ export function PopoverMenu({
   className,
   children,
 }: PropsWithChildren<{ open: boolean; className?: string }>) {
+  if (!open) {
+    return null;
+  }
   return (
     <div
+      role="menu"
       className={clsx(
-        "absolute right-0 top-full z-40 mt-2 min-w-[220px] rounded-pane border border-line bg-panel p-2 shadow-soft transition",
-        open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        "aw-motion-pop absolute right-0 top-full z-40 mt-2 min-w-[220px] rounded-pane border border-line bg-panel p-2 shadow-soft transition-[opacity,transform] duration-200 ease-productive motion-reduce:transition-none",
         className,
       )}
     >
@@ -352,9 +616,12 @@ export function MenuItem({
   children,
   ...rest
 }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) {
+  const buttonType = rest.type ?? "button";
   return (
     <button
-      className={clsx("flex w-full items-center gap-3 rounded-chip px-3 py-2.5 text-left text-sm text-ink transition hover:bg-panelMuted", className)}
+      role="menuitem"
+      type={buttonType}
+      className={clsx("flex w-full items-center gap-3 rounded-chip px-3 py-2.5 text-left text-sm text-ink transition-[background-color,color,box-shadow] duration-200 ease-productive hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0", className)}
       {...rest}
     >
       {children}

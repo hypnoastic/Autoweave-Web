@@ -47,7 +47,25 @@
 - GitHub OAuth is not configured in the current local environment, so the real login path under test is the token-backed local auth flow
 - MCP Playwright browser control is currently unreliable in this workspace; the active browser-validation path is the Playwright CLI session harness
 - the authenticated orbit shell can still stick on `Loading orbit…` from a fresh browser session even when the backend returns `200` for both orbit payload and workflow payload requests
-- dashboard and orbit still keep hidden overlay surfaces mounted in the DOM, so the shared overlay/focus system remains the first Phase 0 UI foundation target
+- fresh browser sessions currently hit CORS when the frontend is served from `127.0.0.1:3000` and calls the backend on `127.0.0.1:8000`
+
+## Phase 0B Foundation State
+
+- the shared primitive layer now includes:
+  - `PageHeader`
+  - `InlineNotice`
+  - `EmptyState`
+  - `SkeletonBlock`
+  - `PageLoader`
+  - `ListRow`
+  - `FieldHint`
+  - `FieldError`
+- shared overlays now unmount when closed and use clearer dialog/menu semantics with escape and backdrop close behavior
+- the theme layer now has semantic focus/state/motion tokens plus reduced-motion handling
+- dashboard/orbit/chat now consume the new loader/notice/empty-state/header foundation in a bounded proof pass
+- current local validation for this slice:
+  - `cd frontend && npm test -- --run` -> `19 passed`
+  - `cd frontend && npm run build` -> success
 
 ## Open Implementation Threads
 

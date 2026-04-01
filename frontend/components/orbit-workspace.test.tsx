@@ -785,7 +785,7 @@ describe("OrbitWorkspace", () => {
       fireEvent.click(screen.getByRole("button", { name: /profile/i }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /global settings/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /global settings/i }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Light" }));

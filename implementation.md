@@ -176,6 +176,28 @@ The backend and worker mount the shared runtime volume and talk to external Post
 5. workspace and artifact full-canvas modes
 6. runtime/UI hardening after shell refactors
 
+## Phase 0B - Shared UI Foundation
+
+The shared foundation slice is now implemented locally.
+
+Scope landed:
+
+- expanded `frontend/components/ui.tsx` with shared page, state, and row primitives
+- standardized overlay semantics so closed panels/modals/menus unmount instead of staying hidden in the DOM
+- added semantic state/focus/motion tokens in `frontend/app/globals.css` and `frontend/tailwind.config.ts`
+- added reduced-motion handling and restrained opacity/transform-only entry motion
+- updated dashboard/orbit/chat to prove the new shared loader/notice/empty-state/header grammar without broad shell refactors yet
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `19 passed`
+- `cd frontend && npm run build` -> success
+
+Known live validation issue still open after the foundation slice:
+
+- fresh Playwright browser sessions on `127.0.0.1:3000` are currently blocked by CORS when the frontend calls `127.0.0.1:8000`
+- fresh authenticated orbit sessions still stall in `Loading orbit…`
+
 ## UI Redesign Pass
 
 This redesign pass focused on turning the V1 product from a stitched set of screens into a coherent product shell.

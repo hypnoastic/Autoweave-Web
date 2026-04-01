@@ -15,6 +15,7 @@ import {
   ActionButton,
   AvatarMark,
   Divider,
+  EmptyState,
   GhostButton,
   ScrollPanel,
   SectionTitle,
@@ -332,9 +333,7 @@ export function OrbitChatPane({
                 );
               })
             ) : (
-              <SurfaceCard className="border-dashed bg-panel">
-                <p className="text-sm text-quiet">No messages in this conversation yet.</p>
-              </SurfaceCard>
+              <EmptyState title="No messages yet" detail="Start the conversation here. Chat stays human-facing while workflow detail stays on the board." />
             )}
 
             {pendingAgent ? (

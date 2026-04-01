@@ -63,7 +63,7 @@
 - [x] verify token-backed local auth/session path
 - [x] restore Playwright validation through the CLI session harness
 - [x] capture authenticated dashboard and orbit baseline artifacts
-- [ ] standardize shared UI foundation and design-system base
+- [x] standardize shared UI foundation and design-system base
 - [ ] unify authenticated dashboard and orbit shells
 - [ ] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
