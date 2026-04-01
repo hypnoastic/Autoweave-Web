@@ -202,6 +202,11 @@ export type BoardItem = {
   url: string;
   priority?: string;
   branch_name?: string | null;
+  repository_id?: string | null;
+  repository_full_name?: string | null;
+  repository_url?: string | null;
+  linked_work_item_id?: string | null;
+  linked_workflow_run_id?: string | null;
 };
 
 export type CodespaceSummary = {
@@ -211,6 +216,11 @@ export type CodespaceSummary = {
   workspace_path: string;
   status: string;
   editor_url?: string | null;
+  work_item_id?: string | null;
+  workflow_run_id?: string | null;
+  repository_id?: string | null;
+  repository_full_name?: string | null;
+  repository_url?: string | null;
 };
 
 export type DemoSummary = {
@@ -219,6 +229,29 @@ export type DemoSummary = {
   source_path: string;
   status: string;
   url?: string | null;
+  work_item_id?: string | null;
+  workflow_run_id?: string | null;
+  repository_id?: string | null;
+  repository_full_name?: string | null;
+  repository_url?: string | null;
+};
+
+export type ArtifactSummary = {
+  id: string;
+  artifact_kind: string;
+  title: string;
+  summary?: string | null;
+  status: string;
+  external_url?: string | null;
+  work_item_id?: string | null;
+  workflow_run_id?: string | null;
+  source_kind: string;
+  source_id: string;
+  metadata: Record<string, unknown>;
+  updated_at: string;
+  repository_id?: string | null;
+  repository_full_name?: string | null;
+  repository_url?: string | null;
 };
 
 export type UserPreferences = {
@@ -236,6 +269,7 @@ export type NotificationItem = {
   source_kind: string;
   source_id: string;
   created_at: string;
+  metadata: Record<string, unknown>;
 };
 
 export type PermissionSnapshot = {
@@ -263,6 +297,7 @@ export type OrbitPayload = {
   issues: BoardItem[];
   codespaces: CodespaceSummary[];
   demos: DemoSummary[];
+  artifacts: ArtifactSummary[];
   navigation?: { orbit_id?: string | null; section?: string } | null;
   preferences?: UserPreferences | null;
 };

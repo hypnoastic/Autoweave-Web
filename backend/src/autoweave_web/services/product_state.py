@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -9,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from autoweave_web.models.entities import (
     AuditEvent,
+    Artifact,
+    Codespace,
+    ConversationState,
+    Demo,
+    DmParticipant,
     IntegrationInstallation,
+    IssueSnapshot,
+    NotificationPreference,
     Notification,
     Orbit,
     OrbitMembership,
@@ -19,6 +27,7 @@ from autoweave_web.models.entities import (
     RunRepoScope,
     RuntimeHumanLoopItem,
     RuntimeRunProjection,
+    PullRequestSnapshot,
     User,
     WorkItem,
     WorkItemRepoScope,
@@ -31,6 +40,9 @@ from autoweave_web.services.policy import (
     OrbitPermissionSnapshot,
     normalize_orbit_role,
 )
+
+
+_MENTION_PATTERN = re.compile(r"@([A-Za-z0-9][A-Za-z0-9_-]{0,38})")
 
 
 def record_audit_event(
@@ -264,27 +276,400 @@ def ensure_repo_grant(
     return grant
 
 
+def _first_repository_id_for_work_item(db: Session, work_item: WorkItem | None) -> str | None:
+    if work_item is None:
+        return None
+    repository_ids = repository_ids_for_work_item(db, work_item)
+    return repository_ids[0] if repository_ids else None
+
+
+def ensure_notification_preference(db: Session, *, user_id: str) -> NotificationPreference:
+    preference = db.scalar(select(NotificationPreference).where(NotificationPreference.user_id == user_id))
+    if preference is None:
+        preference = NotificationPreference(user_id=user_id)
+        db.add(preference)
+        db.flush()
+    return preference
+
+
+def conversation_state_for_user(
+    db: Session,
+    *,
+    user_id: str,
+    orbit_id: str,
+    channel_id: str | None = None,
+    dm_thread_id: str | None = None,
+    create: bool = False,
+) -> ConversationState | None:
+    state = db.scalar(
+        select(ConversationState).where(
+            ConversationState.user_id == user_id,
+            ConversationState.orbit_id == orbit_id,
+            ConversationState.channel_id == channel_id,
+            ConversationState.dm_thread_id == dm_thread_id,
+        )
+    )
+    if state is None and create:
+        state = ConversationState(
+            user_id=user_id,
+            orbit_id=orbit_id,
+            channel_id=channel_id,
+            dm_thread_id=dm_thread_id,
+            notification_mode="all_activity" if dm_thread_id else "mentions_only",
+        )
+        db.add(state)
+        db.flush()
+    return state
+
+
+def _trim_notification_detail(text: str, *, limit: int = 220) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[: limit - 1].rstrip()}…"
+
+
+def upsert_notification(
+    db: Session,
+    *,
+    user_id: str,
+    orbit_id: str | None,
+    kind: str,
+    title: str,
+    detail: str,
+    source_kind: str,
+    source_id: str,
+    channel_id: str | None = None,
+    dm_thread_id: str | None = None,
+    metadata_json: dict[str, Any] | None = None,
+    unread: bool = True,
+) -> Notification:
+    notification = db.scalar(
+        select(Notification).where(
+            Notification.user_id == user_id,
+            Notification.source_kind == source_kind,
+            Notification.source_id == source_id,
+        )
+    )
+    if notification is None:
+        notification = Notification(
+            user_id=user_id,
+            orbit_id=orbit_id,
+            channel_id=channel_id,
+            dm_thread_id=dm_thread_id,
+            kind=kind,
+            title=title,
+            detail=detail,
+            status="unread" if unread else "read",
+            source_kind=source_kind,
+            source_id=source_id,
+            metadata_json=metadata_json or {},
+            read_at=None if unread else utc_now(),
+        )
+        db.add(notification)
+        db.flush()
+        return notification
+    notification.orbit_id = orbit_id
+    notification.channel_id = channel_id
+    notification.dm_thread_id = dm_thread_id
+    notification.kind = kind
+    notification.title = title
+    notification.detail = detail
+    notification.metadata_json = metadata_json or {}
+    notification.status = "unread" if unread else "read"
+    notification.read_at = None if unread else utc_now()
+    return notification
+
+
+def mark_conversation_seen(
+    db: Session,
+    *,
+    user_id: str,
+    orbit_id: str,
+    channel_id: str | None = None,
+    dm_thread_id: str | None = None,
+    last_seen_message_id: str | None = None,
+) -> None:
+    state = conversation_state_for_user(
+        db,
+        user_id=user_id,
+        orbit_id=orbit_id,
+        channel_id=channel_id,
+        dm_thread_id=dm_thread_id,
+        create=True,
+    )
+    if state is not None:
+        state.last_read_at = utc_now()
+        state.last_seen_message_id = last_seen_message_id or state.last_seen_message_id
+        state.updated_at = utc_now()
+    notifications = db.scalars(
+        select(Notification).where(
+            Notification.user_id == user_id,
+            Notification.orbit_id == orbit_id,
+            Notification.channel_id == channel_id,
+            Notification.dm_thread_id == dm_thread_id,
+            Notification.status == "unread",
+        )
+    ).all()
+    read_at = utc_now()
+    for notification in notifications:
+        notification.status = "read"
+        notification.read_at = read_at
+
+
+def create_message_notifications(
+    db: Session,
+    *,
+    orbit: Orbit,
+    author_user_id: str | None,
+    author_name: str,
+    message_id: str,
+    body: str,
+    channel_id: str | None = None,
+    channel_name: str | None = None,
+    dm_thread_id: str | None = None,
+) -> None:
+    if dm_thread_id:
+        participants = db.scalars(select(DmParticipant).where(DmParticipant.thread_id == dm_thread_id)).all()
+        for participant in participants:
+            if participant.user_id == author_user_id:
+                continue
+            state = conversation_state_for_user(
+                db,
+                user_id=participant.user_id,
+                orbit_id=orbit.id,
+                dm_thread_id=dm_thread_id,
+                create=True,
+            )
+            if state is not None and state.notification_mode == "mute":
+                continue
+            upsert_notification(
+                db,
+                user_id=participant.user_id,
+                orbit_id=orbit.id,
+                dm_thread_id=dm_thread_id,
+                kind="dm",
+                title=f"New DM from {author_name}",
+                detail=_trim_notification_detail(body),
+                source_kind="dm_message",
+                source_id=message_id,
+                metadata_json={"author_name": author_name},
+            )
+        return
+
+    handles = {match.group(1).lower() for match in _MENTION_PATTERN.finditer(body)}
+    memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id)).all()
+    users = {membership.user_id: db.get(User, membership.user_id) for membership in memberships}
+    for membership in memberships:
+        if membership.user_id == author_user_id:
+            continue
+        state = conversation_state_for_user(
+            db,
+            user_id=membership.user_id,
+            orbit_id=orbit.id,
+            channel_id=channel_id,
+            create=True,
+        )
+        if state is not None and state.notification_mode == "mute":
+            continue
+        target_user = users.get(membership.user_id)
+        if target_user is None:
+            continue
+        target_login = str(target_user.github_login or "").lower()
+        mentioned = bool(target_login) and target_login in handles
+        notify_all = state is not None and state.notification_mode == "all_activity"
+        if not mentioned and not notify_all:
+            continue
+        kind = "mention" if mentioned else "channel_activity"
+        title = f"Mention in #{channel_name}" if mentioned and channel_name else f"Activity in #{channel_name or 'channel'}"
+        upsert_notification(
+            db,
+            user_id=membership.user_id,
+            orbit_id=orbit.id,
+            channel_id=channel_id,
+            kind=kind,
+            title=title,
+            detail=_trim_notification_detail(body),
+            source_kind=kind,
+            source_id=message_id,
+            metadata_json={"author_name": author_name},
+        )
+
+
+def upsert_artifact(
+    db: Session,
+    *,
+    orbit_id: str,
+    repository_connection_id: str | None,
+    work_item_id: str | None,
+    workflow_run_id: str | None,
+    source_kind: str,
+    source_id: str,
+    artifact_kind: str,
+    title: str,
+    summary: str | None,
+    status: str,
+    external_url: str | None,
+    metadata_json: dict[str, Any] | None = None,
+) -> Artifact:
+    artifact = db.scalar(
+        select(Artifact).where(
+            Artifact.orbit_id == orbit_id,
+            Artifact.source_kind == source_kind,
+            Artifact.source_id == source_id,
+        )
+    )
+    if artifact is None:
+        artifact = Artifact(
+            orbit_id=orbit_id,
+            repository_connection_id=repository_connection_id,
+            work_item_id=work_item_id,
+            workflow_run_id=workflow_run_id,
+            source_kind=source_kind,
+            source_id=source_id,
+            artifact_kind=artifact_kind,
+            title=title,
+            summary=summary,
+            status=status,
+            external_url=external_url,
+            metadata_json=metadata_json or {},
+        )
+        db.add(artifact)
+        db.flush()
+        return artifact
+    artifact.repository_connection_id = repository_connection_id
+    artifact.work_item_id = work_item_id
+    artifact.workflow_run_id = workflow_run_id
+    artifact.artifact_kind = artifact_kind
+    artifact.title = title
+    artifact.summary = summary
+    artifact.status = status
+    artifact.external_url = external_url
+    artifact.metadata_json = metadata_json or {}
+    artifact.updated_at = utc_now()
+    return artifact
+
+
+def notify_artifact_generated(
+    db: Session,
+    *,
+    orbit: Orbit,
+    artifact: Artifact,
+    triggered_by_user_id: str | None,
+) -> None:
+    recipient_ids: set[str] = set()
+    if artifact.work_item_id:
+        work_item = db.get(WorkItem, artifact.work_item_id)
+        if work_item is not None:
+            recipient_ids.add(work_item.requested_by_user_id)
+    if triggered_by_user_id:
+        recipient_ids.add(triggered_by_user_id)
+    if not recipient_ids:
+        recipient_ids.add(orbit.created_by_user_id)
+    repo_ids = [artifact.repository_connection_id] if artifact.repository_connection_id else []
+    for recipient_id in recipient_ids:
+        upsert_notification(
+            db,
+            user_id=recipient_id,
+            orbit_id=orbit.id,
+            kind="artifact",
+            title=artifact.title,
+            detail=artifact.summary or "A new artifact is ready to review.",
+            source_kind="artifact",
+            source_id=artifact.id,
+            metadata_json={
+                "artifact_kind": artifact.artifact_kind,
+                "artifact_id": artifact.id,
+                "repository_ids": repo_ids,
+                "workflow_run_id": artifact.workflow_run_id,
+            },
+        )
+
+
+def artifacts_for_orbit(db: Session, *, orbit_id: str) -> list[Artifact]:
+    return db.scalars(select(Artifact).where(Artifact.orbit_id == orbit_id).order_by(Artifact.updated_at.desc(), Artifact.created_at.desc())).all()
+
+
+def notify_run_status_transition(
+    db: Session,
+    *,
+    orbit: Orbit,
+    work_item: WorkItem | None,
+    workflow_run_id: str,
+    previous_status: str | None,
+    next_status: str,
+    summary: str | None,
+    repository_ids: list[str],
+    channel_id: str | None,
+    dm_thread_id: str | None,
+) -> None:
+    normalized_next = str(next_status or "").lower()
+    normalized_previous = str(previous_status or "").lower()
+    if normalized_next not in {"completed", "failed"} or normalized_previous == normalized_next:
+        return
+    recipient_ids: set[str] = set()
+    if work_item is not None:
+        recipient_ids.add(work_item.requested_by_user_id)
+    if not recipient_ids:
+        recipient_ids.add(orbit.created_by_user_id)
+    kind = "run_failed" if normalized_next == "failed" else "run_completed"
+    title = "ERGO run failed" if normalized_next == "failed" else "ERGO run completed"
+    detail = summary or ("A run needs attention." if normalized_next == "failed" else "A run finished successfully.")
+    for recipient_id in recipient_ids:
+        upsert_notification(
+            db,
+            user_id=recipient_id,
+            orbit_id=orbit.id,
+            channel_id=channel_id,
+            dm_thread_id=dm_thread_id,
+            kind=kind,
+            title=title,
+            detail=detail,
+            source_kind="workflow_run_status",
+            source_id=f"{workflow_run_id}:{normalized_next}",
+            metadata_json={"workflow_run_id": workflow_run_id, "repository_ids": repository_ids},
+        )
+
+
 def backfill_product_models(db: Session) -> None:
     orbits = db.scalars(select(Orbit).order_by(Orbit.created_at)).all()
     for orbit in orbits:
         binding = ensure_primary_repo_binding(db, orbit)
-        if binding is None:
-            continue
-        repository, _ = binding
+        repository = binding[0] if binding is not None else None
         work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id == orbit.id)).all()
+        work_items_by_id = {item.id: item for item in work_items}
         for work_item in work_items:
-            ensure_work_item_repo_scope(db, work_item=work_item, repository_connection_id=repository.id)
-            if work_item.workflow_run_id:
+            if repository is not None:
+                ensure_work_item_repo_scope(db, work_item=work_item, repository_connection_id=repository.id)
+            if repository is not None and work_item.workflow_run_id:
                 ensure_run_repo_scope(
                     db,
                     orbit_id=orbit.id,
                     workflow_run_id=work_item.workflow_run_id,
                     repository_connection_id=repository.id,
                 )
+            if work_item.draft_pr_url:
+                artifact_repository_id = _first_repository_id_for_work_item(db, work_item)
+                upsert_artifact(
+                    db,
+                    orbit_id=orbit.id,
+                    repository_connection_id=artifact_repository_id,
+                    work_item_id=work_item.id,
+                    workflow_run_id=work_item.workflow_run_id,
+                    source_kind="work_item",
+                    source_id=work_item.id,
+                    artifact_kind="draft_pr",
+                    title=f"Draft PR · {work_item.title}",
+                    summary=work_item.summary or "Draft pull request prepared for ERGO work.",
+                    status="ready",
+                    external_url=work_item.draft_pr_url,
+                    metadata_json={"branch_name": work_item.branch_name},
+                )
         memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id)).all()
         for membership in memberships:
+            ensure_notification_preference(db, user_id=membership.user_id)
             normalized_role = normalize_orbit_role(membership.role)
-            if normalized_role == "owner":
+            if repository is not None and normalized_role == "owner":
                 ensure_repo_grant(
                     db,
                     orbit_id=orbit.id,
@@ -292,7 +677,7 @@ def backfill_product_models(db: Session) -> None:
                     user_id=membership.user_id,
                     grant_level=REPO_GRANT_ADMIN,
                 )
-            elif normalized_role == "manager":
+            elif repository is not None and normalized_role == "manager":
                 ensure_repo_grant(
                     db,
                     orbit_id=orbit.id,
@@ -300,13 +685,42 @@ def backfill_product_models(db: Session) -> None:
                     user_id=membership.user_id,
                     grant_level=REPO_GRANT_VIEW,
                 )
-            elif normalized_role in {ORBIT_ROLE_CONTRIBUTOR, "member"}:
+            elif repository is not None and normalized_role in {ORBIT_ROLE_CONTRIBUTOR, "member"}:
                 ensure_repo_grant(
                     db,
                     orbit_id=orbit.id,
                     repository_connection_id=repository.id,
                     user_id=membership.user_id,
                     grant_level=REPO_GRANT_VIEW,
+                )
+        if repository is not None:
+            prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id)).all()
+            for item in prs:
+                item.repository_connection_id = item.repository_connection_id or repository.id
+            issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id)).all()
+            for item in issues:
+                item.repository_connection_id = item.repository_connection_id or repository.id
+            codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id)).all()
+            for item in codespaces:
+                item.repository_connection_id = item.repository_connection_id or repository.id
+            demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id)).all()
+            for demo in demos:
+                demo.repository_connection_id = demo.repository_connection_id or repository.id
+                linked_work_item = work_items_by_id.get(demo.work_item_id) if demo.work_item_id else None
+                upsert_artifact(
+                    db,
+                    orbit_id=orbit.id,
+                    repository_connection_id=demo.repository_connection_id,
+                    work_item_id=demo.work_item_id,
+                    workflow_run_id=linked_work_item.workflow_run_id if linked_work_item is not None else None,
+                    source_kind="demo",
+                    source_id=demo.id,
+                    artifact_kind="demo",
+                    title=demo.title,
+                    summary="Published demo preview",
+                    status=demo.status,
+                    external_url=demo.url,
+                    metadata_json={"source_path": demo.source_path},
                 )
     db.flush()
 
@@ -490,6 +904,13 @@ def sync_runtime_projection(db: Session, *, orbit: Orbit, workflow_snapshot: dic
             continue
         run_ids_seen.add(workflow_run_id)
         work_item = work_items_by_run.get(workflow_run_id)
+        existing_projection = db.scalar(
+            select(RuntimeRunProjection).where(
+                RuntimeRunProjection.orbit_id == orbit.id,
+                RuntimeRunProjection.workflow_run_id == workflow_run_id,
+            )
+        )
+        previous_status = existing_projection.status if existing_projection is not None else None
         projection = _upsert_runtime_run_projection(
             db,
             orbit_id=orbit.id,
@@ -517,6 +938,18 @@ def sync_runtime_projection(db: Session, *, orbit: Orbit, workflow_snapshot: dic
                 workflow_run_id=workflow_run_id,
                 repository_connection_id=repository_id,
             )
+        notify_run_status_transition(
+            db,
+            orbit=orbit,
+            work_item=work_item,
+            workflow_run_id=workflow_run_id,
+            previous_status=previous_status,
+            next_status=str(run.get("status") or "created"),
+            summary=str(run.get("operator_summary") or run.get("execution_summary") or ""),
+            repository_ids=repository_ids,
+            channel_id=projection.source_channel_id,
+            dm_thread_id=projection.source_dm_thread_id,
+        )
 
         for item in _upsert_human_loop_items(
             db,
@@ -703,7 +1136,9 @@ def notifications_for_user(db: Session, *, user_id: str, orbit_id: str | None = 
     statement = select(Notification).where(Notification.user_id == user_id).order_by(Notification.created_at.desc())
     if orbit_id is not None:
         statement = statement.where(Notification.orbit_id == orbit_id)
-    return db.scalars(statement).all()
+    notifications = db.scalars(statement).all()
+    notifications.sort(key=lambda item: (item.status != "unread", -(item.created_at.timestamp() if item.created_at else 0)))
+    return notifications
 
 
 def serialize_permission_snapshot(snapshot: OrbitPermissionSnapshot) -> dict[str, Any]:

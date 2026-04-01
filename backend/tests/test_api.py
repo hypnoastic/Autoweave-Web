@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import httpx
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
+import autoweave_web.api.app as app_module
 from autoweave_web.api.app import create_app
 from autoweave_web.core.settings import get_settings
 from autoweave_web.db.session import Base, get_engine, reset_database_state
@@ -405,7 +407,7 @@ def test_refresh_prs_and_issues_returns_operational_statuses(client):
 
     refresh = client.post(f"/api/orbits/{orbit['id']}/prs-issues/refresh", headers=headers)
     assert refresh.status_code == 200
-    assert refresh.json() == {"prs": 1, "issues": 1}
+    assert refresh.json() == {"prs": 1, "issues": 1, "failed_repositories": []}
 
     orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
     assert orbit_payload.status_code == 200
@@ -413,6 +415,32 @@ def test_refresh_prs_and_issues_returns_operational_statuses(client):
 
     assert payload["prs"][0]["operational_status"] == "queued"
     assert payload["issues"][0]["operational_status"] == "queued"
+    assert payload["prs"][0]["repository_full_name"] == "octocat/orbit-control"
+    assert payload["issues"][0]["repository_full_name"] == "octocat/orbit-control"
+
+
+def test_refresh_prs_and_issues_syncs_all_bound_repositories(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    connect = client.post(
+        f"/api/orbits/{orbit['id']}/repositories",
+        json={"repo_full_name": "octocat/platform-ops", "make_primary": False},
+        headers=headers,
+    )
+    assert connect.status_code == 200
+
+    refresh = client.post(f"/api/orbits/{orbit['id']}/prs-issues/refresh", headers=headers)
+    assert refresh.status_code == 200
+    assert refresh.json()["prs"] == 2
+    assert refresh.json()["issues"] == 2
+    assert refresh.json()["failed_repositories"] == []
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    payload = orbit_payload.json()
+    assert {item["repository_full_name"] for item in payload["prs"]} == {"octocat/orbit-control", "octocat/platform-ops"}
+    assert {item["repository_full_name"] for item in payload["issues"]} == {"octocat/orbit-control", "octocat/platform-ops"}
 
 
 def test_orbit_payload_includes_repository_bindings_and_permissions(client):
@@ -540,6 +568,117 @@ def test_member_cannot_trigger_repo_affecting_work_without_repo_operate_permissi
     assert payload["work_item"] is None
     assert "repo-operate permission" in payload["ergo"]["body"]
     assert client.app.state.runtime_manager.queued == []
+
+
+def test_mentions_and_dm_messages_create_contextual_notifications(client):
+    owner_token, _ = _login(client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    orbit = _create_orbit(client, owner_headers)
+
+    second_login = client.post("/api/auth/github-token", json={"token": "ghp_example_token_value_second"})
+    assert second_login.status_code == 200
+    teammate_headers = {"Authorization": f"Bearer {second_login.json()['token']}"}
+
+    invite = client.post(
+        f"/api/orbits/{orbit['id']}/invites",
+        json={"email": "teammate@example.com"},
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    accept = client.post(f"/api/invites/{invite.json()['token']}/accept", headers=teammate_headers)
+    assert accept.status_code == 200
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=owner_headers).json()
+    general = next(channel for channel in orbit_payload["channels"] if channel["slug"] == "general")
+
+    mention = client.post(
+        f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
+        json={"body": "@teammate please review the workflow board"},
+        headers=owner_headers,
+    )
+    assert mention.status_code == 200
+
+    teammate_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
+    mention_notification = next(item for item in teammate_orbit["notifications"] if item["kind"] == "mention")
+    assert mention_notification["channel_id"] == general["id"]
+    assert mention_notification["status"] == "unread"
+
+    channel_view = client.get(
+        f"/api/orbits/{orbit['id']}/channels/{general['id']}/messages",
+        headers=teammate_headers,
+    )
+    assert channel_view.status_code == 200
+    teammate_after_read = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
+    mention_notification_after = next(item for item in teammate_after_read["notifications"] if item["kind"] == "mention")
+    assert mention_notification_after["status"] == "read"
+
+    dm_thread = client.post(
+        f"/api/orbits/{orbit['id']}/dms",
+        json={"target_user_id": second_login.json()["user"]["id"]},
+        headers=owner_headers,
+    )
+    assert dm_thread.status_code == 200
+    thread_id = dm_thread.json()["id"]
+
+    dm_message = client.post(
+        f"/api/orbits/{orbit['id']}/dms/{thread_id}/messages",
+        json={"body": "Need your repo review today."},
+        headers=owner_headers,
+    )
+    assert dm_message.status_code == 200
+
+    teammate_dm_orbit = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
+    dm_notification = next(item for item in teammate_dm_orbit["notifications"] if item["kind"] == "dm")
+    assert dm_notification["dm_thread_id"] == thread_id
+    assert dm_notification["status"] == "unread"
+
+    teammate_dm_view = client.get(
+        f"/api/orbits/{orbit['id']}/dms/{thread_id}",
+        headers=teammate_headers,
+    )
+    assert teammate_dm_view.status_code == 200
+    teammate_after_dm_read = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
+    dm_notification_after = next(item for item in teammate_after_dm_read["notifications"] if item["kind"] == "dm")
+    assert dm_notification_after["status"] == "read"
+
+
+def test_orbit_payload_includes_repo_aware_artifacts_and_codespaces(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    send = client.post(
+        f"/api/orbits/{orbit['id']}/messages",
+        json={"body": "@ERGO build the repo-aware artifact center"},
+        headers=headers,
+    )
+    assert send.status_code == 200
+    work_item = send.json()["work_item"]
+
+    codespace = client.post(
+        f"/api/orbits/{orbit['id']}/codespaces",
+        json={"name": "Artifact workspace"},
+        headers=headers,
+    )
+    assert codespace.status_code == 200
+
+    demo = client.post(
+        f"/api/orbits/{orbit['id']}/demos",
+        json={"title": "Artifact demo", "source_path": codespace.json()["workspace_path"], "work_item_id": work_item["id"]},
+        headers=headers,
+    )
+    assert demo.status_code == 200
+
+    payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers).json()
+    assert payload["codespaces"][0]["repository_full_name"] == "octocat/orbit-control"
+    assert payload["demos"][0]["repository_full_name"] == "octocat/orbit-control"
+    artifact_kinds = {item["artifact_kind"] for item in payload["artifacts"]}
+    assert {"draft_pr", "demo"} <= artifact_kinds
+    demo_artifact = next(item for item in payload["artifacts"] if item["artifact_kind"] == "demo")
+    assert demo_artifact["repository_full_name"] == "octocat/orbit-control"
+    artifact_notification = next(item for item in payload["notifications"] if item["kind"] == "artifact")
+    assert artifact_notification["source_kind"] == "artifact"
+    assert artifact_notification["metadata"]["artifact_kind"] == "demo"
 
 
 def test_human_loop_items_project_into_conversation_and_resolution_does_not_write_plain_system_messages(client):
@@ -681,3 +820,20 @@ def test_workflow_endpoint_falls_back_to_saved_projection_when_runtime_snapshot_
     assert payload["status"] == "degraded"
     assert payload["selected_run"]["id"] == work_item["workflow_ref"]
     assert payload["runs"][0]["id"] == work_item["workflow_ref"]
+
+
+def test_orbit_payload_survives_runtime_projection_operational_errors(client, monkeypatch):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    def failing_sync_runtime_projection(*args, **kwargs):
+        raise OperationalError("INSERT INTO product_runtime_runs ...", {}, Exception("ssl eof"))
+
+    monkeypatch.setattr(app_module, "sync_runtime_projection", failing_sync_runtime_projection)
+
+    payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert payload.status_code == 200
+    orbit_payload = payload.json()
+    assert orbit_payload["orbit"]["id"] == orbit["id"]
+    assert orbit_payload["channels"][0]["slug"] == "general"

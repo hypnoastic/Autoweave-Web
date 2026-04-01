@@ -157,6 +157,11 @@ class PullRequestSnapshot(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("pr"))
     orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
     github_number: Mapped[int] = mapped_column(Integer, index=True)
     title: Mapped[str] = mapped_column(String(255))
     state: Mapped[str] = mapped_column(String(64), default="open")
@@ -172,6 +177,11 @@ class IssueSnapshot(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("issue"))
     orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
     github_number: Mapped[int] = mapped_column(Integer, index=True)
     title: Mapped[str] = mapped_column(String(255))
     state: Mapped[str] = mapped_column(String(64), default="open")
@@ -187,6 +197,11 @@ class Codespace(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("codespace"))
     orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255))
     branch_name: Mapped[str] = mapped_column(String(255))
     workspace_path: Mapped[str] = mapped_column(Text)
@@ -202,12 +217,44 @@ class Demo(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("demo"))
     orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
     work_item_id: Mapped[str | None] = mapped_column(ForeignKey("product_work_items.id"), nullable=True, index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255))
     source_path: Mapped[str] = mapped_column(Text)
     container_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(64), default="stopped")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Artifact(Base):
+    __tablename__ = "product_artifacts"
+    __table_args__ = (
+        UniqueConstraint("orbit_id", "source_kind", "source_id", name="uq_product_artifact_source"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("artifact"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
+    work_item_id: Mapped[str | None] = mapped_column(ForeignKey("product_work_items.id"), nullable=True, index=True)
+    workflow_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    source_kind: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[str] = mapped_column(String(255), index=True)
+    artifact_kind: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(255))
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="draft")
+    external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class NavigationState(Base):

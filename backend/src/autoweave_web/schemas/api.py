@@ -110,6 +110,7 @@ class OrbitPayload(BaseModel):
     issues: list[dict]
     codespaces: list[dict]
     demos: list[dict]
+    artifacts: list[dict] = Field(default_factory=list)
     navigation: dict | None = None
 
 

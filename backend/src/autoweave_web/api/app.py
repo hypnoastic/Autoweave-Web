@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 import smtplib
 from datetime import timedelta
@@ -11,11 +12,13 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from autoweave_web.core.settings import Settings, get_settings
 from autoweave_web.db.session import get_db, init_database, utc_now
 from autoweave_web.models.entities import (
+    Artifact,
     Channel,
     Codespace,
     Demo,
@@ -65,12 +68,16 @@ from autoweave_web.services.github import GitHubGateway
 from autoweave_web.services.navigation import NavigationStore
 from autoweave_web.services.repo_access import RepositoryAccessService
 from autoweave_web.services.product_state import (
+    artifacts_for_orbit,
     bind_repository_to_orbit,
+    create_message_notifications,
     ensure_primary_repo_binding,
     ensure_repo_grant,
     ensure_run_repo_scope,
     ensure_work_item_repo_scope,
     human_loop_items_for_conversation,
+    mark_conversation_seen,
+    notify_artifact_generated,
     notifications_for_user,
     permission_snapshot_for_user,
     primary_repository_for_orbit,
@@ -80,10 +87,13 @@ from autoweave_web.services.product_state import (
     repository_ids_for_run,
     serialize_permission_snapshot,
     sync_runtime_projection,
+    upsert_artifact,
     upsert_repository_connection,
     set_primary_repository_binding,
 )
 from autoweave_web.services.runtime import RuntimeManager, slugify
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -253,7 +263,44 @@ def create_app(
             "theme_preference": preference.theme_preference if preference else "system",
         }
 
-    def _serialize_codespace(item: Codespace) -> dict[str, Any]:
+    def _repository_identity(db: Session, repository_connection_id: str | None, metadata_json: dict[str, Any] | None = None) -> dict[str, Any]:
+        metadata = metadata_json or {}
+        repository = db.get(RepositoryConnection, repository_connection_id) if repository_connection_id else None
+        return {
+            "repository_id": repository_connection_id,
+            "repository_full_name": repository.full_name if repository is not None else metadata.get("repository_full_name"),
+            "repository_url": repository.url if repository is not None else metadata.get("repository_url"),
+        }
+
+    def _linked_work_item_for_branch(
+        db: Session,
+        *,
+        orbit_id: str,
+        branch_name: str | None,
+        repository_connection_id: str | None,
+    ) -> WorkItem | None:
+        if not branch_name:
+            return None
+        candidates = db.scalars(
+            select(WorkItem).where(
+                WorkItem.orbit_id == orbit_id,
+                WorkItem.branch_name == branch_name,
+            ).order_by(WorkItem.updated_at.desc())
+        ).all()
+        if repository_connection_id is None:
+            return candidates[0] if candidates else None
+        for candidate in candidates:
+            if repository_connection_id in repository_ids_for_work_item(db, candidate):
+                return candidate
+        return candidates[0] if candidates else None
+
+    def _serialize_codespace(db: Session, item: Codespace) -> dict[str, Any]:
+        linked_work_item = _linked_work_item_for_branch(
+            db,
+            orbit_id=item.orbit_id,
+            branch_name=item.branch_name,
+            repository_connection_id=item.repository_connection_id,
+        )
         return {
             "id": item.id,
             "name": item.name,
@@ -261,15 +308,40 @@ def create_app(
             "workspace_path": item.workspace_path,
             "status": item.status,
             "editor_url": item.editor_url,
+            "work_item_id": linked_work_item.id if linked_work_item is not None else None,
+            "workflow_run_id": linked_work_item.workflow_run_id if linked_work_item is not None else None,
+            **_repository_identity(db, item.repository_connection_id),
         }
 
-    def _serialize_demo(item: Demo) -> dict[str, Any]:
+    def _serialize_demo(db: Session, item: Demo) -> dict[str, Any]:
+        work_item = db.get(WorkItem, item.work_item_id) if item.work_item_id else None
         return {
             "id": item.id,
             "title": item.title,
             "source_path": item.source_path,
             "status": item.status,
             "url": item.url,
+            "work_item_id": item.work_item_id,
+            "workflow_run_id": work_item.workflow_run_id if work_item is not None else None,
+            **_repository_identity(db, item.repository_connection_id),
+        }
+
+    def _serialize_artifact(db: Session, item: Artifact) -> dict[str, Any]:
+        identity = _repository_identity(db, item.repository_connection_id, item.metadata_json)
+        return {
+            "id": item.id,
+            "artifact_kind": item.artifact_kind,
+            "title": item.title,
+            "summary": item.summary,
+            "status": item.status,
+            "external_url": item.external_url,
+            "work_item_id": item.work_item_id,
+            "workflow_run_id": item.workflow_run_id,
+            "source_kind": item.source_kind,
+            "source_id": item.source_id,
+            "metadata": item.metadata_json,
+            "updated_at": item.updated_at.isoformat(),
+            **identity,
         }
 
     def _serialize_work_item(item: WorkItem) -> dict[str, Any]:
@@ -318,6 +390,7 @@ def create_app(
             "source_kind": item.source_kind,
             "source_id": item.source_id,
             "created_at": item.created_at.isoformat(),
+            "metadata": item.metadata_json,
         }
 
     def _normalize_pull_request_status(item: PullRequestSnapshot) -> str:
@@ -349,7 +422,13 @@ def create_app(
             return "in_progress"
         return "queued"
 
-    def _serialize_pull_request(item: PullRequestSnapshot) -> dict[str, Any]:
+    def _serialize_pull_request(db: Session, item: PullRequestSnapshot) -> dict[str, Any]:
+        linked_work_item = _linked_work_item_for_branch(
+            db,
+            orbit_id=item.orbit_id,
+            branch_name=item.branch_name,
+            repository_connection_id=item.repository_connection_id,
+        )
         return {
             "id": item.id,
             "number": item.github_number,
@@ -359,9 +438,12 @@ def create_app(
             "priority": item.priority,
             "branch_name": item.branch_name,
             "operational_status": _normalize_pull_request_status(item),
+            "linked_work_item_id": linked_work_item.id if linked_work_item is not None else None,
+            "linked_workflow_run_id": linked_work_item.workflow_run_id if linked_work_item is not None else None,
+            **_repository_identity(db, item.repository_connection_id, item.metadata_json),
         }
 
-    def _serialize_issue(item: IssueSnapshot) -> dict[str, Any]:
+    def _serialize_issue(db: Session, item: IssueSnapshot) -> dict[str, Any]:
         return {
             "id": item.id,
             "number": item.github_number,
@@ -370,6 +452,7 @@ def create_app(
             "url": item.url,
             "priority": item.priority,
             "operational_status": _normalize_issue_status(item),
+            **_repository_identity(db, item.repository_connection_id, item.metadata_json),
         }
 
     def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
@@ -677,7 +760,23 @@ def create_app(
             return "hello", False
         build_cues = ("build", "make", "create", "ship", "implement")
         if any(cue in lowered for cue in build_cues):
-            detail_markers = ("app", "dashboard", "api", "workflow", "landing", "frontend", "backend", "orbit", "issue", "screen")
+            detail_markers = (
+                "app",
+                "artifact",
+                "dashboard",
+                "api",
+                "workflow",
+                "landing",
+                "frontend",
+                "backend",
+                "orbit",
+                "issue",
+                "screen",
+                "report",
+                "demo",
+                "release notes",
+                "docs",
+            )
             if not any(marker in lowered for marker in detail_markers):
                 return "What should I build exactly inside this orbit?", False
             return "working on it", True
@@ -738,6 +837,22 @@ def create_app(
                 orbit_id=orbit.id,
                 workflow_run_id=work_item.workflow_run_id,
                 repository_connection_id=primary_repo.id,
+            )
+        if draft_pr_url:
+            upsert_artifact(
+                db,
+                orbit_id=orbit.id,
+                repository_connection_id=primary_repo.id if primary_repo is not None else None,
+                work_item_id=work_item.id,
+                workflow_run_id=work_item.workflow_run_id,
+                source_kind="work_item",
+                source_id=work_item.id,
+                artifact_kind="draft_pr",
+                title=f"Draft PR · {work_item.title}",
+                summary=summary or "Draft pull request prepared for ERGO work.",
+                status="ready",
+                external_url=draft_pr_url,
+                metadata_json={"branch_name": branch_name},
             )
         work_item.updated_at = utc_now()
         return {
@@ -1036,7 +1151,7 @@ def create_app(
                 {"id": demo.id, "title": demo.title, "status": demo.status, "agent": "ERGO", "demo_url": demo.url}
                 for demo in demos[:2]
             ],
-            codespaces=[_serialize_codespace(item) for item in codespaces[:6]],
+            codespaces=[_serialize_codespace(db, item) for item in codespaces[:6]],
             notifications=notifications,
         )
 
@@ -1334,10 +1449,19 @@ def create_app(
         _sync_work_items_from_snapshot(db, orbit, workflow)
         general = _orbit_channel(db, orbit.id)
         messages = db.scalars(select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == general.id).order_by(Message.created_at)).all()
-        sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
-        db.commit()
+        try:
+            sync_runtime_projection(db, orbit=orbit, workflow_snapshot=workflow)
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            logger.warning(
+                "Runtime projection update failed for orbit %s; serving orbit payload without refreshed projections: %s",
+                orbit.id,
+                exc,
+            )
         conversation_items = human_loop_items_for_conversation(db, orbit_id=orbit.id, channel_id=general.id)
         orbit_notifications = notifications_for_user(db, user_id=user.id, orbit_id=orbit.id)
+        orbit_artifacts = artifacts_for_orbit(db, orbit_id=orbit.id)
         permissions = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
         return OrbitPayload(
             orbit=_serialize_orbit(orbit),
@@ -1350,10 +1474,11 @@ def create_app(
             notifications=[_serialize_notification(item) for item in orbit_notifications[:12]],
             permissions=serialize_permission_snapshot(permissions),
             workflow=workflow,
-            prs=[_serialize_pull_request(item) for item in prs],
-            issues=[_serialize_issue(item) for item in issues],
-            codespaces=[_serialize_codespace(item) for item in codespaces],
-            demos=[_serialize_demo(item) for item in demos],
+            prs=[_serialize_pull_request(db, item) for item in prs],
+            issues=[_serialize_issue(db, item) for item in issues],
+            codespaces=[_serialize_codespace(db, item) for item in codespaces],
+            demos=[_serialize_demo(db, item) for item in demos],
+            artifacts=[_serialize_artifact(db, item) for item in orbit_artifacts[:16]],
             navigation=navigation.get_state(user.id),
         )
 
@@ -1395,6 +1520,14 @@ def create_app(
         messages = db.scalars(
             select(Message).where(Message.orbit_id == orbit.id, Message.channel_id == channel.id).order_by(Message.created_at)
         ).all()
+        mark_conversation_seen(
+            db,
+            user_id=user.id,
+            orbit_id=orbit.id,
+            channel_id=channel.id,
+            last_seen_message_id=messages[-1].id if messages else None,
+        )
+        db.commit()
         return {
             "channel": _serialize_channel(channel),
             "messages": [_serialize_message(message) for message in messages],
@@ -1432,6 +1565,16 @@ def create_app(
             body=payload.body,
             payload_json={"author": user.display_name, "surface": "channel", "channel_id": channel.id},
             db=db,
+        )
+        create_message_notifications(
+            db,
+            orbit=orbit,
+            author_user_id=user.id,
+            author_name=user.display_name,
+            message_id=user_message.id,
+            body=payload.body,
+            channel_id=channel.id,
+            channel_name=channel.name,
         )
         ergo_body, should_start_work = _ergo_reply_for(payload.body)
         reply = None
@@ -1500,48 +1643,77 @@ def create_app(
     @app.post("/api/orbits/{orbit_id}/prs-issues/refresh")
     def refresh_prs_and_issues(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
-        primary_repo = primary_repository_for_orbit(db, orbit)
-        if primary_repo is None:
-            return {"prs": [], "issues": []}
-        prs = repo_access.list_pull_requests(db, actor_user=user, repository=primary_repo)
-        issues = repo_access.list_issues(db, actor_user=user, repository=primary_repo)
+        repositories = repositories_for_orbit(db, orbit.id)
+        if not repositories:
+            return {"prs": 0, "issues": 0, "failed_repositories": []}
         db.query(PullRequestSnapshot).filter(PullRequestSnapshot.orbit_id == orbit.id).delete()
         db.query(IssueSnapshot).filter(IssueSnapshot.orbit_id == orbit.id).delete()
-        for pr in prs:
-            db.add(
-                PullRequestSnapshot(
-                    orbit_id=orbit.id,
-                    github_number=pr["number"],
-                    title=pr["title"],
-                    state=pr["state"],
-                    priority="high" if pr.get("draft") else "medium",
-                    url=pr["html_url"],
-                    branch_name=pr.get("head", {}).get("ref"),
-                    metadata_json={
-                        "draft": pr.get("draft", False),
-                        "merged_at": pr.get("merged_at"),
-                        "review_decision": pr.get("review_decision"),
-                        "mergeable_state": pr.get("mergeable_state"),
-                        "blocked": pr.get("mergeable_state") == "blocked",
-                    },
-                )
-            )
-        for issue in issues:
-            if "pull_request" in issue:
+        pr_count = 0
+        issue_count = 0
+        failed_repositories: list[str] = []
+        for repository, _binding in repositories:
+            try:
+                prs = repo_access.list_pull_requests(db, actor_user=user, repository=repository)
+                issues = repo_access.list_issues(db, actor_user=user, repository=repository)
+                repository.health_state = "healthy"
+                repository.status = "active"
+                repository.metadata_json = {
+                    **(repository.metadata_json or {}),
+                    "last_sync_at": utc_now().isoformat(),
+                }
+            except Exception as exc:
+                repository.health_state = "degraded"
+                repository.metadata_json = {
+                    **(repository.metadata_json or {}),
+                    "last_sync_error": str(exc),
+                }
+                failed_repositories.append(repository.full_name)
                 continue
-            db.add(
-                IssueSnapshot(
-                    orbit_id=orbit.id,
-                    github_number=issue["number"],
-                    title=issue["title"],
-                    state=issue["state"],
-                    priority="high" if "bug" in {label["name"] for label in issue.get("labels", [])} else "medium",
-                    url=issue["html_url"],
-                    metadata_json={"labels": [label["name"] for label in issue.get("labels", [])]},
+            for pr in prs:
+                db.add(
+                    PullRequestSnapshot(
+                        orbit_id=orbit.id,
+                        repository_connection_id=repository.id,
+                        github_number=pr["number"],
+                        title=pr["title"],
+                        state=pr["state"],
+                        priority="high" if pr.get("draft") else "medium",
+                        url=pr["html_url"],
+                        branch_name=pr.get("head", {}).get("ref"),
+                        metadata_json={
+                            "draft": pr.get("draft", False),
+                            "merged_at": pr.get("merged_at"),
+                            "review_decision": pr.get("review_decision"),
+                            "mergeable_state": pr.get("mergeable_state"),
+                            "blocked": pr.get("mergeable_state") == "blocked",
+                            "repository_full_name": repository.full_name,
+                            "repository_url": repository.url,
+                        },
+                    )
                 )
-            )
+                pr_count += 1
+            for issue in issues:
+                if "pull_request" in issue:
+                    continue
+                db.add(
+                    IssueSnapshot(
+                        orbit_id=orbit.id,
+                        repository_connection_id=repository.id,
+                        github_number=issue["number"],
+                        title=issue["title"],
+                        state=issue["state"],
+                        priority="high" if "bug" in {label["name"] for label in issue.get("labels", [])} else "medium",
+                        url=issue["html_url"],
+                        metadata_json={
+                            "labels": [label["name"] for label in issue.get("labels", [])],
+                            "repository_full_name": repository.full_name,
+                            "repository_url": repository.url,
+                        },
+                    )
+                )
+                issue_count += 1
         db.commit()
-        return {"prs": len(prs), "issues": len([item for item in issues if "pull_request" not in item])}
+        return {"prs": pr_count, "issues": issue_count, "failed_repositories": failed_repositories}
 
     @app.get("/api/orbits/{orbit_id}/workflow")
     def orbit_workflow(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -1691,6 +1863,14 @@ def create_app(
         messages = db.scalars(
             select(Message).where(Message.orbit_id == orbit.id, Message.dm_thread_id == thread.id).order_by(Message.created_at)
         ).all()
+        mark_conversation_seen(
+            db,
+            user_id=user.id,
+            orbit_id=orbit.id,
+            dm_thread_id=thread.id,
+            last_seen_message_id=messages[-1].id if messages else None,
+        )
+        db.commit()
         return {
             "thread": _serialize_dm_thread(db, thread, viewer=user),
             "messages": [_serialize_message(message) for message in messages],
@@ -1729,6 +1909,15 @@ def create_app(
             body=payload.body,
             payload_json={"author": user.display_name, "thread_id": thread.id},
             db=db,
+        )
+        create_message_notifications(
+            db,
+            orbit=orbit,
+            author_user_id=user.id,
+            author_name=user.display_name,
+            message_id=message.id,
+            body=payload.body,
+            dm_thread_id=thread.id,
         )
         ergo_body, should_start_work = (None, False)
         if thread.title == "ERGO":
@@ -1788,7 +1977,7 @@ def create_app(
     def orbit_codespaces(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         orbit = _orbit_for_member(db, orbit_id, user)
         items = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
-        return [_serialize_codespace(item) for item in items]
+        return [_serialize_codespace(db, item) for item in items]
 
     @app.post("/api/orbits/{orbit_id}/codespaces")
     def create_codespace(
@@ -1823,6 +2012,7 @@ def create_app(
         codespace = Codespace(
             orbit_id=orbit.id,
             created_by_user_id=user.id,
+            repository_connection_id=primary_repo.id if primary_repo is not None else None,
             name=payload.name,
             branch_name=branch_name,
             workspace_path=relative_path,
@@ -1831,13 +2021,13 @@ def create_app(
         db.flush()
         containers.start_codespace(db, orbit=orbit, codespace=codespace)
         db.commit()
-        return _serialize_codespace(codespace)
+        return _serialize_codespace(db, codespace)
 
     @app.get("/api/orbits/{orbit_id}/demos")
     def orbit_demos(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         orbit = _orbit_for_member(db, orbit_id, user)
         items = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
-        return [_serialize_demo(item) for item in items]
+        return [_serialize_demo(db, item) for item in items]
 
     @app.post("/api/orbits/{orbit_id}/demos")
     def publish_demo(
@@ -1847,16 +2037,51 @@ def create_app(
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
         orbit = _orbit_for_member(db, orbit_id, user)
+        repository_connection_id = None
+        if payload.work_item_id:
+            linked_work_item = db.get(WorkItem, payload.work_item_id)
+            repository_ids = repository_ids_for_work_item(db, linked_work_item) if linked_work_item is not None else []
+            repository_connection_id = repository_ids[0] if repository_ids else None
+        if repository_connection_id is None:
+            selected_codespace = db.scalar(
+                select(Codespace).where(
+                    Codespace.orbit_id == orbit.id,
+                    Codespace.workspace_path == payload.source_path,
+                )
+            )
+            if selected_codespace is not None:
+                repository_connection_id = selected_codespace.repository_connection_id
+        if repository_connection_id is None:
+            primary_repo = primary_repository_for_orbit(db, orbit)
+            repository_connection_id = primary_repo.id if primary_repo is not None else None
         demo = Demo(
             orbit_id=orbit.id,
             work_item_id=payload.work_item_id,
+            repository_connection_id=repository_connection_id,
             title=payload.title,
             source_path=payload.source_path,
         )
         db.add(demo)
         db.flush()
         containers.start_demo(db, demo=demo)
+        linked_work_item = db.get(WorkItem, demo.work_item_id) if demo.work_item_id else None
+        artifact = upsert_artifact(
+            db,
+            orbit_id=orbit.id,
+            repository_connection_id=demo.repository_connection_id,
+            work_item_id=demo.work_item_id,
+            workflow_run_id=linked_work_item.workflow_run_id if linked_work_item is not None else None,
+            source_kind="demo",
+            source_id=demo.id,
+            artifact_kind="demo",
+            title=demo.title,
+            summary="Published demo preview",
+            status=demo.status,
+            external_url=demo.url,
+            metadata_json={"source_path": demo.source_path},
+        )
+        notify_artifact_generated(db, orbit=orbit, artifact=artifact, triggered_by_user_id=user.id)
         db.commit()
-        return _serialize_demo(demo)
+        return _serialize_demo(db, demo)
 
     return app

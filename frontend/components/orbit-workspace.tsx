@@ -77,6 +77,7 @@ import type {
   ConversationSendResult,
   DmThreadSummary,
   HumanLoopItem,
+  NotificationItem,
   OrbitPayload,
   Session,
   ThemeMode,
@@ -90,7 +91,7 @@ const ORBIT_SECTIONS = [
   { key: "workflow", label: "Workflow", icon: LayoutGrid },
   { key: "prs", label: "PRs & issues", icon: GitPullRequest },
   { key: "codespaces", label: "Codespaces", icon: FileCode2 },
-  { key: "demos", label: "Demos", icon: MonitorPlay },
+  { key: "demos", label: "Artifacts", icon: MonitorPlay },
 ] as const;
 
 type OrbitSection = (typeof ORBIT_SECTIONS)[number]["key"];
@@ -169,6 +170,37 @@ function boardTone(status: string | undefined) {
     return "accent" as const;
   }
   return "muted" as const;
+}
+
+function isLegacyWorkflowPromptMessage(message: ConversationMessage) {
+  const metadata = message.metadata ?? {};
+  if (metadata.workflow_prompt || metadata.workflow_prompt_type || metadata.workflow_prompt_phase) {
+    return true;
+  }
+  if (message.author_kind !== "system") {
+    return false;
+  }
+  return /answered an ERGO clarification request|approved an ERGO release signoff|rejected an ERGO release signoff/i.test(message.body);
+}
+
+function notificationTone(kind: string, status: string) {
+  if (status === "unread" && ["approval", "clarification", "run_failed"].includes(kind)) {
+    return "accent" as const;
+  }
+  if (["run_failed"].includes(kind)) {
+    return "danger" as const;
+  }
+  if (["run_completed", "artifact"].includes(kind)) {
+    return "success" as const;
+  }
+  return "muted" as const;
+}
+
+function notificationStatusLabel(item: NotificationItem) {
+  if (item.status === "unread") {
+    return "Unread";
+  }
+  return formatStateLabel(item.kind);
 }
 
 function provisionalTaskState(workItemStatus: string | undefined) {
@@ -585,10 +617,16 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     });
   }, [conversationSearch, messages]);
 
+  const repositoryNameById = useMemo(
+    () => new Map((payload?.repositories ?? []).map((repository) => [repository.id, repository.full_name])),
+    [payload],
+  );
+
   const searchResults = useMemo(() => {
     if (!payload) {
       return [];
     }
+    const artifacts = payload.artifacts ?? [];
     const term = leftSearch.trim().toLowerCase();
     const items = [
       ...payload.channels.map((channel) => ({
@@ -630,7 +668,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       ...payload.prs.map((item) => ({
         key: `pr-${item.id}`,
         label: item.title,
-        detail: "Pull request",
+        detail: item.repository_full_name ? `Pull request · ${item.repository_full_name}` : "Pull request",
         action: () => {
           setSection("prs");
           setDetailPanel({ kind: "pr", item });
@@ -641,7 +679,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       ...payload.issues.map((item) => ({
         key: `issue-${item.id}`,
         label: item.title,
-        detail: "Issue",
+        detail: item.repository_full_name ? `Issue · ${item.repository_full_name}` : "Issue",
         action: () => {
           setSection("prs");
           setDetailPanel({ kind: "issue", item });
@@ -649,7 +687,28 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           void onSectionChange("prs");
         },
       })),
-      ...messages.map((message) => ({
+      ...payload.codespaces.map((item) => ({
+        key: `codespace-${item.id}`,
+        label: item.name,
+        detail: item.repository_full_name ? `Codespace · ${item.repository_full_name}` : "Codespace",
+        action: () => {
+          setSection("codespaces");
+          setActiveCodespaceId(item.id);
+          setActiveLeftPanel(null);
+          void onSectionChange("codespaces");
+        },
+      })),
+      ...artifacts.map((item) => ({
+        key: `artifact-${item.id}`,
+        label: item.title,
+        detail: item.repository_full_name ? `Artifact · ${item.repository_full_name}` : `Artifact · ${formatStateLabel(item.artifact_kind)}`,
+        action: () => {
+          setSection("demos");
+          setActiveLeftPanel(null);
+          void onSectionChange("demos");
+        },
+      })),
+      ...messages.filter((message) => !isLegacyWorkflowPromptMessage(message)).map((message) => ({
         key: `msg-${message.id}`,
         label: message.body,
         detail: `${message.author_name} in ${currentConversationTitle}`,
@@ -670,16 +729,29 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       return (payload.notifications ?? []).slice(0, 8).map((notification) => ({
         key: notification.id,
         label: notification.title,
-        detail: notification.detail,
-        tone:
-          notification.kind === "approval"
-            ? ("accent" as const)
-            : notification.kind === "clarification"
-              ? ("accent" as const)
-              : ("muted" as const),
+        detail: (() => {
+          const repositoryIds = Array.isArray(notification.metadata?.repository_ids)
+            ? notification.metadata.repository_ids
+            : [];
+          const repositoryName = typeof notification.metadata?.repository_full_name === "string"
+            ? notification.metadata.repository_full_name
+            : repositoryIds.map((value) => repositoryNameById.get(String(value))).find(Boolean);
+          const context = repositoryName ? `${repositoryName} · ` : "";
+          return `${context}${notification.detail}`;
+        })(),
+        tone: notificationTone(notification.kind, notification.status),
+        status: notificationStatusLabel(notification),
+        item: notification,
       }));
     }
-    const notifications: Array<{ key: string; label: string; detail: string; tone: "muted" | "accent" | "success" | "danger" }> = [];
+    const notifications: Array<{
+      key: string;
+      label: string;
+      detail: string;
+      tone: "muted" | "accent" | "success" | "danger";
+      status: string;
+      item?: NotificationItem;
+    }> = [];
     for (const request of selectedRun?.approval_requests ?? []) {
       if (request.status === "requested") {
         notifications.push({
@@ -687,6 +759,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           label: "Release signoff needed",
           detail: request.reason || "A run is waiting for human approval before release.",
           tone: "accent",
+          status: "Active",
         });
       }
     }
@@ -697,6 +770,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           label: "ERGO needs clarification",
           detail: request.question || "A human answer is required to continue.",
           tone: "accent",
+          status: "Active",
         });
       }
     }
@@ -706,6 +780,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: task.title || task.task_key,
         detail: formatStateLabel(task.state),
         tone: taskTone(task.state),
+        status: "Active",
       });
     }
     for (const demo of payload.demos.slice(0, 2)) {
@@ -714,10 +789,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: demo.title,
         detail: demo.status === "running" && demo.url ? "Demo is live" : formatStateLabel(demo.status),
         tone: demo.status === "running" ? "success" : "muted",
+        status: "Active",
       });
     }
     return notifications;
-  }, [payload, selectedRun]);
+  }, [payload, repositoryNameById, selectedRun]);
 
   const connectedRepositoryIds = useMemo(() => new Set((payload?.repositories ?? []).map((repository) => repository.id)), [payload]);
 
@@ -759,6 +835,30 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     setSection("chat");
     await updateNavigation(session.token, { orbit_id: orbitId, section: "chat" });
     await loadConversation(session, payload, nextSelection);
+  }
+
+  async function onOpenNotification(notification: NotificationItem) {
+    setActiveLeftPanel(null);
+    if (notification.dm_thread_id) {
+      await onSelectConversation({ kind: "dm", id: notification.dm_thread_id });
+      return;
+    }
+    if (notification.channel_id) {
+      await onSelectConversation({ kind: "channel", id: notification.channel_id });
+      return;
+    }
+    if (notification.source_kind === "artifact") {
+      await onSectionChange("demos");
+      return;
+    }
+    if (notification.source_kind === "workflow_run_status" || notification.kind.startsWith("run_")) {
+      await onSectionChange("workflow");
+      return;
+    }
+    if (notification.source_kind === "approval" || notification.source_kind === "clarification") {
+      await onSectionChange("chat");
+      return;
+    }
   }
 
   async function onCreateChannel() {
@@ -1190,7 +1290,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                         <BoardCard
                           key={item.id}
                           title={`PR #${item.number} · ${item.title}`}
-                          detail={item.branch_name || "Branch not captured yet"}
+                          detail={
+                            [item.repository_full_name, item.branch_name || "Branch not captured yet"]
+                              .filter(Boolean)
+                              .join(" · ")
+                          }
                           tone={boardTone(item.operational_status)}
                           label={formatStateLabel(item.operational_status || item.state)}
                           onClick={() => setDetailPanel({ kind: "pr", item })}
@@ -1219,7 +1323,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                         <BoardCard
                           key={item.id}
                           title={`Issue #${item.number} · ${item.title}`}
-                          detail={item.priority ? `Priority ${item.priority}` : "Tracked in GitHub"}
+                          detail={
+                            [item.repository_full_name, item.priority ? `Priority ${item.priority}` : "Tracked in GitHub"]
+                              .filter(Boolean)
+                              .join(" · ")
+                          }
                           tone={boardTone(item.operational_status)}
                           label={formatStateLabel(item.operational_status || item.state)}
                           onClick={() => setDetailPanel({ kind: "issue", item })}
@@ -1266,7 +1374,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
-                              <p className="mt-1 truncate text-xs text-quiet">{item.branch_name}</p>
+                              <p className="mt-1 truncate text-xs text-quiet">
+                                {[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
+                              </p>
                             </div>
                             <StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>
                           </div>
@@ -1293,7 +1403,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                       <SectionTitle
                         eyebrow="Embedded workspace"
                         title={selectedCodespace?.name || "Select a codespace"}
-                        detail={selectedCodespace?.branch_name || "The last active orbit section becomes the back target."}
+                        detail={
+                          selectedCodespace
+                            ? [selectedCodespace.repository_full_name, selectedCodespace.branch_name].filter(Boolean).join(" · ")
+                            : "The last active orbit section becomes the back target."
+                        }
                         dense
                       />
                     </div>
@@ -1332,9 +1446,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               <Panel className="flex min-h-0 flex-col overflow-hidden">
                 <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
                   <SectionTitle
-                    eyebrow="Demos"
-                    title="Published previews"
-                    detail="Keep this simple for now. Demos live here and surface into the dashboard when they matter."
+                    eyebrow="Artifacts"
+                    title="Deliverables and previews"
+                    detail="Draft PRs and demos stay linked to their repo scope instead of disappearing into workflow side effects."
                     dense
                   />
                   <ActionButton onClick={() => void onPublishDemo()}>
@@ -1344,26 +1458,30 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </div>
                 <ScrollPanel className="flex-1 px-5 py-5">
                   <div className="space-y-3">
-                    {payload.demos.length ? (
-                      payload.demos.map((demo) => (
-                        <SurfaceCard key={demo.id} className="bg-panelStrong">
+                    {(payload.artifacts ?? []).length ? (
+                      (payload.artifacts ?? []).map((artifact) => (
+                        <SurfaceCard key={artifact.id} className="bg-panelStrong">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-ink">{demo.title}</p>
-                              <p className="mt-1 truncate text-xs text-quiet">{demo.source_path}</p>
+                              <p className="truncate text-sm font-semibold text-ink">{artifact.title}</p>
+                              <p className="mt-1 truncate text-xs text-quiet">
+                                {[artifact.repository_full_name, artifact.summary || formatStateLabel(artifact.artifact_kind)].filter(Boolean).join(" · ")}
+                              </p>
                             </div>
-                            <StatusPill tone={demo.status === "running" ? "success" : "muted"}>{demo.status}</StatusPill>
+                            <StatusPill tone={artifact.status === "running" || artifact.status === "ready" ? "success" : "muted"}>
+                              {formatStateLabel(artifact.status)}
+                            </StatusPill>
                           </div>
-                          {demo.url ? (
-                            <a href={demo.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-ink">
-                              Open demo
+                          {artifact.external_url ? (
+                            <a href={artifact.external_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-ink">
+                              Open artifact
                               <ExternalLink className="h-4 w-4" />
                             </a>
                           ) : null}
                         </SurfaceCard>
                       ))
                     ) : (
-                      <EmptyState text="No demos are published for this orbit yet." />
+                      <EmptyState text="No artifacts are linked into this orbit yet." />
                     )}
                   </div>
                 </ScrollPanel>
@@ -1381,15 +1499,17 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 <ScrollPanel className="flex-1 px-5 py-5">
                   <div className="space-y-4 text-sm">
                     <SurfaceCard className="bg-panelStrong">
-                      <p className="font-semibold text-ink">Current demos</p>
+                      <p className="font-semibold text-ink">Repository spread</p>
                       <p className="mt-2 text-quiet">
-                        Keep publishing lightweight. This pass does not overbuild deployment or preview orchestration.
+                        {payload.repositories.length > 1
+                          ? `${payload.repositories.length} repositories are bound to this orbit. Artifacts keep their repo identity when the product syncs or renders them.`
+                          : "The current artifact set is still anchored to the primary repository when no secondary bindings exist."}
                       </p>
                     </SurfaceCard>
                     <SurfaceCard className="bg-panelStrong">
                       <p className="font-semibold text-ink">Codespace source</p>
                       <p className="mt-2 text-quiet">
-                        Demos publish from the currently selected or most recent codespace workspace path.
+                        Demos publish from the currently selected or most recent codespace workspace path, and the resulting artifact keeps the workspace repository binding.
                       </p>
                     </SurfaceCard>
                   </div>
@@ -1404,7 +1524,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           onClose={() => setActiveLeftPanel(null)}
           offset={RAIL_WIDTH}
           title="Search this orbit"
-          description="Jump between conversations, members, PRs, issues, and currently loaded message context."
+          description="Jump between conversations, members, PRs, issues, codespaces, artifacts, and clean message context."
         >
           <TextInput value={leftSearch} onChange={(event) => setLeftSearch(event.target.value)} placeholder="Search orbit surfaces" />
           <div className="mt-5 space-y-2">
@@ -1432,21 +1552,28 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           open={activeLeftPanel === "notifications"}
           onClose={() => setActiveLeftPanel(null)}
           offset={RAIL_WIDTH}
-          title="Notifications"
-          description="Priority-worthy changes, broader activity, and runtime prompts live here instead of in the main canvas."
+          title="Inbox"
+          description="Mentions, DMs, approvals, clarifications, run outcomes, and artifact alerts live here without noisy global agent presence."
         >
           <div className="space-y-3">
             {notificationItems.length ? (
               notificationItems.map((item) => (
-                <SurfaceCard key={item.key} className="bg-panelStrong">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-ink">{item.label}</p>
-                      <p className="mt-1 text-xs text-quiet">{item.detail}</p>
+                <button
+                  key={item.key}
+                  className="w-full text-left"
+                  onClick={() => (item.item ? void onOpenNotification(item.item) : undefined)}
+                  disabled={!item.item}
+                >
+                  <SurfaceCard className="bg-panelStrong">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-ink">{item.label}</p>
+                        <p className="mt-1 text-xs text-quiet">{item.detail}</p>
+                      </div>
+                      <StatusPill tone={item.tone}>{item.status}</StatusPill>
                     </div>
-                    <StatusPill tone={item.tone}>active</StatusPill>
-                  </div>
-                </SurfaceCard>
+                  </SurfaceCard>
+                </button>
               ))
             ) : (
               <EmptyState text="No important activity yet." />
@@ -1539,6 +1666,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 <div className="mt-4 flex flex-wrap gap-2">
                   {detailPanel.item.priority ? <StatusPill tone="muted">{detailPanel.item.priority}</StatusPill> : null}
                   {detailPanel.item.branch_name ? <StatusPill tone="muted">{detailPanel.item.branch_name}</StatusPill> : null}
+                  {detailPanel.item.repository_full_name ? <StatusPill tone="muted">{detailPanel.item.repository_full_name}</StatusPill> : null}
+                  {detailPanel.item.linked_workflow_run_id ? <StatusPill tone="accent">Run linked</StatusPill> : null}
                 </div>
               </SurfaceCard>
 

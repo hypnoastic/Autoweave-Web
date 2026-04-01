@@ -13,6 +13,30 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("repo_scope_mode", "VARCHAR(64) DEFAULT 'legacy_primary'"),
         ),
     ),
+    (
+        "product_pull_requests",
+        (
+            ("repository_connection_id", "VARCHAR(64)"),
+        ),
+    ),
+    (
+        "product_issues",
+        (
+            ("repository_connection_id", "VARCHAR(64)"),
+        ),
+    ),
+    (
+        "product_codespaces",
+        (
+            ("repository_connection_id", "VARCHAR(64)"),
+        ),
+    ),
+    (
+        "product_demos",
+        (
+            ("repository_connection_id", "VARCHAR(64)"),
+        ),
+    ),
 )
 
 
