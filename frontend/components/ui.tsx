@@ -350,7 +350,7 @@ export function ShellPage({
   className,
   children,
 }: PropsWithChildren<{ className?: string }>) {
-  return <main className={clsx("flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6", className)}>{children}</main>;
+  return <main className={clsx("flex h-full min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6", className)}>{children}</main>;
 }
 
 export function ShellPageSkeleton({

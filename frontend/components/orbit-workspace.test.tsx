@@ -944,6 +944,96 @@ describe("OrbitWorkspace", () => {
     );
   });
 
+  it("opens a codespace in the full canvas and returns to the workspace list from the top bar back button", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat" }],
+      channels: [{ id: "channel_1", slug: "general", name: "general" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
+      messages: [],
+      human_loop_items: [],
+      notifications: [],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: {},
+        can_manage_members: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      codespaces: [
+        {
+          id: "codespace_1",
+          name: "Orbit workspace",
+          status: "running",
+          repository_full_name: "octocat/orbit-one",
+          branch_name: "feature/orbit-shell",
+          workspace_path: "/workspace/orbit-one",
+          editor_url: "https://example.com/editor",
+        },
+      ],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+    });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchDmThread.mockResolvedValue({
+      thread: { id: "dm_1", title: "ERGO" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.updateNavigation.mockResolvedValue({});
+
+    renderOrbit();
+
+    expect(await screen.findByRole("button", { name: "Codespaces" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Codespaces" }));
+    });
+
+    expect(await screen.findByText("Orbit workspace")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByText("Orbit workspace")[0]);
+    });
+
+    expect(await screen.findByTitle("Orbit workspace")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    });
+
+    await waitFor(() => expect(screen.queryByTitle("Orbit workspace")).not.toBeInTheDocument());
+    expect(screen.getByText("Branch workspaces")).toBeInTheDocument();
+  });
+
   it("updates the theme preference from the persistent top bar", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",

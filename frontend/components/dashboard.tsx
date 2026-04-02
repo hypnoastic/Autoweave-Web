@@ -2,7 +2,7 @@
 
 import {
   ChevronRight,
-  Home,
+  LayoutGrid,
   Plus,
   Upload,
 } from "lucide-react";
@@ -237,7 +237,7 @@ export function DashboardScreen() {
       {
         key: "home",
         label: "Dashboard",
-        icon: Home,
+        icon: LayoutGrid,
         active: true,
         onSelect: () => router.push("/app"),
       },

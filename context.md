@@ -144,15 +144,17 @@
 
 - browser validation on `127.0.0.1:3000` with the token-backed local session now proves:
   - dashboard renders inside the shared persistent shell
+  - the dashboard no longer shows a duplicated home/dashboard treatment; the sidebar now uses a single dashboard nav item and a slimmer collapsed rail
   - the top bar stays mounted while the sidebar collapses to icon-only mode
   - notifications and profile utilities now live in the sidebar instead of the top bar
   - the same collapsed sidebar stays mounted during dashboard -> orbit navigation
-  - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail
+  - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail, and the orbit identity block no longer occupies permanent sidebar space
   - initial dashboard and orbit reads now render as in-window skeleton states inside the persistent shell instead of the old `Loading dashboard…` / `Loading orbit…` pill
   - the shell frame now sits tighter to the top edge and reads as one connected top-bar + sidebar surface instead of drifting the content window downward
   - the orbit sidebar no longer renders the old triage saved-view block; triage remains in the inbox/search flows instead of cluttering the sidebar
   - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
   - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
+  - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds

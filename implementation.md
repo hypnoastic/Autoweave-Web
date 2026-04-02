@@ -237,6 +237,31 @@ Validation for this follow-up:
   - `output/playwright/dashboard-no-inner-frame.png`
   - `output/playwright/orbit-no-inner-frame.png`
 
+## Shell Cleanup Follow-up - Sidebar and Workspace Behavior
+
+This follow-up shell pass is now implemented locally.
+
+Scope landed:
+
+- removed the duplicated home button from the persistent sidebar so dashboard is represented by one consistent nav item
+- slimmed the collapsed sidebar width and aligned the shell button sizing so the top-bar controls and sidebar controls read as one system
+- removed the orbit identity block from the persistent sidebar
+- flattened the orbit chat wrapper so chat no longer sits inside an extra outer card
+- removed the outer workflow board panel so the workflow surface scrolls inside the page instead of stretching the shell
+- changed codespaces from split list-plus-iframe mode to:
+  - a workspace list page
+  - a full-canvas open workspace mode
+  - top-bar back returns from the open workspace to the list
+
+Validation for this follow-up:
+
+- `cd frontend && npm test -- --run` -> `27 passed`
+- `cd frontend && npm run build` -> success
+- live browser screenshots captured:
+  - `output/playwright/dashboard-shell-tighter.png`
+  - `output/playwright/orbit-chat-no-outer-card.png`
+  - `output/playwright/orbit-workflow-scroll-contained.png`
+
 ## Phase 0F - Orbit Bootstrap Hydration
 
 This hardening slice is now implemented locally.

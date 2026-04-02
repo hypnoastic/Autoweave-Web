@@ -115,8 +115,8 @@ export function OrbitChatPane({
   }, [humanLoopItems, messages]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-line bg-panel shadow-panel lg:flex-row">
-      <aside className="flex w-full flex-col border-b border-line bg-panelMuted/60 lg:w-[280px] lg:min-w-[280px] lg:border-b-0 lg:border-r">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+      <aside className="flex min-h-0 w-full flex-col border-b border-line bg-panelMuted/60 lg:w-[280px] lg:min-w-[280px] lg:border-b-0 lg:border-r">
         <div className="border-b border-line px-4 py-4">
           <SectionTitle
             eyebrow="Chat"
@@ -185,7 +185,7 @@ export function OrbitChatPane({
         </ScrollPanel>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-line px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">

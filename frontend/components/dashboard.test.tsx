@@ -83,6 +83,7 @@ describe("DashboardScreen", () => {
 
     expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "AutoWeave home" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open profile menu" })).toBeInTheDocument();

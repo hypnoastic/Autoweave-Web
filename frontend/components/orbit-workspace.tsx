@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   ExternalLink,
   FileCode2,
   Filter,
@@ -406,6 +405,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [activeSavedView, setActiveSavedView] = useState<SavedViewKey>("all");
   const [updatingMemberRole, setUpdatingMemberRole] = useState<string | null>(null);
   const [activeCodespaceId, setActiveCodespaceId] = useState<string | null>(null);
+  const [codespaceMode, setCodespaceMode] = useState<"browse" | "open">("browse");
   const [localAgentPending, setLocalAgentPending] = useState(false);
   const [localPendingConversation, setLocalPendingConversation] = useState<ConversationSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -428,6 +428,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const pendingAgent =
     (localAgentPending && sameConversation(localPendingConversation, selectedConversation)) || workflowPendingInConversation;
   const workflowLanes = useMemo(() => workflowColumns(selectedRun), [selectedRun]);
+  const selectedCodespace =
+    payload?.codespaces.find((item) => item.id === activeCodespaceId) ?? payload?.codespaces[0] ?? null;
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
     [selectedRun],
@@ -460,6 +462,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "chat";
     if (nextSection && ORBIT_SECTIONS.some((item) => item.key === nextSection)) {
       setSection(nextSection);
+      if (nextSection !== "codespaces") {
+        setCodespaceMode("browse");
+      }
     }
 
     const nextSelectedRun = nextPayload.workflow?.selected_run ?? nextPayload.workflow?.runs?.[0] ?? null;
@@ -495,6 +500,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     const nextCodespace =
       nextPayload.codespaces.find((item) => item.id === activeCodespaceId) ?? nextPayload.codespaces[0] ?? null;
     setActiveCodespaceId(nextCodespace?.id ?? null);
+    if (!nextCodespace) {
+      setCodespaceMode("browse");
+    }
     return true;
   }
 
@@ -1113,17 +1121,17 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const shellConfig = useMemo<AppShellConfig>(
     () => ({
       mode: "orbit",
-      breadcrumb: payload ? [payload.orbit.name, currentSectionLabel] : ["Orbit"],
-      orbitIdentity: payload
-        ? {
-            label: payload.orbit.name,
-            logo: payload.orbit.logo,
-            detail: payload.orbit.repo_full_name || `${payload.repositories.length} repo bindings`,
-          }
-        : {
-            label: "Orbit",
-            detail: "Loading orbit context…",
-          },
+      breadcrumb: payload
+        ? section === "codespaces" && codespaceMode === "open" && selectedCodespace
+          ? [payload.orbit.name, "Codespaces", selectedCodespace.name]
+          : [payload.orbit.name, currentSectionLabel]
+        : ["Orbit"],
+      backAction:
+        section === "codespaces" && codespaceMode === "open"
+          ? () => {
+              setCodespaceMode("browse");
+            }
+          : undefined,
       items: [
         ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
           key,
@@ -1212,6 +1220,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       payload,
       currentSectionLabel,
       section,
+      codespaceMode,
+      selectedCodespace,
       showOrbitSettings,
       openNotifications,
       leftSearch,
@@ -1235,8 +1245,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
     if (nextSection !== "codespaces") {
       previousContentSection.current = nextSection;
+      setCodespaceMode("browse");
     } else if (section !== "codespaces") {
       previousContentSection.current = section;
+      setCodespaceMode("browse");
     }
     setSection(nextSection);
     await updateNavigation(session.token, { orbit_id: orbitId, section: nextSection });
@@ -1297,6 +1309,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
     if (result.section === "codespaces" && result.detail_id) {
       setActiveCodespaceId(result.detail_id);
+      setCodespaceMode("open");
     }
     if (result.workflow_run_id && payload?.workflow.runs.some((run) => run.id === result.workflow_run_id)) {
       void onSectionChange("workflow");
@@ -1407,8 +1420,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
     try {
       const created = await createCodespace(session.token, orbitId, { name: `${payload.orbit.name} workspace` });
-      setActiveCodespaceId(created.id);
       await onSectionChange("codespaces");
+      setActiveCodespaceId(created.id);
+      setCodespaceMode("open");
       await reload(selectedConversation);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to create the codespace.");
@@ -1543,9 +1557,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     await reload(selectedConversation);
   }
 
-  const selectedCodespace =
-    payload.codespaces.find((item) => item.id === activeCodespaceId) ?? payload.codespaces[0] ?? null;
-
   const taskTimeline = detailPanel?.kind === "task" ? workflowTimeline(selectedRun, detailPanel.task) : [];
   const taskRequests =
     detailPanel?.kind === "task"
@@ -1557,7 +1568,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
   return (
     <>
-      <ShellPage>
+      <ShellPage className={section === "codespaces" && codespaceMode === "open" ? "px-0 py-0" : undefined}>
           {error ? (
             <InlineNotice className="mb-4" tone="danger" title="Orbit action blocked" detail={error} />
           ) : null}
@@ -1608,44 +1619,42 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 }
               />
 
-              <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Workflow run"
-                    title={selectedRun?.title || "No workflow yet"}
-                    detail={selectedRun?.operator_summary || "Ask ERGO to build something and the board will populate here."}
-                    dense
-                  />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
-                  <div className="grid min-h-full gap-4 xl:grid-cols-3">
-                    {workflowLanes.map((lane) => (
-                      <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-ink">{lane.label}</p>
-                          <StatusPill tone="muted">{lane.cards.length}</StatusPill>
-                        </div>
-                        <div className="mt-4 flex-1 space-y-3">
-                          {lane.cards.length ? (
-                            lane.cards.map((task) => (
-                              <BoardCard
-                                key={task.id}
-                                title={task.title || task.task_key}
-                                detail={`${task.assigned_role} · ${task.description || "Execution detail lives in the side panel."}`}
-                                tone={taskTone(task.state)}
-                                label={formatStateLabel(task.state)}
-                                onClick={() => setDetailPanel({ kind: "task", task })}
-                              />
-                            ))
-                          ) : (
-                            <EmptyState text="Nothing in this lane right now." />
-                          )}
-                        </div>
+              <div className="shrink-0 border-b border-line pb-4">
+                <SectionTitle
+                  eyebrow="Workflow run"
+                  title={selectedRun?.title || "No workflow yet"}
+                  detail={selectedRun?.operator_summary || "Ask ERGO to build something and the board will populate here."}
+                  dense
+                />
+              </div>
+              <ScrollPanel className="flex-1 pt-5">
+                <div className="grid min-h-0 gap-4 xl:grid-cols-3">
+                  {workflowLanes.map((lane) => (
+                    <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-ink">{lane.label}</p>
+                        <StatusPill tone="muted">{lane.cards.length}</StatusPill>
                       </div>
-                    ))}
-                  </div>
-                </ScrollPanel>
-              </Panel>
+                      <div className="mt-4 flex-1 space-y-3">
+                        {lane.cards.length ? (
+                          lane.cards.map((task) => (
+                            <BoardCard
+                              key={task.id}
+                              title={task.title || task.task_key}
+                              detail={`${task.assigned_role} · ${task.description || "Execution detail lives in the side panel."}`}
+                              tone={taskTone(task.state)}
+                              label={formatStateLabel(task.state)}
+                              onClick={() => setDetailPanel({ kind: "task", task })}
+                            />
+                          ))
+                        ) : (
+                          <EmptyState text="Nothing in this lane right now." />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollPanel>
             </div>
           ) : null}
 
@@ -1729,101 +1738,68 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           ) : null}
 
           {section === "codespaces" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <PageHeader
-                eyebrow={payload.orbit.name}
-                title="Workspaces"
-                detail="Branch-linked workspaces stay separate from chat and can take over the canvas when opened."
-                className="pb-5"
-                actions={
-                  <ActionButton onClick={() => void onCreateCodespace()}>
-                    <Plus className="h-4 w-4" />
-                    Create workspace
-                  </ActionButton>
-                }
-              />
-              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[320px_1fr]">
-              <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Codespaces"
-                    title="Branch workspaces"
-                    detail="Each workspace is tied to a branch-like context."
-                    dense
+            codespaceMode === "open" && selectedCodespace ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panelStrong">
+                {selectedCodespace.editor_url ? (
+                  <iframe
+                    title={selectedCodespace.name}
+                    src={selectedCodespace.editor_url}
+                    className="h-full min-h-0 w-full flex-1 bg-white"
                   />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
-                  <div className="space-y-3">
-                    {payload.codespaces.length ? (
-                      payload.codespaces.map((item) => (
-                        <ListRow
-                          key={item.id}
-                          eyebrow="Workspace"
-                          title={item.name}
-                          detail={[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
-                          active={activeCodespaceId === item.id}
-                          trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
-                          onClick={() => setActiveCodespaceId(item.id)}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState text="No codespaces yet. Create one and it will stay embedded here." />
-                    )}
-                  </div>
-                </ScrollPanel>
-              </Panel>
-
-              <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-                  <div className="flex items-start gap-3">
-                    <GhostButton
-                      className="h-9 px-3"
-                      onClick={() => void onSectionChange(previousContentSection.current || "chat")}
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
-                    </GhostButton>
-                    <div>
-                      <SectionTitle
-                        eyebrow="Embedded workspace"
-                        title={selectedCodespace?.name || "Select a codespace"}
-                        detail={
-                          selectedCodespace
-                            ? [selectedCodespace.repository_full_name, selectedCodespace.branch_name].filter(Boolean).join(" · ")
-                            : "The last active orbit section becomes the back target."
-                        }
-                        dense
-                      />
-                    </div>
-                  </div>
-                  {selectedCodespace?.editor_url ? (
-                    <a href={selectedCodespace.editor_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-                      Open externally
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  ) : null}
-                </div>
-
-                {selectedCodespace ? (
-                  selectedCodespace.editor_url ? (
-                    <iframe
-                      title={selectedCodespace.name}
-                      src={selectedCodespace.editor_url}
-                      className="h-full min-h-0 w-full flex-1 bg-white"
-                    />
-                  ) : (
-                    <div className="flex flex-1 items-center justify-center px-8 py-8">
-                      <EmptyState text="This codespace has no embeddable editor URL yet. Use the external editor link once it becomes available." />
-                    </div>
-                  )
                 ) : (
                   <div className="flex flex-1 items-center justify-center px-8 py-8">
-                    <EmptyState text="Select or create a codespace to open it inside the product shell." />
+                    <EmptyState text="This codespace has no embeddable editor URL yet. Use the external editor link once it becomes available." />
                   </div>
                 )}
-              </Panel>
               </div>
-            </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <PageHeader
+                  eyebrow={payload.orbit.name}
+                  title="Workspaces"
+                  detail="Open a workspace and it takes over the main canvas. Use the top back button to return here."
+                  className="pb-5"
+                  actions={
+                    <ActionButton onClick={() => void onCreateCodespace()}>
+                      <Plus className="h-4 w-4" />
+                      Create workspace
+                    </ActionButton>
+                  }
+                />
+                <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <div className="border-b border-line px-5 py-4">
+                    <SectionTitle
+                      eyebrow="Codespaces"
+                      title="Branch workspaces"
+                      detail="Each workspace opens into a dedicated full-canvas editor view."
+                      dense
+                    />
+                  </div>
+                  <ScrollPanel className="flex-1 px-5 py-5">
+                    <div className="space-y-3">
+                      {payload.codespaces.length ? (
+                        payload.codespaces.map((item) => (
+                          <ListRow
+                            key={item.id}
+                            eyebrow="Workspace"
+                            title={item.name}
+                            detail={[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
+                            active={activeCodespaceId === item.id}
+                            trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
+                            onClick={() => {
+                              setActiveCodespaceId(item.id);
+                              setCodespaceMode("open");
+                            }}
+                          />
+                        ))
+                      ) : (
+                        <EmptyState text="No codespaces yet. Create one and it will open here." />
+                      )}
+                    </div>
+                  </ScrollPanel>
+                </Panel>
+              </div>
+            )
           ) : null}
 
           {section === "demos" ? (

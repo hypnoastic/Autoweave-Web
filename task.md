@@ -73,6 +73,10 @@
 - [x] tighten top-bar/sidebar chrome alignment so the content window does not drift downward
 - [x] remove the orbit sidebar triage block and keep triage in inbox/search flows only
 - [x] remove the extra shell-level inner app frame so dashboard/orbit render directly on the canvas
+- [x] remove the duplicated dashboard/home sidebar treatment and slim the collapsed rail
+- [x] remove the orbit identity block from the persistent sidebar
+- [x] flatten orbit chat and workflow so they scroll inside the content pane instead of stretching the shell
+- [x] split codespaces into a list view plus a full-canvas open workspace mode tied to the top-bar back button
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open
