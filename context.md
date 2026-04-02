@@ -151,6 +151,8 @@
   - initial dashboard and orbit reads now render as in-window skeleton states inside the persistent shell instead of the old `Loading dashboard…` / `Loading orbit…` pill
   - the shell frame now sits tighter to the top edge and reads as one connected top-bar + sidebar surface instead of drifting the content window downward
   - the orbit sidebar no longer renders the old triage saved-view block; triage remains in the inbox/search flows instead of cluttering the sidebar
+  - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
+  - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds

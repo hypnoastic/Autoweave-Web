@@ -219,6 +219,24 @@ Known live validation issue still open after the shell slice:
 
 - dashboard still stalls in `Loading dashboard…` in browser validation because backend CORS is blocking `localhost:3000` -> `localhost:8000`
 
+## Shell Cleanup Follow-up - Remove the Inner App Frame
+
+This follow-up shell pass is now implemented locally.
+
+Scope landed:
+
+- removed the last shell-level bordered content frame from `frontend/components/authenticated-shell.tsx`
+- the persistent top bar and contextual sidebar remain mounted, but dashboard and orbit content now render directly on the main canvas instead of inside a second rounded app window
+- local panels and work surfaces still keep their own borders where they express real product structure
+
+Validation for this follow-up:
+
+- `cd frontend && npm test -- --run` -> `26 passed`
+- `cd frontend && npm run build` -> success
+- live browser screenshots captured:
+  - `output/playwright/dashboard-no-inner-frame.png`
+  - `output/playwright/orbit-no-inner-frame.png`
+
 ## Phase 0F - Orbit Bootstrap Hydration
 
 This hardening slice is now implemented locally.

@@ -301,8 +301,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 
   return (
     <AppShellContext.Provider value={contextValue}>
-      <div className="min-h-dvh bg-shell p-3 text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
-        <div className="flex min-h-[calc(100dvh-24px)] flex-col overflow-hidden rounded-[28px] bg-shellElevated">
+      <div className="flex min-h-dvh flex-col overflow-hidden bg-shellElevated text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
           className="z-30 flex h-16 shrink-0 items-center border-b border-shellLine bg-shellElevated px-3 sm:px-4"
           style={{ height: TOPBAR_HEIGHT }}
@@ -489,14 +488,12 @@ function AppShellFrame({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          <div className="min-w-0 flex-1 overflow-hidden p-3">
-            <div className="h-full overflow-hidden rounded-[30px] border border-line bg-panel shadow-panel">
-              <div key={pathname} className="aw-motion-fade flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-                {children}
-              </div>
-            </div>
+        <div className="min-w-0 flex-1 overflow-hidden bg-canvas">
+          <div key={pathname} className="aw-motion-fade flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+            {children}
           </div>
         </div>
+      </div>
 
         <CenteredModal
           open={searchOpen && Boolean(config.search)}
@@ -572,7 +569,6 @@ function AppShellFrame({ children }: { children: ReactNode }) {
             ) : null}
           </div>
         </CenteredModal>
-        </div>
       </div>
     </AppShellContext.Provider>
   );

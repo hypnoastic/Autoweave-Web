@@ -72,6 +72,7 @@
 - [x] replace old dashboard/orbit text loaders with in-window skeleton states inside the persistent shell
 - [x] tighten top-bar/sidebar chrome alignment so the content window does not drift downward
 - [x] remove the orbit sidebar triage block and keep triage in inbox/search flows only
+- [x] remove the extra shell-level inner app frame so dashboard/orbit render directly on the canvas
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open
