@@ -346,6 +346,90 @@ export function PageLoader({
   );
 }
 
+export function ShellPage({
+  className,
+  children,
+}: PropsWithChildren<{ className?: string }>) {
+  return <main className={clsx("flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6", className)}>{children}</main>;
+}
+
+export function ShellPageSkeleton({
+  mode = "dashboard",
+}: {
+  mode?: "dashboard" | "orbit";
+}) {
+  return (
+    <ShellPage>
+      <div role="status" aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-5">
+        <div className="space-y-3 pb-2">
+          <SkeletonBlock className="h-3 w-28 rounded-full" />
+          <SkeletonBlock className="h-10 w-[min(420px,72%)]" />
+          <SkeletonBlock className="h-4 w-[min(620px,88%)] rounded-full" />
+          <SkeletonBlock className="h-4 w-[min(540px,74%)] rounded-full" />
+        </div>
+
+        {mode === "dashboard" ? (
+          <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+            <Panel className="flex min-h-[320px] flex-col overflow-hidden">
+              <div className="border-b border-line px-5 py-4">
+                <SkeletonBlock className="h-3 w-20 rounded-full" />
+                <SkeletonBlock className="mt-3 h-6 w-56" />
+                <SkeletonBlock className="mt-2 h-4 w-[75%] rounded-full" />
+              </div>
+              <div className="flex-1 space-y-3 px-4 py-4">
+                <SkeletonBlock className="h-28" />
+                <SkeletonBlock className="h-28" />
+                <SkeletonBlock className="h-28" />
+              </div>
+            </Panel>
+            <Panel className="flex min-h-[320px] flex-col overflow-hidden">
+              <div className="border-b border-line px-5 py-4">
+                <SkeletonBlock className="h-3 w-24 rounded-full" />
+                <SkeletonBlock className="mt-3 h-6 w-60" />
+                <SkeletonBlock className="mt-2 h-4 w-[70%] rounded-full" />
+              </div>
+              <div className="flex-1 space-y-3 px-4 py-4">
+                <SkeletonBlock className="h-24" />
+                <SkeletonBlock className="h-24" />
+              </div>
+            </Panel>
+          </div>
+        ) : (
+          <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <Panel className="flex min-h-[360px] flex-col overflow-hidden">
+              <div className="border-b border-line px-5 py-4">
+                <SkeletonBlock className="h-3 w-16 rounded-full" />
+                <SkeletonBlock className="mt-3 h-6 w-40" />
+                <SkeletonBlock className="mt-2 h-4 w-[80%] rounded-full" />
+              </div>
+              <div className="space-y-3 px-4 py-4">
+                <SkeletonBlock className="h-16" />
+                <SkeletonBlock className="h-16" />
+                <SkeletonBlock className="h-16" />
+                <SkeletonBlock className="h-16" />
+              </div>
+            </Panel>
+            <Panel className="flex min-h-[360px] flex-col overflow-hidden">
+              <div className="border-b border-line px-5 py-4">
+                <SkeletonBlock className="h-6 w-48" />
+                <SkeletonBlock className="mt-2 h-4 w-[65%] rounded-full" />
+              </div>
+              <div className="flex-1 space-y-4 px-5 py-5">
+                <SkeletonBlock className="h-20" />
+                <SkeletonBlock className="h-20" />
+                <SkeletonBlock className="h-20" />
+                <div className="pt-2">
+                  <SkeletonBlock className="h-12 w-full rounded-[16px]" />
+                </div>
+              </div>
+            </Panel>
+          </div>
+        )}
+      </div>
+    </ShellPage>
+  );
+}
+
 export function RailSidebar({
   className,
   children,

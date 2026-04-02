@@ -35,9 +35,10 @@ import {
   ListRow,
   Panel,
   PageHeader,
-  PageLoader,
   ScrollPanel,
   SectionTitle,
+  ShellPage,
+  ShellPageSkeleton,
   StatusPill,
   SurfaceCard,
   TextArea,
@@ -321,12 +322,12 @@ export function DashboardScreen() {
   }
 
   if (!session || !payload) {
-    return <PageLoader label="Loading dashboard…" fullscreen={false} className="p-8" />;
+    return <ShellPageSkeleton mode="dashboard" />;
   }
 
   return (
     <>
-      <main className="mx-auto flex min-w-0 w-full max-w-[1440px] flex-1 flex-col overflow-hidden px-5 py-4 lg:px-7">
+      <ShellPage>
         <PageHeader
           eyebrow={`Hello, ${payload.me.display_name}`}
           title="Everything important, nothing noisy."
@@ -423,7 +424,7 @@ export function DashboardScreen() {
             </ScrollPanel>
           </Panel>
         </div>
-      </main>
+      </ShellPage>
 
       <CenteredModal
         open={showCreateOrbit}

@@ -302,6 +302,28 @@ Captured artifacts:
 - `output/playwright/phase0-shell-orbit-transition-loading.png`
 - `output/playwright/phase0-shell-orbit-persistent.png`
 
+## Phase 0 Shell Follow-up - In-Window Loading States
+
+This shell follow-up is now implemented locally.
+
+Scope landed:
+
+- added `ShellPage` and `ShellPageSkeleton` primitives in `frontend/components/ui.tsx`
+- moved dashboard and orbit onto the same inner page wrapper instead of separate local page containers
+- replaced the generic `Loading dashboard…` and `Loading orbit…` pill states with full in-window skeleton states that render inside the persistent shell content pane
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `26 passed`
+- `cd frontend && npm run build` -> success
+- rebuilt the Docker frontend and revalidated the live app
+- Playwright CLI confirmed that both `/app` and dashboard -> orbit transitions now render shell-mounted content skeletons before the full page data arrives
+
+Captured artifacts:
+
+- `output/playwright/phase0-shell-dashboard-loading-window.png`
+- `output/playwright/phase0-shell-orbit-loading-window.png`
+
 - expanded the shared UI layer with:
   - a richer `ListRow` that supports active state, eyebrow labels, and supporting metadata/actions
   - a shared `SelectionChip` primitive for saved views, theme controls, and role toggles

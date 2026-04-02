@@ -69,6 +69,7 @@
 - [x] keep notifications and profile utilities in the sidebar instead of the top bar
 - [x] keep sidebar collapse state stable across dashboard -> orbit transitions
 - [x] validate expanded shell, collapsed shell, search modal, orbit transition loading, and loaded orbit shell in the live browser
+- [x] replace old dashboard/orbit text loaders with in-window skeleton states inside the persistent shell
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open

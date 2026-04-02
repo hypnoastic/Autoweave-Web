@@ -36,11 +36,12 @@ import {
   ListRow,
   Panel,
   PageHeader,
-  PageLoader,
   RightDetailPanel,
   ScrollPanel,
   SelectionChip,
   SectionTitle,
+  ShellPage,
+  ShellPageSkeleton,
   StatusPill,
   SurfaceCard,
   TextArea,
@@ -1257,7 +1258,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   useAuthenticatedShellConfig(shellConfig);
 
   if (!session || !payload) {
-    return <PageLoader label="Loading orbit…" fullscreen={false} className="p-8" />;
+    return <ShellPageSkeleton mode="orbit" />;
   }
 
   async function onSectionChange(nextSection: OrbitSection) {
@@ -1588,7 +1589,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
   return (
     <>
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
+      <ShellPage>
           {error ? (
             <InlineNotice className="mb-4" tone="danger" title="Orbit action blocked" detail={error} />
           ) : null}
@@ -1943,7 +1944,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               </div>
             </div>
           ) : null}
-      </main>
+      </ShellPage>
 
         <RightDetailPanel
           open={detailPanel !== null}
