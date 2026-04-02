@@ -82,6 +82,32 @@
   - rebuilt browser sessions still stall in `Loading dashboard…` and `Loading orbit…`
   - dashboard stall is currently explained by backend CORS on `localhost:3000` -> `localhost:8000`
 
+## Phase 0D Surface State
+
+- high-traffic product surfaces now use a denser shared row grammar instead of relying on one-off cards:
+  - dashboard priority and codespaces
+  - orbit chat sidebar
+  - orbit search, inbox, and command surfaces
+  - orbit codespace/artifact lists
+  - orbit settings repository/member rows
+  - DM picker and repository connect modal
+- the shared UI layer now includes:
+  - `SelectionChip` for saved views, theme choices, and role controls
+  - an expanded `ListRow` with active state, eyebrow labels, and supporting meta/actions
+- workflow, PR/issues, workspaces, and artifacts now use `PageHeader` for a more consistent top-of-surface frame
+
+## Current Live Validation Read
+
+- browser validation on `127.0.0.1:3000` with the token-backed local session now proves:
+  - dashboard renders the professionalized row-based priority/codespace surfaces
+  - orbit chat renders with the new row-based channel/DM grammar
+  - orbit inbox renders with the saved-view chip grammar and repo-aware inbox rows
+  - command palette renders with the shared row grammar once blocking overlays are closed
+- the remaining live debt is now narrower than the earlier baseline suggested:
+  - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
+  - overlay stacking can block rail actions until the current overlay is explicitly closed
+  - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds
+
 ## Open Implementation Threads
 
 - stabilize the authenticated orbit load path before broad shell refactors

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { CenteredModal, LeftSlidePanel, PopoverMenu } from "@/components/ui";
+import { CenteredModal, LeftSlidePanel, ListRow, PopoverMenu, SelectionChip } from "@/components/ui";
 
 describe("shared ui overlays", () => {
   it("unmounts closed overlays", () => {
@@ -51,5 +51,34 @@ describe("shared ui overlays", () => {
 
     fireEvent.click(screen.getByLabelText("Close overlay"));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("shared ui rows", () => {
+  it("renders active list rows and selection chips with supporting content", () => {
+    const onClick = vi.fn();
+
+    render(
+      <>
+        <ListRow
+          title="Orbit Alpha"
+          eyebrow="Connected repository"
+          detail="octocat/orbit-alpha"
+          active
+          onClick={onClick}
+          supporting={<span>Primary binding</span>}
+        />
+        <SelectionChip active>Needs approval</SelectionChip>
+      </>,
+    );
+
+    const row = screen.getByRole("button", { name: /orbit alpha/i });
+    expect(row).toHaveClass("bg-panel");
+    expect(screen.getByText("Connected repository")).toBeInTheDocument();
+    expect(screen.getByText("Primary binding")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Needs approval" })).toHaveClass("bg-accent");
+
+    fireEvent.click(row);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

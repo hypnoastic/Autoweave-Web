@@ -398,35 +398,54 @@ export function ContextSidebar({
 export function ListRow({
   title,
   detail,
+  eyebrow,
   leading,
   trailing,
+  supporting,
   onClick,
+  active = false,
   className,
 }: {
   title: string;
   detail?: string;
+  eyebrow?: string;
   leading?: ReactNode;
   trailing?: ReactNode;
+  supporting?: ReactNode;
   onClick?: () => void;
+  active?: boolean;
   className?: string;
 }) {
+  const eyebrowClassName = active ? "text-accentContrast/75" : "text-quiet";
+  const titleClassName = active ? "text-accentContrast" : "text-ink";
+  const detailClassName = active ? "text-accentContrast/80" : "text-quiet";
+  const leadingClassName = active ? "text-accentContrast/80" : "text-quiet";
   const content = (
-    <>
-      {leading ? <div className="mt-0.5 shrink-0 text-quiet">{leading}</div> : null}
+    <div className="flex w-full items-start gap-3">
+      {leading ? <div className={clsx("mt-0.5 shrink-0", leadingClassName)}>{leading}</div> : null}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-ink">{title}</p>
-        {detail ? <p className="mt-1 truncate text-xs text-quiet">{detail}</p> : null}
+        {eyebrow ? <p className={clsx("text-[11px] font-medium uppercase tracking-[0.14em]", eyebrowClassName)}>{eyebrow}</p> : null}
+        <p className={clsx("truncate text-sm font-medium", titleClassName)}>{title}</p>
+        {detail ? <p className={clsx("mt-1 text-xs leading-5", detailClassName)}>{detail}</p> : null}
+        {supporting ? <div className={clsx("mt-2 flex flex-wrap items-center gap-2 text-xs", detailClassName)}>{supporting}</div> : null}
       </div>
-      {trailing ? <div className="shrink-0">{trailing}</div> : null}
-    </>
+      {trailing ? <div className="shrink-0 pt-0.5">{trailing}</div> : null}
+    </div>
+  );
+  const sharedClassName = clsx(
+    "rounded-pane border px-4 py-3 transition-[background-color,border-color,transform,box-shadow] duration-200 ease-productive motion-reduce:transform-none motion-reduce:transition-none",
+    active
+      ? "border-lineStrong bg-panel text-ink shadow-[inset_0_0_0_1px_var(--aw-border-strong)]"
+      : "border-line bg-panelStrong",
+    className,
   );
   if (onClick) {
     return (
       <button
         type="button"
         className={clsx(
-          "flex w-full items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 text-left transition-[background-color,border-color,transform,box-shadow] duration-200 ease-productive hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-          className,
+          "w-full text-left hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99]",
+          sharedClassName,
         )}
         onClick={onClick}
       >
@@ -434,7 +453,29 @@ export function ListRow({
       </button>
     );
   }
-  return <div className={clsx("flex items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3", className)}>{content}</div>;
+  return <div className={sharedClassName}>{content}</div>;
+}
+
+export function SelectionChip({
+  active = false,
+  className,
+  children,
+  ...rest
+}: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }>) {
+  const buttonType = rest.type ?? "button";
+  return (
+    <button
+      type={buttonType}
+      className={clsx(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-productive hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50",
+        active ? "border-accent bg-accent text-accentContrast hover:bg-accent hover:text-accentContrast" : "border-line bg-panelStrong text-ink",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
 }
 
 const FOCUSABLE_SELECTOR = [

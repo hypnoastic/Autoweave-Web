@@ -17,6 +17,7 @@ import {
   Divider,
   EmptyState,
   GhostButton,
+  ListRow,
   ScrollPanel,
   SectionTitle,
   StatusPill,
@@ -139,17 +140,15 @@ export function OrbitChatPane({
                 {channels.map((channel) => {
                   const active = selectedConversation?.kind === "channel" && selectedConversation.id === channel.id;
                   return (
-                    <button
+                    <ListRow
                       key={channel.id}
-                      className={cx(
-                        "flex w-full items-center gap-3 rounded-chip px-3 py-2.5 text-left text-sm transition",
-                        active ? "bg-accent text-accentContrast" : "text-quiet hover:bg-panel hover:text-ink",
-                      )}
+                      title={channel.name}
+                      detail="Channel"
+                      leading={<Hash className={cx("h-4 w-4", active ? "text-accentContrast" : "text-quiet")} />}
+                      active={active}
+                      className={active ? "bg-accent text-accentContrast hover:bg-accent" : undefined}
                       onClick={() => onSelectConversation({ kind: "channel", id: channel.id })}
-                    >
-                      <Hash className="h-4 w-4" />
-                      <span className="truncate">{channel.name}</span>
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -169,17 +168,15 @@ export function OrbitChatPane({
                 {directMessages.map((thread) => {
                   const active = selectedConversation?.kind === "dm" && selectedConversation.id === thread.id;
                   return (
-                    <button
+                    <ListRow
                       key={thread.id}
-                      className={cx(
-                        "flex w-full items-center gap-3 rounded-chip px-3 py-2.5 text-left text-sm transition",
-                        active ? "bg-accent text-accentContrast" : "text-quiet hover:bg-panel hover:text-ink",
-                      )}
+                      title={thread.title}
+                      detail="Direct message"
+                      leading={<AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7" />}
+                      active={active}
+                      className={active ? "bg-accent text-accentContrast hover:bg-accent" : undefined}
                       onClick={() => onSelectConversation({ kind: "dm", id: thread.id })}
-                    >
-                      <AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7" />
-                      <span className="truncate">{thread.title}</span>
-                    </button>
+                    />
                   );
                 })}
               </div>

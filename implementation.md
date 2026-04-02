@@ -220,6 +220,48 @@ Known live validation issue still open after the shell slice:
 - dashboard still stalls in `Loading dashboard…` in browser validation because backend CORS is blocking `localhost:3000` -> `localhost:8000`
 - orbit still stalls in `Loading orbit…` after an 8 second browser wait
 
+## Phase 0D - Product Surface Professionalization
+
+This surface slice is now implemented locally.
+
+Scope landed:
+
+- expanded the shared UI layer with:
+  - a richer `ListRow` that supports active state, eyebrow labels, and supporting metadata/actions
+  - a shared `SelectionChip` primitive for saved views, theme controls, and role toggles
+- replaced the card-heavy grammar across the highest-traffic product surfaces:
+  - dashboard priority and codespaces
+  - orbit chat channel/DM list
+  - orbit search, inbox, and command palette results
+  - orbit workspaces and artifacts lists
+  - orbit settings repository/member rows
+  - DM picker and repository connect list
+- standardized top-of-surface framing with `PageHeader` for:
+  - workflow
+  - PRs and issues
+  - workspaces
+  - artifacts
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `21 passed`
+- `cd frontend && npm run build` -> success
+- rebuilt the live frontend via `docker compose up -d --build frontend`
+- Playwright browser validation captured:
+  - `output/playwright/phase0d-dashboard-professionalized.png`
+  - `output/playwright/phase0d-orbit-professionalized.png`
+  - `output/playwright/phase0d-orbit-inbox-professionalized.png`
+  - `output/playwright/phase0d-orbit-command-professionalized.png`
+
+Live validation nuance after this slice:
+
+- the real browser now confirms the new dashboard/orbit surface grammar is present
+- the earlier “orbit never renders” framing is too broad on `127.0.0.1`; orbit does render once the session is seeded and the page is given time to settle
+- the remaining `0F` debt is now focused on predictable authenticated-shell validation:
+  - timing-sensitive `Loading…` captures if validation snapshots too early
+  - overlay stacking that can intercept rail interactions until the current overlay is closed
+  - lingering localhost vs `127.0.0.1` origin consistency risk for the authenticated shell
+
 ## UI Redesign Pass
 
 This redesign pass focused on turning the V1 product from a stitched set of screens into a coherent product shell.

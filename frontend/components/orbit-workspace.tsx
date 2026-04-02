@@ -39,8 +39,10 @@ import {
   GhostButton,
   InlineNotice,
   LeftSlidePanel,
+  ListRow,
   MenuItem,
   Panel,
+  PageHeader,
   PageLoader,
   PopoverMenu,
   RailButton,
@@ -48,6 +50,7 @@ import {
   RailSidebar,
   RightDetailPanel,
   ScrollPanel,
+  SelectionChip,
   SectionTitle,
   ShellMain,
   StatusPill,
@@ -1587,21 +1590,18 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
           {section === "workflow" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="flex items-start justify-between gap-6 pb-5">
-                <div>
-                  <p className="text-sm text-quiet">{payload.orbit.name}</p>
-                  <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-ink">
-                    Execution board
-                  </h1>
-                  <p className="mt-2 text-sm text-quiet">
-                    Workflow detail stays here. Chat remains clean.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {selectedRun ? <StatusPill tone={boardTone(selectedRun.operator_status)}>{formatStateLabel(selectedRun.operator_status)}</StatusPill> : null}
-                  {selectedRun ? <StatusPill tone="muted">{formatStateLabel(selectedRun.execution_status)}</StatusPill> : null}
-                </div>
-              </div>
+              <PageHeader
+                eyebrow={payload.orbit.name}
+                title="Execution board"
+                detail="Workflow detail stays here. Chat remains clean."
+                className="pb-5"
+                actions={
+                  <div className="flex items-center gap-2">
+                    {selectedRun ? <StatusPill tone={boardTone(selectedRun.operator_status)}>{formatStateLabel(selectedRun.operator_status)}</StatusPill> : null}
+                    {selectedRun ? <StatusPill tone="muted">{formatStateLabel(selectedRun.execution_status)}</StatusPill> : null}
+                  </div>
+                }
+              />
 
               <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="border-b border-line px-5 py-4">
@@ -1645,16 +1645,23 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           ) : null}
 
           {section === "prs" ? (
-            <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-2">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <PageHeader
+                eyebrow={payload.orbit.name}
+                title="PRs and issues"
+                detail="Review-ready code and tracked follow-up work stay repo-aware and operational."
+                className="pb-5"
+                actions={<GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>}
+              />
+              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-2">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+                <div className="border-b border-line px-5 py-4">
                   <SectionTitle
                     eyebrow="Pull requests"
                     title="Review-ready work"
                     detail="Operational status is clearer than a bare high/medium/low label."
                     dense
                   />
-                  <GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>
                 </div>
                 <ScrollPanel className="flex-1 px-5 py-5">
                   <div className="space-y-3">
@@ -1712,48 +1719,47 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   </div>
                 </ScrollPanel>
               </Panel>
+              </div>
             </div>
           ) : null}
 
           {section === "codespaces" ? (
-            <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[320px_1fr]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <PageHeader
+                eyebrow={payload.orbit.name}
+                title="Workspaces"
+                detail="Branch-linked workspaces stay separate from chat and can take over the canvas when opened."
+                className="pb-5"
+                actions={
+                  <ActionButton onClick={() => void onCreateCodespace()}>
+                    <Plus className="h-4 w-4" />
+                    Create workspace
+                  </ActionButton>
+                }
+              />
+              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[320px_1fr]">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+                <div className="border-b border-line px-5 py-4">
                   <SectionTitle
                     eyebrow="Codespaces"
                     title="Branch workspaces"
                     detail="Each workspace is tied to a branch-like context."
                     dense
                   />
-                  <ActionButton onClick={() => void onCreateCodespace()}>
-                    <Plus className="h-4 w-4" />
-                    Create
-                  </ActionButton>
                 </div>
                 <ScrollPanel className="flex-1 px-5 py-5">
                   <div className="space-y-3">
                     {payload.codespaces.length ? (
                       payload.codespaces.map((item) => (
-                        <button
+                        <ListRow
                           key={item.id}
-                          className={cx(
-                            "w-full rounded-pane border px-4 py-4 text-left transition",
-                            activeCodespaceId === item.id
-                              ? "border-lineStrong bg-panel text-ink"
-                              : "border-line bg-panelStrong hover:bg-panelMuted",
-                          )}
+                          eyebrow="Workspace"
+                          title={item.name}
+                          detail={[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
+                          active={activeCodespaceId === item.id}
+                          trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
                           onClick={() => setActiveCodespaceId(item.id)}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-ink">{item.name}</p>
-                              <p className="mt-1 truncate text-xs text-quiet">
-                                {[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
-                              </p>
-                            </div>
-                            <StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>
-                          </div>
-                        </button>
+                        />
                       ))
                     ) : (
                       <EmptyState text="No codespaces yet. Create one and it will stay embedded here." />
@@ -1811,47 +1817,57 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   </div>
                 )}
               </Panel>
+              </div>
             </div>
           ) : null}
 
           {section === "demos" ? (
-            <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[1fr_320px]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <PageHeader
+                eyebrow={payload.orbit.name}
+                title="Artifacts"
+                detail="Deliverables, previews, and publishable outputs stay linked to their repo and workflow scope."
+                className="pb-5"
+                actions={
+                  <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
+                    <MonitorPlay className="h-4 w-4" />
+                    Publish demo
+                  </ActionButton>
+                }
+              />
+              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[1fr_320px]">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+                <div className="border-b border-line px-5 py-4">
                   <SectionTitle
                     eyebrow="Artifacts"
                     title="Deliverables and previews"
                     detail="Draft PRs and demos stay linked to their repo scope instead of disappearing into workflow side effects."
                     dense
                   />
-                  <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
-                    <MonitorPlay className="h-4 w-4" />
-                    Publish demo
-                  </ActionButton>
                 </div>
                 <ScrollPanel className="flex-1 px-5 py-5">
                   <div className="space-y-3">
                     {(payload.artifacts ?? []).length ? (
                       (payload.artifacts ?? []).map((artifact) => (
-                        <SurfaceCard key={artifact.id} className="bg-panelStrong">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-ink">{artifact.title}</p>
-                              <p className="mt-1 truncate text-xs text-quiet">
-                                {[artifact.repository_full_name, artifact.summary || formatStateLabel(artifact.artifact_kind)].filter(Boolean).join(" · ")}
-                              </p>
-                            </div>
+                        <ListRow
+                          key={artifact.id}
+                          eyebrow={formatStateLabel(artifact.artifact_kind)}
+                          title={artifact.title}
+                          detail={[artifact.repository_full_name, artifact.summary || formatStateLabel(artifact.artifact_kind)].filter(Boolean).join(" · ")}
+                          trailing={
                             <StatusPill tone={artifact.status === "running" || artifact.status === "ready" ? "success" : "muted"}>
                               {formatStateLabel(artifact.status)}
                             </StatusPill>
-                          </div>
-                          {artifact.external_url ? (
-                            <a href={artifact.external_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-ink">
-                              Open artifact
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          ) : null}
-                        </SurfaceCard>
+                          }
+                          supporting={
+                            artifact.external_url ? (
+                              <a href={artifact.external_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                                Open artifact
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            ) : null
+                          }
+                        />
                       ))
                     ) : (
                       <EmptyState text="No artifacts are linked into this orbit yet." />
@@ -1888,6 +1904,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   </div>
                 </ScrollPanel>
               </Panel>
+              </div>
             </div>
           ) : null}
         </div>
@@ -1904,17 +1921,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           <div className="mt-5 space-y-2">
             {searchResults.length ? (
               searchResults.map((item) => (
-                <button
+                <ListRow
                   key={item.key}
-                  className="flex w-full items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 text-left transition hover:bg-panelMuted"
+                  title={item.label}
+                  detail={item.detail}
+                  leading={<Search className="h-4 w-4" />}
                   onClick={item.action}
-                >
-                  <Search className="mt-0.5 h-4 w-4 shrink-0 text-quiet" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{item.label}</p>
-                    <p className="truncate text-xs text-quiet">{item.detail}</p>
-                  </div>
-                </button>
+                />
               ))
             ) : (
               <EmptyState text="Nothing matched your search." />
@@ -1933,40 +1946,28 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
               {SAVED_VIEWS.map((view) => (
-                <button
+                <SelectionChip
                   key={view.key}
-                  className={cx(
-                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
-                    activeSavedView === view.key
-                      ? "border-accent bg-accent text-accentContrast"
-                      : "border-line bg-panelStrong text-ink hover:bg-panelMuted",
-                  )}
+                  active={activeSavedView === view.key}
                   onClick={() => setActiveSavedView(view.key)}
                 >
                   <Filter className="h-3.5 w-3.5" />
                   {view.label}
                   <span className="text-[11px] opacity-80">{savedViewCounts[view.key] || 0}</span>
-                </button>
+                </SelectionChip>
               ))}
             </div>
             {filteredTriageItems.length ? (
               filteredTriageItems.map((item) => (
-                <button
+                <ListRow
                   key={item.key}
-                  className="w-full text-left"
+                  eyebrow="Inbox item"
+                  title={item.label}
+                  detail={item.detail}
+                  trailing={<StatusPill tone={item.tone}>{item.status}</StatusPill>}
                   onClick={() => (item.action ? item.action() : undefined)}
-                  disabled={!item.action}
-                >
-                  <SurfaceCard className="bg-panelStrong">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-ink">{item.label}</p>
-                        <p className="mt-1 text-xs text-quiet">{item.detail}</p>
-                      </div>
-                      <StatusPill tone={item.tone}>{item.status}</StatusPill>
-                    </div>
-                  </SurfaceCard>
-                </button>
+                  className={!item.action ? "pointer-events-none opacity-70" : undefined}
+                />
               ))
             ) : (
               <EmptyState text="Nothing matches this saved view right now." />
@@ -2105,17 +2106,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 <EmptyState text="Searching this orbit…" />
               ) : commandPaletteItems.length ? (
                 commandPaletteItems.map((item) => (
-                  <button
+                  <ListRow
                     key={item.key}
-                    className="flex w-full items-start gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 text-left transition hover:bg-panelMuted"
+                    title={item.label}
+                    detail={item.detail}
+                    leading={<CommandIcon className="h-4 w-4" />}
                     onClick={item.action}
-                  >
-                    <CommandIcon className="mt-0.5 h-4 w-4 shrink-0 text-quiet" />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">{item.label}</p>
-                      <p className="truncate text-xs text-quiet">{item.detail}</p>
-                    </div>
-                  </button>
+                  />
                 ))
               ) : (
                 <EmptyState text="No commands matched that search." />
@@ -2166,41 +2163,27 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
             {payload.members
               .filter((member) => !member.is_self)
               .map((member) => (
-                <button
+                <ListRow
                   key={member.user_id}
-                  className={cx(
-                    "flex w-full items-center gap-3 rounded-pane border px-4 py-3 text-left transition",
-                    dmDraft.targetUserId === member.user_id
-                      ? "border-lineStrong bg-panel"
-                      : "border-line bg-panelStrong hover:bg-panelMuted",
-                  )}
+                  title={member.display_name || member.login || member.github_login || member.user_id}
+                  detail={member.role}
+                  leading={
+                    <AvatarMark
+                      label={member.display_name || member.login || member.github_login || member.user_id}
+                      src={member.avatar_url}
+                    />
+                  }
+                  active={dmDraft.targetUserId === member.user_id}
                   onClick={() => setDmDraft({ targetUserId: member.user_id })}
-                >
-                  <AvatarMark
-                    label={member.display_name || member.login || member.github_login || member.user_id}
-                    src={member.avatar_url}
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">
-                      {member.display_name || member.login || member.github_login || member.user_id}
-                    </p>
-                    <p className="truncate text-xs text-quiet">{member.role}</p>
-                  </div>
-                </button>
+                />
               ))}
-            <button
-              className={cx(
-                "flex w-full items-center gap-3 rounded-pane border px-4 py-3 text-left transition",
-                dmDraft.targetUserId === "ERGO" ? "border-lineStrong bg-panel" : "border-line bg-panelStrong hover:bg-panelMuted",
-              )}
+            <ListRow
+              title="ERGO"
+              detail="Agent DM"
+              leading={<AvatarMark label="ERGO" />}
+              active={dmDraft.targetUserId === "ERGO"}
               onClick={() => setDmDraft({ targetUserId: "ERGO" })}
-            >
-              <AvatarMark label="ERGO" />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-ink">ERGO</p>
-                <p className="truncate text-xs text-quiet">Agent DM</p>
-              </div>
-            </button>
+            />
           </div>
         </CenteredModal>
 
@@ -2218,23 +2201,21 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           <div className="space-y-5">
             <SurfaceCard className="bg-panelStrong">
               <SectionTitle eyebrow="Appearance" title="Theme" detail="Default to system, but keep the product consistent once you choose." dense />
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {[
                   { value: "system", label: "System", icon: Settings2 },
                   { value: "light", label: "Light", icon: Sun },
                   { value: "dark", label: "Dark", icon: Moon },
                 ].map(({ value, label, icon: Icon }) => (
-                  <button
+                  <SelectionChip
                     key={value}
-                    className={cx(
-                      "flex items-center justify-center gap-2 rounded-chip border px-3 py-3 text-sm font-medium transition",
-                      mode === value ? "border-accent bg-accent text-accentContrast" : "border-line bg-panel text-ink hover:bg-panelMuted",
-                    )}
+                    active={mode === value}
+                    className="px-3 py-2 text-sm"
                     onClick={() => void onChangeTheme(value as ThemeMode)}
                   >
                     <Icon className="h-4 w-4" />
                     {label}
-                  </button>
+                  </SelectionChip>
                 ))}
               </div>
             </SurfaceCard>
@@ -2277,37 +2258,36 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   payload.repositories.map((repository) => {
                     const repoGrant = payload.permissions?.repo_grants?.[repository.id];
                     return (
-                      <SurfaceCard key={repository.id} className="bg-panel">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-ink">{repository.full_name}</p>
-                            <p className="mt-1 truncate text-xs text-quiet">
-                              {repository.default_branch} branch
-                              {repoGrant ? ` · ${repoGrant} access` : ""}
-                            </p>
-                          </div>
+                      <ListRow
+                        key={repository.id}
+                        eyebrow="Connected repository"
+                        title={repository.full_name}
+                        detail={`${repository.default_branch} branch${repoGrant ? ` · ${repoGrant} access` : ""}`}
+                        trailing={
                           <div className="flex flex-wrap items-center justify-end gap-2">
                             {repository.is_primary ? <StatusPill tone="accent">Primary</StatusPill> : null}
                             <StatusPill tone={repository.health_state === "healthy" ? "success" : "muted"}>{repository.health_state || "healthy"}</StatusPill>
                           </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {repository.url ? (
-                            <a
-                              href={repository.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-2 text-sm font-medium text-ink"
-                            >
-                              Open GitHub repository
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          ) : null}
-                          {!repository.is_primary && payload.permissions?.can_bind_repo ? (
-                            <GhostButton onClick={() => void onMakeRepositoryPrimary(repository.id)}>Make primary</GhostButton>
-                          ) : null}
-                        </div>
-                      </SurfaceCard>
+                        }
+                        supporting={
+                          <>
+                            {repository.url ? (
+                              <a
+                                href={repository.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 text-sm font-medium text-ink"
+                              >
+                                Open GitHub repository
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            ) : null}
+                            {!repository.is_primary && payload.permissions?.can_bind_repo ? (
+                              <GhostButton onClick={() => void onMakeRepositoryPrimary(repository.id)}>Make primary</GhostButton>
+                            ) : null}
+                          </>
+                        }
+                      />
                     );
                   })
                 ) : (
@@ -2344,29 +2324,22 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               />
               <div className="mt-4 space-y-3">
                 {payload.members.map((member) => (
-                  <SurfaceCard key={member.user_id} className="bg-panel">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-ink">{member.display_name || member.login || member.github_login}</p>
-                        <p className="mt-1 truncate text-xs text-quiet">
-                          {[member.github_login || member.login, member.is_self ? "You" : null].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
+                  <ListRow
+                    key={member.user_id}
+                    eyebrow="Member"
+                    title={member.display_name || member.login || member.github_login || member.user_id}
+                    detail={[member.github_login || member.login, member.is_self ? "You" : null].filter(Boolean).join(" · ")}
+                    supporting={
+                      <>
                         {[
                           { value: "owner", label: "Owner" },
                           { value: "manager", label: "Manager" },
                           { value: "contributor", label: "Contributor" },
                           { value: "viewer", label: "Viewer" },
                         ].map((option) => (
-                          <button
+                          <SelectionChip
                             key={`${member.user_id}-${option.value}`}
-                            className={cx(
-                              "rounded-full border px-3 py-1.5 text-xs font-medium transition",
-                              member.role === option.value
-                                ? "border-accent bg-accent text-accentContrast"
-                                : "border-line bg-panelStrong text-ink hover:bg-panelMuted",
-                            )}
+                            active={member.role === option.value}
                             onClick={() => void onUpdateMemberRole(member.user_id, option.value)}
                             disabled={
                               !payload.permissions?.can_manage_roles
@@ -2376,11 +2349,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                             }
                           >
                             {option.label}
-                          </button>
+                          </SelectionChip>
                         ))}
-                      </div>
-                    </div>
-                  </SurfaceCard>
+                      </>
+                    }
+                  />
                 ))}
               </div>
             </SurfaceCard>
@@ -2409,17 +2382,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 <EmptyState text="Loading available repositories…" />
               ) : repositoryOptions.length ? (
                 repositoryOptions.map((repository) => (
-                  <SurfaceCard key={repository.full_name} className="bg-panelStrong">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-ink">{repository.full_name}</p>
-                        <p className="mt-1 truncate text-xs text-quiet">
-                          {repository.default_branch} branch · {repository.is_private ? "Private" : "Public"}
-                        </p>
-                      </div>
-                      <ActionButton onClick={() => void onConnectRepository(repository.full_name)}>Connect</ActionButton>
-                    </div>
-                  </SurfaceCard>
+                  <ListRow
+                    key={repository.full_name}
+                    eyebrow="Available repository"
+                    title={repository.full_name}
+                    detail={`${repository.default_branch} branch · ${repository.is_private ? "Private" : "Public"}`}
+                    trailing={<ActionButton onClick={() => void onConnectRepository(repository.full_name)}>Connect</ActionButton>}
+                  />
                 ))
               ) : (
                 <EmptyState text="No additional repositories are available to connect." />

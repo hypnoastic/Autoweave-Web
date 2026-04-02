@@ -53,6 +53,7 @@ import {
   RailCluster,
   RailSidebar,
   ScrollPanel,
+  SelectionChip,
   SectionTitle,
   ShellMain,
   StatusPill,
@@ -348,31 +349,33 @@ export function DashboardScreen() {
                 <div className="space-y-2.5">
                   {payload.priority_items.length ? (
                     payload.priority_items.map((item, index) => (
-                      <SurfaceCard key={index} className="rounded-[16px] bg-panel px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-ink">{String(item.title ?? "Work item")}</p>
-                            <p className="mt-1 text-xs text-quiet">{String(item.summary ?? item.agent ?? "ERGO")}</p>
-                          </div>
+                      <ListRow
+                        key={index}
+                        eyebrow="Priority signal"
+                        title={String(item.title ?? "Work item")}
+                        detail={String(item.summary ?? item.agent ?? "ERGO")}
+                        trailing={
                           <StatusPill tone={String(item.status ?? "").includes("review") ? "accent" : "muted"}>
                             {String(item.status ?? "active")}
                           </StatusPill>
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap gap-3 text-xs text-quiet">
-                          {item.branch_name ? <span>{String(item.branch_name)}</span> : null}
-                          {item.agent ? <span>{String(item.agent)}</span> : null}
-                          {item.demo_url ? (
-                            <a href={String(item.demo_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
-                              Open demo
-                            </a>
-                          ) : null}
-                          {item.draft_pr_url ? (
-                            <a href={String(item.draft_pr_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
-                              Review PR
-                            </a>
-                          ) : null}
-                        </div>
-                      </SurfaceCard>
+                        }
+                        supporting={
+                          <>
+                            {item.branch_name ? <span>{String(item.branch_name)}</span> : null}
+                            {item.agent ? <span>{String(item.agent)}</span> : null}
+                            {item.demo_url ? (
+                              <a href={String(item.demo_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
+                                Open demo
+                              </a>
+                            ) : null}
+                            {item.draft_pr_url ? (
+                              <a href={String(item.draft_pr_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
+                                Review PR
+                              </a>
+                            ) : null}
+                          </>
+                        }
+                      />
                     ))
                   ) : (
                     <EmptyState detail="Create an orbit, ask ERGO to build something, and meaningful signals will surface here." />
@@ -389,22 +392,21 @@ export function DashboardScreen() {
                 <div className="space-y-2.5">
                   {payload.codespaces.length ? (
                     payload.codespaces.map((item) => (
-                      <SurfaceCard key={item.id} className="rounded-[16px] bg-panel px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-ink">{item.name}</p>
-                            <p className="mt-1 truncate text-xs text-quiet">{item.branch_name}</p>
-                          </div>
-                          <StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>
-                        </div>
-                        <p className="mt-2.5 truncate text-xs text-quiet">{item.workspace_path}</p>
-                        {item.editor_url ? (
-                          <a href={item.editor_url} target="_blank" rel="noreferrer" className="mt-2.5 inline-flex items-center gap-2 text-sm font-medium text-ink">
-                            Open editor
-                            <ChevronRight className="h-4 w-4" />
-                          </a>
-                        ) : null}
-                      </SurfaceCard>
+                      <ListRow
+                        key={item.id}
+                        eyebrow="Workspace"
+                        title={item.name}
+                        detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
+                        trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
+                        supporting={
+                          item.editor_url ? (
+                            <a href={item.editor_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                              Open editor
+                              <ChevronRight className="h-4 w-4" />
+                            </a>
+                          ) : null
+                        }
+                      />
                     ))
                   ) : (
                     <EmptyState detail="Codespaces appear here with a running or stopped state once they are created inside an orbit." />
@@ -429,14 +431,14 @@ export function DashboardScreen() {
                 <Link
                   key={orbit.id}
                   href={`/app/orbits/${orbit.id}`}
-                  className="flex items-center gap-3 rounded-pane border border-line bg-panelStrong px-4 py-3 transition hover:bg-panelMuted"
+                  className="block"
                   onClick={() => setActiveLeftPanel(null)}
                 >
-                  <AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{orbit.name}</p>
-                    <p className="truncate text-xs text-quiet">{orbit.repo_full_name || "Repository pending"}</p>
-                  </div>
+                  <ListRow
+                    title={orbit.name}
+                    detail={orbit.repo_full_name || "Repository pending"}
+                    leading={<AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} />}
+                  />
                 </Link>
               ))
             ) : (
@@ -455,15 +457,13 @@ export function DashboardScreen() {
           <div className="space-y-3">
             {notifications.length ? (
               notifications.map((item, index) => (
-                <SurfaceCard key={`${item.kind}-${index}`} className="bg-panelStrong">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-ink">{item.label}</p>
-                      {"detail" in item && item.detail ? <p className="mt-1 text-xs text-quiet">{String(item.detail)}</p> : null}
-                    </div>
-                    <StatusPill tone="muted">{item.kind}</StatusPill>
-                  </div>
-                </SurfaceCard>
+                <ListRow
+                  key={`${item.kind}-${index}`}
+                  eyebrow="Activity"
+                  title={item.label}
+                  detail={"detail" in item && item.detail ? String(item.detail) : undefined}
+                  trailing={<StatusPill tone="muted">{item.kind}</StatusPill>}
+                />
               ))
             ) : (
               <EmptyState title="No notifications yet" detail="When approvals, reviews, or run updates need attention, they will surface here." />
@@ -535,18 +535,16 @@ export function DashboardScreen() {
           <div className="space-y-5">
             <SurfaceCard className="bg-panelStrong">
               <SectionTitle eyebrow="Appearance" title="Theme" detail="Default to system, but let the product stay consistent once you choose." dense />
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {[
                   { value: "system", label: "System", icon: Settings2 },
                   { value: "light", label: "Light", icon: Sun },
                   { value: "dark", label: "Dark", icon: Moon },
                 ].map(({ value, label, icon: Icon }) => (
-                  <button
+                  <SelectionChip
                     key={value}
-                    className={cx(
-                      "flex items-center justify-center gap-2 rounded-chip border px-3 py-3 text-sm font-medium transition",
-                      mode === value ? "border-accent bg-accent text-accentContrast" : "border-line bg-panel text-ink hover:bg-panelMuted",
-                    )}
+                    active={mode === value}
+                    className="px-3 py-2 text-sm"
                     onClick={async () => {
                       const nextMode = value as typeof mode;
                       setMode(nextMode);
@@ -555,7 +553,7 @@ export function DashboardScreen() {
                   >
                     <Icon className="h-4 w-4" />
                     {label}
-                  </button>
+                  </SelectionChip>
                 ))}
               </div>
             </SurfaceCard>
