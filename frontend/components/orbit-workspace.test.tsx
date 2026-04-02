@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import { AuthenticatedAppShell } from "@/components/authenticated-shell";
 import { OrbitWorkspace } from "@/components/orbit-workspace";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -29,18 +30,35 @@ const api = vi.hoisted(() => ({
   updateNavigation: vi.fn(),
   writeSession: vi.fn(),
 }));
+const mockRouter = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+}));
+
+let mockPathname = "/app/orbits/orbit_1";
 
 vi.mock("@/lib/api", () => api);
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
-  }),
+  useRouter: () => mockRouter,
+  usePathname: () => mockPathname,
 }));
+
+function renderOrbit() {
+  mockPathname = "/app/orbits/orbit_1";
+  return render(
+    <ThemeProvider>
+      <AuthenticatedAppShell>
+        <OrbitWorkspace orbitId="orbit_1" />
+      </AuthenticatedAppShell>
+    </ThemeProvider>,
+  );
+}
 
 describe("OrbitWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.removeItem?.("autoweave-shell-sidebar-collapsed");
+    mockPathname = "/app/orbits/orbit_1";
   });
 
   it("hydrates the orbit shell from the bootstrap payload before the full orbit payload finishes", async () => {
@@ -123,11 +141,7 @@ describe("OrbitWorkspace", () => {
       human_loop_items: [],
     });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect(await screen.findByRole("button", { name: "Search" })).toBeInTheDocument();
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(1, "session-token", "orbit_1", { bootstrap: true });
@@ -263,11 +277,7 @@ describe("OrbitWorkspace", () => {
       human_loop_items: [],
     });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect(await screen.findByRole("button", { name: "Search" })).toBeInTheDocument();
 
@@ -487,11 +497,7 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect(await screen.findByText("Execution board")).toBeInTheDocument();
     await act(async () => {
@@ -665,11 +671,7 @@ describe("OrbitWorkspace", () => {
     api.updateNavigation.mockResolvedValue({});
     api.resolveWorkflowApprovalRequest.mockResolvedValue({ ok: true });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("Approval required")).length).toBeGreaterThan(0);
     await act(async () => {
@@ -827,18 +829,14 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     await waitFor(() => expect(api.fetchWorkflow).toHaveBeenCalledWith("session-token", "orbit_1"));
     await waitFor(() => expect(api.fetchChannelMessages).toHaveBeenCalledWith("session-token", "orbit_1", "channel_1"));
     expect(await screen.findByText("Clarification needed")).toBeInTheDocument();
   });
 
-  it("loads available repositories from orbit settings and connects a new repo", async () => {
+  it("loads available repositories from the shared settings nav item and connects a new repo", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",
       user: {
@@ -920,16 +918,12 @@ describe("OrbitWorkspace", () => {
     ]);
     api.connectOrbitRepository.mockResolvedValue({ ok: true });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /orbit settings/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
     });
 
     await act(async () => {
@@ -950,7 +944,7 @@ describe("OrbitWorkspace", () => {
     );
   });
 
-  it("updates the theme preference from global settings", async () => {
+  it("updates the theme preference from the persistent top bar", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",
       user: {
@@ -1006,22 +1000,12 @@ describe("OrbitWorkspace", () => {
     });
     api.updatePreferences.mockResolvedValue({ theme_preference: "light" });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /profile/i }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("menuitem", { name: /global settings/i }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Light" }));
+      fireEvent.click(screen.getByRole("button", { name: /switch to light theme/i }));
     });
 
     await waitFor(() =>
@@ -1168,16 +1152,12 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+      fireEvent.click(screen.getByRole("button", { name: /open notifications/i }));
     });
     expect(await screen.findByText("Artifact ready")).toBeInTheDocument();
     expect(await screen.findByText("octocat/orbit-one · Release notes draft is ready.")).toBeInTheDocument();
@@ -1185,11 +1165,11 @@ describe("OrbitWorkspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
     });
-    const searchInput = screen.getByPlaceholderText("Search orbit surfaces");
+    const searchInput = screen.getByPlaceholderText("Search this orbit or run a quick action");
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: "approved" } });
     });
-    await waitFor(() => expect(screen.getByText("Nothing matched your search.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No commands or search results matched that query.")).toBeInTheDocument());
 
     await act(async () => {
       fireEvent.change(searchInput, { target: { value: "release notes" } });
@@ -1197,7 +1177,7 @@ describe("OrbitWorkspace", () => {
     expect((await screen.findAllByText("Release notes draft")).length).toBeGreaterThan(0);
   });
 
-  it("opens the command palette with Ctrl+K and renders remote orbit search results", async () => {
+  it("opens shell search with Ctrl+K and renders remote orbit search results", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",
       user: {
@@ -1278,11 +1258,7 @@ describe("OrbitWorkspace", () => {
     ]);
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
@@ -1290,16 +1266,16 @@ describe("OrbitWorkspace", () => {
       fireEvent.keyDown(document, { key: "k", ctrlKey: true });
     });
 
-    expect(await screen.findByText("Command palette")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search this orbit" })).toBeInTheDocument();
     await act(async () => {
-      fireEvent.change(screen.getByPlaceholderText("Search or run a command"), { target: { value: "release notes" } });
+      fireEvent.change(screen.getByPlaceholderText("Search this orbit or run a quick action"), { target: { value: "release notes" } });
     });
 
     await waitFor(() => expect(api.fetchOrbitSearch).toHaveBeenCalledWith("session-token", "orbit_1", "release notes", 18));
     expect(await screen.findByText("Release notes draft")).toBeInTheDocument();
   });
 
-  it("closes the inbox before opening the command palette from the rail", async () => {
+  it("closes the inbox before opening shell search from the persistent sidebar", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",
       user: {
@@ -1385,24 +1361,20 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+      fireEvent.click(screen.getByRole("button", { name: /open notifications/i }));
     });
     expect(await screen.findByRole("dialog", { name: "Inbox" })).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /command palette/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
     });
 
-    expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search this orbit" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument();
   });
 
@@ -1526,16 +1498,12 @@ describe("OrbitWorkspace", () => {
     api.updateNavigation.mockResolvedValue({});
     api.updateOrbitMemberRole.mockResolvedValue({ ok: true });
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+      fireEvent.click(screen.getByRole("button", { name: /open notifications/i }));
     });
     expect((await screen.findAllByText("Approval required")).length).toBeGreaterThan(0);
 
@@ -1547,7 +1515,7 @@ describe("OrbitWorkspace", () => {
     expect(screen.queryByText("Approval required")).not.toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /orbit settings/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
     });
     expect(await screen.findByText("Workspace roles")).toBeInTheDocument();
 
@@ -1634,11 +1602,7 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect((await screen.findAllByText("Orbit payload message")).length).toBeGreaterThan(0);
     expect(api.fetchChannelMessages).not.toHaveBeenCalled();
@@ -1710,16 +1674,12 @@ describe("OrbitWorkspace", () => {
     });
     api.updateNavigation.mockResolvedValue({});
 
-    render(
-      <ThemeProvider>
-        <OrbitWorkspace orbitId="orbit_1" />
-      </ThemeProvider>,
-    );
+    renderOrbit();
 
     expect(await screen.findByRole("button", { name: /publish demo/i })).toBeDisabled();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /orbit settings/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
     });
 
     expect(await screen.findByText("Only orbit managers and owners can send invitations.")).toBeInTheDocument();

@@ -321,11 +321,23 @@ export function SkeletonBlock({
 
 export function PageLoader({
   label = "Loading…",
+  fullscreen = true,
+  className,
 }: {
   label?: string;
+  fullscreen?: boolean;
+  className?: string;
 }) {
   return (
-    <div role="status" aria-live="polite" className="flex min-h-dvh items-center justify-center px-6">
+    <div
+      role="status"
+      aria-live="polite"
+      className={clsx(
+        "flex items-center justify-center px-6",
+        fullscreen ? "min-h-dvh" : "h-full min-h-0 flex-1",
+        className,
+      )}
+    >
       <div className="flex items-center gap-3 rounded-pane border border-line bg-panel px-4 py-3 text-sm text-quiet shadow-soft">
         <span className="h-2.5 w-2.5 rounded-full bg-accent animate-pulse motion-reduce:animate-none" />
         {label}
@@ -664,6 +676,8 @@ export function CenteredModal({
   description,
   children,
   footer,
+  panelClassName,
+  bodyClassName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -671,6 +685,8 @@ export function CenteredModal({
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  panelClassName?: string;
+  bodyClassName?: string;
 }) {
   const { surfaceRef, titleId } = useOverlaySurface<HTMLDivElement>(open, onClose);
   if (!open) {
@@ -686,10 +702,13 @@ export function CenteredModal({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="aw-motion-pop flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
+          className={clsx(
+            "aw-motion-pop flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none",
+            panelClassName,
+          )}
         >
           <SurfaceHeader title={title} detail={description} titleId={titleId} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
-          <div className="scroll-region px-5 py-5">{children}</div>
+          <div className={clsx("scroll-region px-5 py-5", bodyClassName)}>{children}</div>
           {footer ? <div className="border-t border-line px-5 py-4">{footer}</div> : null}
         </div>
       </div>

@@ -33,9 +33,10 @@
 
 ## Current UI Architecture
 
-- dashboard uses a denser collapsible sidebar
-- orbit view uses a fixed-width left rail
-- search and notifications use left slide-over panels
+- dashboard and orbit now share one persistent authenticated shell mounted at `frontend/app/app/layout.tsx`
+- the shell keeps one fixed top bar plus one persistent contextual sidebar mounted across dashboard `<->` orbit route changes
+- the orbit left rail is no longer a separate shell family; orbit navigation is a contextual mode of the same main sidebar
+- search and notifications now open from the sidebar as shell-owned modal overlays
 - workflow / PR / issue detail uses a right slide-over panel
 - create-orbit, global settings, orbit settings, channel creation, and DM start use centered modals
 - theme state is token-driven and supports `system`, `light`, and `dark`
@@ -70,11 +71,11 @@
 ## Phase 0C Shell State
 
 - dashboard and orbit now share:
-  - `RailSidebar`
-  - `RailCluster`
-  - `RailButton`
-- dashboard now uses a persistent contextual home sidebar via `ContextSidebar`
-- orbit no longer relies on a local rail-button helper
+  - `AuthenticatedAppShell`
+  - one persistent top bar
+  - one contextual sidebar that switches between dashboard and orbit navigation
+- dashboard now mounts inside the shared `/app` shell instead of owning separate chrome
+- orbit now mounts inside the same `/app` shell and only swaps sidebar contents plus inner route content
 - current local validation for this slice:
   - `cd frontend && npm test -- --run` -> `20 passed`
   - `cd frontend && npm run build` -> success
@@ -142,10 +143,11 @@
 ## Current Live Validation Read
 
 - browser validation on `127.0.0.1:3000` with the token-backed local session now proves:
-  - dashboard renders the professionalized row-based priority/codespace surfaces
-  - orbit chat renders with the new row-based channel/DM grammar
-  - orbit inbox renders with the saved-view chip grammar and repo-aware inbox rows
-  - command palette renders with the shared row grammar and can now replace the inbox directly from the rail
+  - dashboard renders inside the shared persistent shell
+  - the top bar stays mounted while the sidebar collapses to icon-only mode
+  - notifications and profile utilities now live in the sidebar instead of the top bar
+  - the same collapsed sidebar stays mounted during dashboard -> orbit navigation
+  - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds

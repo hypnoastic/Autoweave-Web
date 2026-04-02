@@ -2,57 +2,45 @@
 
 import {
   ArrowLeft,
-  Bell,
-  Command as CommandIcon,
   ExternalLink,
   FileCode2,
   Filter,
   GitPullRequest,
-  Inbox,
-  Keyboard,
   LayoutGrid,
   MailPlus,
   MessageSquare,
   MonitorPlay,
-  Moon,
   Plus,
   Search,
   Settings2,
-  Sun,
-  User2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import {
+  type AppShellConfig,
+  useAuthenticatedShell,
+  useAuthenticatedShellConfig,
+} from "@/components/authenticated-shell";
 import { OrbitChatPane, type ConversationSelection } from "@/components/orbit-chat-pane";
 import { useTheme } from "@/components/theme-provider";
 import {
   ActionButton,
-  AppShell,
   AvatarMark,
   CenteredModal,
-  cx,
-  Divider,
   EmptyState as SharedEmptyState,
   FieldLabel,
   GhostButton,
   InlineNotice,
-  LeftSlidePanel,
   ListRow,
-  MenuItem,
   Panel,
   PageHeader,
   PageLoader,
-  PopoverMenu,
-  RailButton,
-  RailCluster,
-  RailSidebar,
   RightDetailPanel,
   ScrollPanel,
   SelectionChip,
   SectionTitle,
-  ShellMain,
   StatusPill,
   SurfaceCard,
   TextArea,
@@ -82,8 +70,6 @@ import {
   setPrimaryOrbitRepository,
   updateNavigation,
   updateOrbitMemberRole,
-  updatePreferences,
-  writeSession,
 } from "@/lib/api";
 import type {
   AvailableRepository,
@@ -96,7 +82,6 @@ import type {
   OrbitPayload,
   OrbitSearchResult,
   Session,
-  ThemeMode,
   WorkflowRequest,
   WorkflowRun,
   WorkflowTask,
@@ -111,7 +96,6 @@ const ORBIT_SECTIONS = [
 ] as const;
 
 type OrbitSection = (typeof ORBIT_SECTIONS)[number]["key"];
-type LeftPanelKind = "search" | "notifications" | null;
 type SavedViewKey =
   | "all"
   | "my_work"
@@ -132,7 +116,6 @@ type DmDraft = { targetUserId: string };
 
 const CHANNEL_DRAFT: ChannelDraft = { name: "" };
 const DM_DRAFT: DmDraft = { targetUserId: "" };
-const RAIL_WIDTH = 88;
 const LOCAL_AGENT_PENDING_TIMEOUT_MS = 120_000;
 const SAVED_VIEWS: Array<{ key: SavedViewKey; label: string }> = [
   { key: "all", label: "All" },
@@ -359,38 +342,6 @@ function workflowTimeline(run: WorkflowRun | null, task: WorkflowTask | null) {
   });
 }
 
-function useOutsideClose<T extends HTMLElement>(open: boolean, onClose: () => void) {
-  const ref = useRef<T | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    function handlePointer(event: MouseEvent) {
-      if (!ref.current || ref.current.contains(event.target as Node)) {
-        return;
-      }
-      onClose();
-    }
-
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointer);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handlePointer);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [open, onClose]);
-
-  return ref;
-}
-
 function BoardCard({
   title,
   detail,
@@ -426,6 +377,7 @@ function EmptyState({ text }: { text: string }) {
 
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const router = useRouter();
+  const { closeNotifications, closeSearch, openNotifications, searchOpen } = useAuthenticatedShell();
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState<Session | null>(readSession());
   const [payload, setPayload] = useState<OrbitPayload | null>(null);
@@ -435,13 +387,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
   const [messageBody, setMessageBody] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
-  const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanelKind>(null);
   const [detailPanel, setDetailPanel] = useState<DetailPanel>(null);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [showOrbitSettings, setShowOrbitSettings] = useState(false);
   const [showConnectRepository, setShowConnectRepository] = useState(false);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showStartDm, setShowStartDm] = useState(false);
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
@@ -452,7 +400,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [workflowAnswers, setWorkflowAnswers] = useState<Record<string, string>>({});
   const [leftSearch, setLeftSearch] = useState("");
-  const [commandQuery, setCommandQuery] = useState("");
   const [remoteCommandResults, setRemoteCommandResults] = useState<OrbitSearchResult[]>([]);
   const [loadingCommandResults, setLoadingCommandResults] = useState(false);
   const [activeSavedView, setActiveSavedView] = useState<SavedViewKey>("all");
@@ -467,61 +414,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const reloadRequestRef = useRef(0);
   const conversationRequestRef = useRef(0);
   const workflowPollRequestRef = useRef(0);
-  const profileRef = useOutsideClose<HTMLDivElement>(showProfileMenu, () => setShowProfileMenu(false));
-
-  function closeShellOverlays() {
-    setActiveLeftPanel(null);
-    setShowCommandPalette(false);
-    setShowGlobalSettings(false);
-    setShowOrbitSettings(false);
-    setShowConnectRepository(false);
-    setShowProfileMenu(false);
-  }
-
-  function openLeftPanel(panel: Exclude<LeftPanelKind, null>) {
-    setShowCommandPalette(false);
-    setShowGlobalSettings(false);
-    setShowOrbitSettings(false);
-    setShowConnectRepository(false);
-    setShowProfileMenu(false);
-    setActiveLeftPanel(panel);
-  }
-
-  function openCommandPalette() {
-    setActiveLeftPanel(null);
-    setShowGlobalSettings(false);
-    setShowOrbitSettings(false);
-    setShowConnectRepository(false);
-    setShowProfileMenu(false);
-    setShowCommandPalette(true);
-    setCommandQuery("");
-  }
-
-  function openGlobalSettings() {
-    setActiveLeftPanel(null);
-    setShowCommandPalette(false);
-    setShowOrbitSettings(false);
-    setShowConnectRepository(false);
-    setShowProfileMenu(false);
-    setShowGlobalSettings(true);
-  }
 
   function openOrbitSettings() {
-    setActiveLeftPanel(null);
-    setShowCommandPalette(false);
-    setShowGlobalSettings(false);
     setShowConnectRepository(false);
-    setShowProfileMenu(false);
     setShowOrbitSettings(true);
-  }
-
-  function toggleProfileMenu() {
-    setActiveLeftPanel(null);
-    setShowCommandPalette(false);
-    setShowGlobalSettings(false);
-    setShowOrbitSettings(false);
-    setShowConnectRepository(false);
-    setShowProfileMenu((current) => !current);
   }
 
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
@@ -791,23 +687,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }, [localAgentPending, localPendingSince]);
 
   useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") {
-        return;
-      }
-      event.preventDefault();
-      openCommandPalette();
-    }
-
-    document.addEventListener("keydown", handleShortcut);
-    return () => document.removeEventListener("keydown", handleShortcut);
-  }, []);
-
-  useEffect(() => {
-    if (!showCommandPalette || !session) {
+    if (!searchOpen || !session) {
       return;
     }
-    const term = commandQuery.trim();
+    const term = leftSearch.trim();
     if (!term) {
       setRemoteCommandResults([]);
       setLoadingCommandResults(false);
@@ -816,10 +699,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     let cancelled = false;
     setLoadingCommandResults(true);
     const handle = window.setTimeout(() => {
-      void fetchOrbitSearch(session.token, orbitId, term, 18)
+      void Promise.resolve(fetchOrbitSearch(session.token, orbitId, term, 18))
         .then((results) => {
           if (!cancelled) {
-            setRemoteCommandResults(results);
+            setRemoteCommandResults(Array.isArray(results) ? results : []);
           }
         })
         .catch(() => {
@@ -837,7 +720,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [showCommandPalette, session, orbitId, commandQuery]);
+  }, [searchOpen, session, orbitId, leftSearch]);
 
   const currentConversationTitle = useMemo(() => {
     if (!payload || !selectedConversation) {
@@ -879,9 +762,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         detail: "Channel",
         action: () => {
           const next = { kind: "channel", id: channel.id } satisfies ConversationSelection;
+          closeSearch();
           setSelectedConversation(next);
           setSection("chat");
-          setActiveLeftPanel(null);
           void onSectionChange("chat");
           void loadConversation(session as Session, payload, next);
         },
@@ -892,9 +775,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         detail: "Direct message",
         action: () => {
           const next = { kind: "dm", id: thread.id } satisfies ConversationSelection;
+          closeSearch();
           setSelectedConversation(next);
           setSection("chat");
-          setActiveLeftPanel(null);
           void onSectionChange("chat");
           void loadConversation(session as Session, payload, next);
         },
@@ -904,9 +787,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: member.display_name || member.login || member.github_login || member.user_id,
         detail: "Member",
         action: () => {
+          closeSearch();
           setShowStartDm(true);
           setDmDraft({ targetUserId: member.user_id });
-          setActiveLeftPanel(null);
         },
       })),
       ...payload.prs.map((item) => ({
@@ -914,9 +797,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: item.title,
         detail: item.repository_full_name ? `Pull request · ${item.repository_full_name}` : "Pull request",
         action: () => {
+          closeSearch();
           setSection("prs");
           setDetailPanel({ kind: "pr", item });
-          setActiveLeftPanel(null);
           void onSectionChange("prs");
         },
       })),
@@ -925,9 +808,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: item.title,
         detail: item.repository_full_name ? `Issue · ${item.repository_full_name}` : "Issue",
         action: () => {
+          closeSearch();
           setSection("prs");
           setDetailPanel({ kind: "issue", item });
-          setActiveLeftPanel(null);
           void onSectionChange("prs");
         },
       })),
@@ -936,9 +819,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: item.name,
         detail: item.repository_full_name ? `Codespace · ${item.repository_full_name}` : "Codespace",
         action: () => {
+          closeSearch();
           setSection("codespaces");
           setActiveCodespaceId(item.id);
-          setActiveLeftPanel(null);
           void onSectionChange("codespaces");
         },
       })),
@@ -947,8 +830,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: item.title,
         detail: item.repository_full_name ? `Artifact · ${item.repository_full_name}` : `Artifact · ${formatStateLabel(item.artifact_kind)}`,
         action: () => {
+          closeSearch();
           setSection("demos");
-          setActiveLeftPanel(null);
           void onSectionChange("demos");
         },
       })),
@@ -956,14 +839,14 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         key: `msg-${message.id}`,
         label: message.body,
         detail: `${message.author_name} in ${currentConversationTitle}`,
-        action: () => setActiveLeftPanel(null),
+        action: () => closeSearch(),
       })),
     ];
     if (!term) {
       return items.slice(0, 10);
     }
     return items.filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(term)).slice(0, 14);
-  }, [payload, leftSearch, messages, currentConversationTitle, session]);
+  }, [payload, leftSearch, messages, currentConversationTitle, session, closeSearch]);
 
   const triageItems = useMemo(() => {
     if (!payload) {
@@ -1042,9 +925,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         status: formatStateLabel(pr.operational_status || pr.state),
         viewKeys: ["all", "review_queue"],
         action: () => {
+          closeNotifications();
           setDetailPanel({ kind: "pr", item: pr });
           void onSectionChange("prs");
-          setActiveLeftPanel(null);
         },
       });
     }
@@ -1058,9 +941,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         status: "Blocked",
         viewKeys: ["all", "blocked_work"],
         action: () => {
+          closeNotifications();
           setDetailPanel({ kind: "task", task });
           void onSectionChange("workflow");
-          setActiveLeftPanel(null);
         },
       });
     }
@@ -1074,8 +957,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         status: "Failed",
         viewKeys: ["all", "blocked_work", "failed_runs"],
         action: () => {
+          closeNotifications();
           void onSectionChange("workflow");
-          setActiveLeftPanel(null);
         },
       });
     }
@@ -1089,14 +972,14 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         status: formatStateLabel(artifact.status),
         viewKeys: ["all", "recent_artifacts"],
         action: () => {
+          closeNotifications();
           void onSectionChange("demos");
-          setActiveLeftPanel(null);
         },
       });
     }
 
     return items;
-  }, [payload, repositoryNameById, selectedRun]);
+  }, [payload, repositoryNameById, selectedRun, closeNotifications]);
 
   const filteredTriageItems = useMemo(() => {
     if (activeSavedView === "all") {
@@ -1113,7 +996,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     [triageItems],
   );
 
-  const commandPaletteItems = useMemo(() => {
+  const shellSearchItems = useMemo(() => {
     if (!payload) {
       return [] as Array<{
         key: string;
@@ -1122,7 +1005,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         action: () => void;
       }>;
     }
-    if (commandQuery.trim()) {
+    if (leftSearch.trim()) {
       if (remoteCommandResults.length) {
         return remoteCommandResults.map((result) => ({
           key: result.key,
@@ -1131,13 +1014,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           action: () => void onSelectSearchResult(result),
         }));
       }
-      return searchResults.slice(0, 10).map((item) => ({
-        ...item,
-        action: () => {
-          item.action();
-          setShowCommandPalette(false);
-        },
-      }));
+      return searchResults.slice(0, 10);
     }
     return [
       {
@@ -1145,8 +1022,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Open chat",
         detail: "Move to the chat surface",
         action: () => {
+          closeSearch();
           void onSectionChange("chat");
-          setShowCommandPalette(false);
         },
       },
       {
@@ -1154,8 +1031,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Open workflow",
         detail: "Move to the execution board",
         action: () => {
+          closeSearch();
           void onSectionChange("workflow");
-          setShowCommandPalette(false);
         },
       },
       {
@@ -1163,16 +1040,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Open inbox",
         detail: "See mentions, approvals, and run outcomes",
         action: () => {
-          openLeftPanel("notifications");
+          closeSearch();
           setActiveSavedView("all");
-        },
-      },
-      {
-        key: "cmd-search",
-        label: "Open orbit search",
-        detail: "Browse conversations, runs, and artifacts",
-        action: () => {
-          openLeftPanel("search");
+          openNotifications();
         },
       },
       {
@@ -1180,8 +1050,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Create channel",
         detail: "Open the channel creation modal",
         action: () => {
+          closeSearch();
           setShowCreateChannel(true);
-          setShowCommandPalette(false);
         },
       },
       {
@@ -1189,8 +1059,26 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Start direct message",
         detail: "Open the DM picker",
         action: () => {
+          closeSearch();
           setShowStartDm(true);
-          setShowCommandPalette(false);
+        },
+      },
+      {
+        key: "cmd-prs",
+        label: "Open PRs and issues",
+        detail: "Move to the repo review surface",
+        action: () => {
+          closeSearch();
+          void onSectionChange("prs");
+        },
+      },
+      {
+        key: "cmd-workspaces",
+        label: "Open workspaces",
+        detail: "Move to the branch workspace surface",
+        action: () => {
+          closeSearch();
+          void onSectionChange("codespaces");
         },
       },
       ...SAVED_VIEWS.filter((view) => view.key !== "all").map((view) => ({
@@ -1198,21 +1086,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: `${view.label} (${savedViewCounts[view.key] || 0})`,
         detail: "Open the inbox with this saved triage filter",
         action: () => {
+          closeSearch();
           setActiveSavedView(view.key);
-          openLeftPanel("notifications");
+          openNotifications();
         },
       })),
-      {
-        key: "cmd-theme",
-        label: mode === "dark" ? "Switch to light theme" : "Switch to dark theme",
-        detail: "Toggle the product theme immediately",
-        action: () => {
-          void onChangeTheme(mode === "dark" ? "light" : "dark");
-          setShowCommandPalette(false);
-        },
-      },
     ];
-  }, [payload, commandQuery, remoteCommandResults, searchResults, savedViewCounts, mode]);
+  }, [payload, leftSearch, remoteCommandResults, searchResults, savedViewCounts, closeSearch, openNotifications]);
 
   const connectedRepositoryIds = useMemo(() => new Set((payload?.repositories ?? []).map((repository) => repository.id)), [payload]);
 
@@ -1228,8 +1108,156 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       });
   }, [availableRepositories, connectedRepositoryIds, repositorySearch]);
 
+  const currentSectionLabel = ORBIT_SECTIONS.find((item) => item.key === section)?.label ?? "Orbit";
+  const shellConfig = useMemo<AppShellConfig>(
+    () => ({
+      mode: "orbit",
+      breadcrumb: payload ? [payload.orbit.name, currentSectionLabel] : ["Orbit"],
+      orbitIdentity: payload
+        ? {
+            label: payload.orbit.name,
+            logo: payload.orbit.logo,
+            detail: payload.orbit.repo_full_name || `${payload.repositories.length} repo bindings`,
+          }
+        : {
+            label: "Orbit",
+            detail: "Loading orbit context…",
+          },
+      items: [
+        ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
+          key,
+          label,
+          icon,
+          active: section === key,
+          onSelect: () => void onSectionChange(key),
+        })),
+        {
+          key: "settings",
+          label: "Settings",
+          icon: Settings2,
+          active: showOrbitSettings,
+          onSelect: openOrbitSettings,
+        },
+      ],
+      secondaryContent: payload ? (
+        <div className="space-y-3">
+          <div className="px-1">
+            <SectionTitle
+              eyebrow="Triage"
+              title="Saved views"
+              detail="Keep approvals, reviews, and failures one click away."
+              dense
+            />
+          </div>
+          <div className="space-y-2">
+            {SAVED_VIEWS.filter((view) => view.key !== "all").map((view) => (
+              <button
+                key={view.key}
+                type="button"
+                onClick={() => {
+                  setActiveSavedView(view.key);
+                  openNotifications();
+                }}
+                className="flex w-full items-center justify-between rounded-[14px] border border-transparent px-3 py-2.5 text-left text-sm text-quiet transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
+              >
+                <span>{view.label}</span>
+                <span className="text-xs text-faint">{savedViewCounts[view.key] || 0}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="px-1">
+          <SectionTitle eyebrow="Triage" title="Saved views" detail="Loading counts…" dense />
+        </div>
+      ),
+      search: {
+        title: "Search this orbit",
+        description: "Jump between conversations, work, artifacts, and triage without leaving the shell.",
+        content: (
+          <div className="space-y-4">
+            <TextInput
+              value={leftSearch}
+              onChange={(event) => setLeftSearch(event.target.value)}
+              placeholder="Search this orbit or run a quick action"
+              autoFocus
+            />
+            <div className="max-h-[420px] space-y-2 overflow-auto">
+              {loadingCommandResults ? (
+                <EmptyState text="Searching this orbit…" />
+              ) : shellSearchItems.length ? (
+                shellSearchItems.map((item) => (
+                  <ListRow
+                    key={item.key}
+                    title={item.label}
+                    detail={item.detail}
+                    leading={<Search className="h-4 w-4" />}
+                    onClick={item.action}
+                  />
+                ))
+              ) : (
+                <EmptyState text="No commands or search results matched that query." />
+              )}
+            </div>
+          </div>
+        ),
+      },
+      notifications: {
+        title: "Inbox",
+        description: "Saved triage views keep approvals, reviews, failures, and deliverables visible without noisy agent presence.",
+        content: (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {SAVED_VIEWS.map((view) => (
+                <SelectionChip
+                  key={view.key}
+                  active={activeSavedView === view.key}
+                  onClick={() => setActiveSavedView(view.key)}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  {view.label}
+                  <span className="text-[11px] opacity-80">{savedViewCounts[view.key] || 0}</span>
+                </SelectionChip>
+              ))}
+            </div>
+            {filteredTriageItems.length ? (
+              filteredTriageItems.map((item) => (
+                <ListRow
+                  key={item.key}
+                  eyebrow="Inbox item"
+                  title={item.label}
+                  detail={item.detail}
+                  trailing={<StatusPill tone={item.tone}>{item.status}</StatusPill>}
+                  onClick={() => (item.action ? item.action() : undefined)}
+                  className={!item.action ? "pointer-events-none opacity-70" : undefined}
+                />
+              ))
+            ) : (
+              <EmptyState text="Nothing matches this saved view right now." />
+            )}
+          </div>
+        ),
+      },
+    }),
+    [
+      payload,
+      currentSectionLabel,
+      section,
+      showOrbitSettings,
+      openNotifications,
+      leftSearch,
+      loadingCommandResults,
+      shellSearchItems,
+      activeSavedView,
+      savedViewCounts,
+      filteredTriageItems,
+    ],
+  );
+
+  useAuthenticatedShellConfig(shellConfig);
+
   if (!session || !payload) {
-    return <PageLoader label="Loading orbit…" />;
+    return <PageLoader label="Loading orbit…" fullscreen={false} className="p-8" />;
   }
 
   async function onSectionChange(nextSection: OrbitSection) {
@@ -1257,7 +1285,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }
 
   async function onOpenNotification(notification: NotificationItem) {
-    setActiveLeftPanel(null);
+    closeNotifications();
     if (notification.dm_thread_id) {
       await onSelectConversation({ kind: "dm", id: notification.dm_thread_id });
       return;
@@ -1281,7 +1309,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }
 
   async function onSelectSearchResult(result: OrbitSearchResult) {
-    setShowCommandPalette(false);
+    closeSearch();
     if (result.conversation_kind && result.conversation_id) {
       await onSelectConversation({ kind: result.conversation_kind, id: result.conversation_id });
       return;
@@ -1546,19 +1574,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     await reload(selectedConversation);
   }
 
-  async function onChangeTheme(nextMode: ThemeMode) {
-    if (!session) {
-      return;
-    }
-    setMode(nextMode);
-    await updatePreferences(session.token, { theme_preference: nextMode });
-  }
-
-  function signOut() {
-    writeSession(null);
-    router.replace("/");
-  }
-
   const selectedCodespace =
     payload.codespaces.find((item) => item.id === activeCodespaceId) ?? payload.codespaces[0] ?? null;
 
@@ -1572,76 +1587,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       : [];
 
   return (
-    <AppShell
-      sidebar={
-        <RailSidebar>
-          <RailCluster>
-            <RailButton title="Back to dashboard" onClick={() => router.push("/app")}>
-              <ArrowLeft className="h-4 w-4" />
-            </RailButton>
-
-            <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-panelStrong">
-              <AvatarMark label={payload.orbit.name} src={payload.orbit.logo} className="h-11 w-11 rounded-[12px]" />
-            </div>
-
-            <Divider className="w-8" />
-
-            <RailButton title="Search" onClick={() => openLeftPanel("search")}>
-              <Search className="h-4 w-4" />
-            </RailButton>
-
-            <RailButton title="Command palette" onClick={openCommandPalette}>
-              <CommandIcon className="h-4 w-4" />
-            </RailButton>
-
-            {ORBIT_SECTIONS.map(({ key, label, icon: Icon }) => (
-              <RailButton
-                key={key}
-                title={label}
-                active={section === key}
-                onClick={() => void onSectionChange(key)}
-              >
-                <Icon className="h-4 w-4" />
-              </RailButton>
-            ))}
-          </RailCluster>
-
-          <RailCluster>
-            <RailButton title="Orbit settings" onClick={openOrbitSettings}>
-              <Settings2 className="h-4 w-4" />
-            </RailButton>
-            <RailButton title="Notifications" onClick={() => openLeftPanel("notifications")}>
-              <Bell className="h-4 w-4" />
-            </RailButton>
-            <div className="relative" ref={profileRef}>
-              <RailButton title="Profile" onClick={toggleProfileMenu}>
-                <User2 className="h-4 w-4" />
-              </RailButton>
-              <PopoverMenu open={showProfileMenu} className="bottom-0 left-full top-auto ml-3 mt-0">
-                <div className="px-3 py-2">
-                  <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
-                  <p className="text-xs text-quiet">{session.user.github_login}</p>
-                </div>
-                <MenuItem
-                  onClick={() => {
-                    openGlobalSettings();
-                  }}
-                >
-                  <Settings2 className="h-4 w-4" />
-                  Global settings
-                </MenuItem>
-                <MenuItem onClick={signOut}>
-                  <ArrowLeft className="h-4 w-4" />
-                  Sign out
-                </MenuItem>
-              </PopoverMenu>
-            </div>
-          </RailCluster>
-        </RailSidebar>
-      }
-    >
-      <ShellMain>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
+    <>
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
           {error ? (
             <InlineNotice className="mb-4" tone="danger" title="Orbit action blocked" detail={error} />
           ) : null}
@@ -1996,73 +1943,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               </div>
             </div>
           ) : null}
-        </div>
-
-        <LeftSlidePanel
-          open={activeLeftPanel === "search"}
-          onClose={closeShellOverlays}
-          offset={RAIL_WIDTH}
-          width="min(380px, calc(100vw - 104px))"
-          title="Search this orbit"
-          description="Jump between conversations, members, PRs, issues, codespaces, artifacts, and clean message context."
-        >
-          <TextInput value={leftSearch} onChange={(event) => setLeftSearch(event.target.value)} placeholder="Search orbit surfaces" />
-          <div className="mt-5 space-y-2">
-            {searchResults.length ? (
-              searchResults.map((item) => (
-                <ListRow
-                  key={item.key}
-                  title={item.label}
-                  detail={item.detail}
-                  leading={<Search className="h-4 w-4" />}
-                  onClick={item.action}
-                />
-              ))
-            ) : (
-              <EmptyState text="Nothing matched your search." />
-            )}
-          </div>
-        </LeftSlidePanel>
-
-        <LeftSlidePanel
-          open={activeLeftPanel === "notifications"}
-          onClose={closeShellOverlays}
-          offset={RAIL_WIDTH}
-          width="min(420px, calc(100vw - 104px))"
-          title="Inbox"
-          description="Triage saved views keep approvals, reviews, failures, and deliverables visible without noisy global agent presence."
-        >
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {SAVED_VIEWS.map((view) => (
-                <SelectionChip
-                  key={view.key}
-                  active={activeSavedView === view.key}
-                  onClick={() => setActiveSavedView(view.key)}
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                  {view.label}
-                  <span className="text-[11px] opacity-80">{savedViewCounts[view.key] || 0}</span>
-                </SelectionChip>
-              ))}
-            </div>
-            {filteredTriageItems.length ? (
-              filteredTriageItems.map((item) => (
-                <ListRow
-                  key={item.key}
-                  eyebrow="Inbox item"
-                  title={item.label}
-                  detail={item.detail}
-                  trailing={<StatusPill tone={item.tone}>{item.status}</StatusPill>}
-                  onClick={() => (item.action ? item.action() : undefined)}
-                  className={!item.action ? "pointer-events-none opacity-70" : undefined}
-                />
-              ))
-            ) : (
-              <EmptyState text="Nothing matches this saved view right now." />
-            )}
-          </div>
-        </LeftSlidePanel>
+      </main>
 
         <RightDetailPanel
           open={detailPanel !== null}
@@ -2168,49 +2049,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         </RightDetailPanel>
 
         <CenteredModal
-          open={showCommandPalette}
-          onClose={closeShellOverlays}
-          title="Command palette"
-          description="Jump between work, conversations, and triage views with Cmd/Ctrl+K."
-          footer={
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-quiet">Typed search uses the orbit search API. Empty state shows quick actions.</p>
-              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
-            </div>
-          }
-        >
-          <div className="space-y-4">
-            <div className="relative">
-              <Keyboard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-quiet" />
-              <TextInput
-                value={commandQuery}
-                onChange={(event) => setCommandQuery(event.target.value)}
-                placeholder="Search or run a command"
-                className="pl-10"
-                autoFocus
-              />
-            </div>
-            <div className="max-h-[420px] space-y-2 overflow-auto">
-              {loadingCommandResults ? (
-                <EmptyState text="Searching this orbit…" />
-              ) : commandPaletteItems.length ? (
-                commandPaletteItems.map((item) => (
-                  <ListRow
-                    key={item.key}
-                    title={item.label}
-                    detail={item.detail}
-                    leading={<CommandIcon className="h-4 w-4" />}
-                    onClick={item.action}
-                  />
-                ))
-              ) : (
-                <EmptyState text="No commands matched that search." />
-              )}
-            </div>
-          </div>
-        </CenteredModal>
-
-        <CenteredModal
           open={showCreateChannel}
           onClose={() => setShowCreateChannel(false)}
           title="Create channel"
@@ -2277,52 +2115,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         </CenteredModal>
 
         <CenteredModal
-          open={showGlobalSettings}
-          onClose={closeShellOverlays}
-          title="Global settings"
-          description="Appearance and a few real user-facing preferences only."
-          footer={
-            <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
-            </div>
-          }
-        >
-          <div className="space-y-5">
-            <SurfaceCard className="bg-panelStrong">
-              <SectionTitle eyebrow="Appearance" title="Theme" detail="Default to system, but keep the product consistent once you choose." dense />
-              <div className="mt-4 flex flex-wrap gap-2">
-                {[
-                  { value: "system", label: "System", icon: Settings2 },
-                  { value: "light", label: "Light", icon: Sun },
-                  { value: "dark", label: "Dark", icon: Moon },
-                ].map(({ value, label, icon: Icon }) => (
-                  <SelectionChip
-                    key={value}
-                    active={mode === value}
-                    className="px-3 py-2 text-sm"
-                    onClick={() => void onChangeTheme(value as ThemeMode)}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </SelectionChip>
-                ))}
-              </div>
-            </SurfaceCard>
-            <SurfaceCard className="bg-panelStrong">
-              <SectionTitle eyebrow="Identity" title={session.user.display_name} detail={session.user.github_login} dense />
-              <p className="mt-3 text-sm text-quiet">GitHub remains the source of truth for identity in this V1 product.</p>
-            </SurfaceCard>
-          </div>
-        </CenteredModal>
-
-        <CenteredModal
           open={showOrbitSettings}
-          onClose={closeShellOverlays}
+          onClose={() => setShowOrbitSettings(false)}
           title="Orbit settings"
           description="Repo info, invite flow, and orbit-local operational settings."
           footer={
             <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
+              <GhostButton onClick={() => setShowOrbitSettings(false)}>Close</GhostButton>
             </div>
           }
         >
@@ -2485,7 +2284,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
             </div>
           </div>
         </CenteredModal>
-      </ShellMain>
-    </AppShell>
+    </>
   );
 }

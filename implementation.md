@@ -259,6 +259,49 @@ This surface slice is now implemented locally.
 
 Scope landed:
 
+## Phase 0 Shell Pass - Persistent Authenticated Chrome
+
+This shell/dashboard slice is now implemented locally.
+
+Route/layout change:
+
+- added `frontend/app/app/layout.tsx` so the authenticated shell persists across all `/app` routes
+- dashboard and orbit now render as inner content inside the same mounted shell instead of each mounting separate chrome
+
+Scope landed:
+
+- added `frontend/components/authenticated-shell.tsx` as the single shell owner for:
+  - the fixed top bar
+  - the persistent contextual sidebar
+  - shell-owned search and notifications modals
+  - sidebar collapse persistence via local storage
+  - profile/settings entry and theme controls
+- moved notifications and profile controls out of the top bar and into the sidebar utility area
+- changed the shell chrome to one connected neutral-dark surface so the top bar and sidebar read as one frame
+- kept the main content area as the only distinct window with rounded corners and a separate panel surface
+- moved orbit navigation into the same contextual sidebar system rather than preserving a separate orbit-only left rail
+- kept sidebar collapse state stable when moving from dashboard into an orbit
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `26 passed`
+- `cd frontend && npm run build` -> success
+- Docker rebuild on the live stack for the frontend
+- live browser validation on `127.0.0.1:3000` confirmed:
+  - dashboard renders inside the persistent shell
+  - expanded and collapsed sidebar states both render correctly
+  - search opens as a modal from the sidebar
+  - dashboard -> orbit keeps the same mounted shell and collapsed state
+  - orbit navigation swaps inside the same sidebar container
+
+Captured artifacts:
+
+- `output/playwright/phase0-shell-dashboard-expanded.png`
+- `output/playwright/phase0-shell-dashboard-collapsed.png`
+- `output/playwright/phase0-shell-dashboard-search-modal.png`
+- `output/playwright/phase0-shell-orbit-transition-loading.png`
+- `output/playwright/phase0-shell-orbit-persistent.png`
+
 - expanded the shared UI layer with:
   - a richer `ListRow` that supports active state, eyebrow labels, and supporting metadata/actions
   - a shared `SelectionChip` primitive for saved views, theme controls, and role toggles
