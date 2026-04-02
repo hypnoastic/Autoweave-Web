@@ -16,6 +16,8 @@ const api = vi.hoisted(() => ({
 const mockRouter = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
 }));
 
 let mockPathname = "/app";

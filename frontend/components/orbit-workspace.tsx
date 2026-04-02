@@ -155,6 +155,10 @@ function sameConversation(left: ConversationSelection | null, right: Conversatio
   return left.kind === right.kind && left.id === right.id;
 }
 
+function conversationCacheKey(selection: ConversationSelection) {
+  return `${selection.kind}:${selection.id}`;
+}
+
 function formatStateLabel(value: string | undefined | null) {
   const normalized = String(value || "").trim().replaceAll("_", " ");
   if (!normalized) {
@@ -385,6 +389,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [selectedConversation, setSelectedConversation] = useState<ConversationSelection | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
+  const [conversationLoading, setConversationLoading] = useState(false);
   const [messageBody, setMessageBody] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
   const [detailPanel, setDetailPanel] = useState<DetailPanel>(null);
@@ -415,6 +420,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const reloadRequestRef = useRef(0);
   const conversationRequestRef = useRef(0);
   const workflowPollRequestRef = useRef(0);
+  const conversationCacheRef = useRef<Record<string, { messages: ConversationMessage[]; humanLoopItems: HumanLoopItem[] }>>({});
 
   function openOrbitSettings() {
     setShowConnectRepository(false);
@@ -442,6 +448,16 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   useEffect(() => {
     payloadRef.current = payload;
   }, [payload]);
+
+  useEffect(() => {
+    if (!selectedConversation) {
+      return;
+    }
+    conversationCacheRef.current[conversationCacheKey(selectedConversation)] = {
+      messages,
+      humanLoopItems,
+    };
+  }, [selectedConversation, messages, humanLoopItems]);
 
   async function applyOrbitPayload(
     nextSession: Session,
@@ -488,13 +504,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (nextSelection) {
       const conversationRequestId = conversationRequestRef.current + 1;
       conversationRequestRef.current = conversationRequestId;
-      await loadConversation(nextSession, nextPayload, nextSelection, conversationRequestId);
-      if (reloadRequestId !== reloadRequestRef.current && payloadRef.current != null) {
-        return false;
-      }
+      void loadConversation(nextSession, nextPayload, nextSelection, conversationRequestId);
     } else {
       setMessages([]);
       setHumanLoopItems([]);
+      setConversationLoading(false);
     }
 
     const nextCodespace =
@@ -511,33 +525,61 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     nextPayload: OrbitPayload,
     nextSelection: ConversationSelection,
     requestId?: number,
-    options?: { preferPayload?: boolean },
+    options?: { preferPayload?: boolean; silent?: boolean },
   ) {
     const currentRequestId = requestId ?? conversationRequestRef.current + 1;
     if (requestId == null) {
       conversationRequestRef.current = currentRequestId;
     }
+    const cacheKey = conversationCacheKey(nextSelection);
+    const cachedConversation = conversationCacheRef.current[cacheKey];
     const payloadData = options?.preferPayload === false ? null : payloadConversationData(nextPayload, nextSelection);
     if (payloadData) {
+      conversationCacheRef.current[cacheKey] = payloadData;
       setMessages(payloadData.messages);
       setHumanLoopItems(payloadData.humanLoopItems);
+      setConversationLoading(false);
       return;
     }
-    if (nextSelection.kind === "dm") {
-      const thread = await fetchDmThread(nextSession.token, orbitId, nextSelection.id);
+    if (cachedConversation) {
+      setMessages(cachedConversation.messages);
+      setHumanLoopItems(cachedConversation.humanLoopItems);
+    } else if (!options?.silent) {
+      setMessages([]);
+      setHumanLoopItems([]);
+    }
+    if (!options?.silent) {
+      setConversationLoading(true);
+    }
+    try {
+      if (nextSelection.kind === "dm") {
+        const thread = await fetchDmThread(nextSession.token, orbitId, nextSelection.id);
+        if (currentRequestId !== conversationRequestRef.current) {
+          return;
+        }
+        conversationCacheRef.current[cacheKey] = {
+          messages: thread.messages,
+          humanLoopItems: thread.human_loop_items ?? [],
+        };
+        setMessages(thread.messages);
+        setHumanLoopItems(thread.human_loop_items ?? []);
+        return;
+      }
+      const channelPayload = await fetchChannelMessages(nextSession.token, orbitId, nextSelection.id);
       if (currentRequestId !== conversationRequestRef.current) {
         return;
       }
-      setMessages(thread.messages);
-      setHumanLoopItems(thread.human_loop_items ?? []);
-      return;
+      conversationCacheRef.current[cacheKey] = {
+        messages: channelPayload.messages,
+        humanLoopItems: channelPayload.human_loop_items ?? [],
+      };
+      setMessages(channelPayload.messages);
+      setHumanLoopItems(channelPayload.human_loop_items ?? []);
+    } finally {
+      if (currentRequestId === conversationRequestRef.current && !options?.silent) {
+        setConversationLoading(false);
+      }
     }
-    const channelPayload = await fetchChannelMessages(nextSession.token, orbitId, nextSelection.id);
-    if (currentRequestId !== conversationRequestRef.current) {
-      return;
-    }
-    setMessages(channelPayload.messages);
-    setHumanLoopItems(channelPayload.human_loop_items ?? []);
   }
 
   async function refreshActiveWorkflow() {
@@ -576,7 +618,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       }
 
       if (selectedConversation) {
-        await loadConversation(session, nextPayload, selectedConversation, undefined, { preferPayload: false });
+        void loadConversation(session, nextPayload, selectedConversation, undefined, {
+          preferPayload: false,
+          silent: true,
+        });
       }
       if (!nextWorkflowActive && workflowActive) {
         await reload(selectedConversation);
@@ -587,6 +632,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         setPayload(null);
         setMessages([]);
         setHumanLoopItems([]);
+        setConversationLoading(false);
         router.replace("/");
         return;
       }
@@ -642,6 +688,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           setPayload(null);
           setMessages([]);
           setHumanLoopItems([]);
+          setConversationLoading(false);
           router.replace("/");
         }
         return;
@@ -659,6 +706,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         setPayload(null);
         setMessages([]);
         setHumanLoopItems([]);
+        setConversationLoading(false);
         router.replace("/");
         return;
       }
@@ -772,10 +820,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         action: () => {
           const next = { kind: "channel", id: channel.id } satisfies ConversationSelection;
           closeSearch();
-          setSelectedConversation(next);
-          setSection("chat");
-          void onSectionChange("chat");
-          void loadConversation(session as Session, payload, next);
+          void onSelectConversation(next);
         },
       })),
       ...payload.direct_messages.map((thread) => ({
@@ -785,10 +830,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         action: () => {
           const next = { kind: "dm", id: thread.id } satisfies ConversationSelection;
           closeSearch();
-          setSelectedConversation(next);
-          setSection("chat");
-          void onSectionChange("chat");
-          void loadConversation(session as Session, payload, next);
+          void onSelectConversation(next);
         },
       })),
       ...payload.members.map((member) => ({
@@ -855,7 +897,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       return items.slice(0, 10);
     }
     return items.filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(term)).slice(0, 14);
-  }, [payload, leftSearch, messages, currentConversationTitle, session, closeSearch]);
+  }, [payload, leftSearch, messages, currentConversationTitle, closeSearch]);
 
   const triageItems = useMemo(() => {
     if (!payload) {
@@ -1133,6 +1175,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
             }
           : undefined,
       items: [
+        {
+          key: "dashboard",
+          label: "Dashboard",
+          icon: LayoutGrid,
+          active: false,
+          onSelect: () => router.push("/app"),
+        },
         ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
           key,
           label,
@@ -1223,13 +1272,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       codespaceMode,
       selectedCodespace,
       showOrbitSettings,
-      openNotifications,
       leftSearch,
       loadingCommandResults,
       shellSearchItems,
       activeSavedView,
       savedViewCounts,
       filteredTriageItems,
+      router,
     ],
   );
 
@@ -1251,18 +1300,25 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       setCodespaceMode("browse");
     }
     setSection(nextSection);
-    await updateNavigation(session.token, { orbit_id: orbitId, section: nextSection });
+    void updateNavigation(session.token, { orbit_id: orbitId, section: nextSection }).catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update orbit navigation.");
+    });
   }
 
   async function onSelectConversation(nextSelection: ConversationSelection) {
     if (!session || !payload) {
       return;
     }
+    if (sameConversation(selectedConversation, nextSelection) && section === "chat") {
+      return;
+    }
     setSelectedConversation(nextSelection);
     setConversationSearch("");
     setSection("chat");
-    await updateNavigation(session.token, { orbit_id: orbitId, section: "chat" });
-    await loadConversation(session, payload, nextSelection);
+    void updateNavigation(session.token, { orbit_id: orbitId, section: "chat" }).catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update orbit navigation.");
+    });
+    void loadConversation(session, payload, nextSelection);
   }
 
   async function onOpenNotification(notification: NotificationItem) {
@@ -1581,6 +1637,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               selectedConversation={selectedConversation}
               messages={filteredMessages}
               humanLoopItems={humanLoopItems}
+              conversationLoading={conversationLoading}
               conversationTitle={currentConversationTitle}
               conversationSearch={conversationSearch}
               onConversationSearchChange={setConversationSearch}

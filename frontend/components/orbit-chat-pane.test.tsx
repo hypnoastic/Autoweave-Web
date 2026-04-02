@@ -94,4 +94,44 @@ describe("OrbitChatPane", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(onResolveApproval).toHaveBeenCalledWith("approval_1", true);
   });
+
+  it("shows a loading state while a conversation is refreshing", () => {
+    render(
+      <OrbitChatPane
+        session={{
+          token: "session",
+          user: {
+            id: "user_1",
+            github_login: "octocat",
+            display_name: "Octo Cat",
+          },
+        }}
+        channels={[{ id: "channel_1", slug: "general", name: "general" }]}
+        directMessages={[{ id: "dm_1", title: "ERGO" }]}
+        selectedConversation={{ kind: "channel", id: "channel_1" }}
+        messages={[]}
+        humanLoopItems={[]}
+        conversationLoading
+        conversationTitle="general"
+        conversationSearch=""
+        onConversationSearchChange={() => {}}
+        messageBody=""
+        onMessageBodyChange={() => {}}
+        onSendMessage={() => {}}
+        onSelectConversation={() => {}}
+        onOpenCreateChannel={() => {}}
+        onOpenStartDm={() => {}}
+        pendingAgent={false}
+        selectedRunId=""
+        openHumanRequests={{}}
+        openApprovalRequests={{}}
+        workflowAnswers={{}}
+        onWorkflowAnswerChange={() => {}}
+        onAnswerHumanRequest={() => {}}
+        onResolveApproval={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Loading conversation")).toBeInTheDocument();
+  });
 });

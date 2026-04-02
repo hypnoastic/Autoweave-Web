@@ -33,6 +33,8 @@ const api = vi.hoisted(() => ({
 const mockRouter = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
 }));
 
 let mockPathname = "/app/orbits/orbit_1";
@@ -144,6 +146,7 @@ describe("OrbitWorkspace", () => {
     renderOrbit();
 
     expect(await screen.findByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(1, "session-token", "orbit_1", { bootstrap: true });
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(2, "session-token", "orbit_1");
 

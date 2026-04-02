@@ -258,6 +258,30 @@ Validation for this follow-up:
 - `cd frontend && npm test -- --run` -> `27 passed`
 - `cd frontend && npm run build` -> success
 - live browser screenshots captured:
+
+## Shell Cleanup Follow-up - Chat Switching and Rail Stability
+
+This follow-up shell pass is now implemented locally.
+
+Scope landed:
+
+- kept `Dashboard` pinned at the top of the same persistent sidebar while inside orbit mode
+- switched the shell back/forward controls to router-backed navigation
+- reworked the collapsed rail button layout to use fixed icon slots plus fading labels so icons do not jump during collapse/expand
+- reduced the collapsed rail width again so the icon-only state reads tighter
+- removed the accent-heavy active treatment from chat rows so light/dark states stay calmer and more legible
+- added conversation caching plus non-blocking load behavior for channel/DM switching so chat refreshes in place instead of feeling frozen
+- added bottom anchoring for the chat timeline so the active conversation reopens at the latest messages instead of the top
+- fixed dark-mode text selection contrast in `globals.css`
+
+Validation for this follow-up:
+
+- `cd frontend && npm test -- --run` -> `28 passed`
+- `cd frontend && npm run build` -> success
+- live browser validation captured:
+  - `output/playwright/orbit-chat-shell-fixed.png`
+  - `output/playwright/orbit-chat-dm-loaded.png`
+  - `output/playwright/orbit-chat-shell-collapsed.png`
   - `output/playwright/dashboard-shell-tighter.png`
   - `output/playwright/orbit-chat-no-outer-card.png`
   - `output/playwright/orbit-workflow-scroll-contained.png`

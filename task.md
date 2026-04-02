@@ -74,9 +74,14 @@
 - [x] remove the orbit sidebar triage block and keep triage in inbox/search flows only
 - [x] remove the extra shell-level inner app frame so dashboard/orbit render directly on the canvas
 - [x] remove the duplicated dashboard/home sidebar treatment and slim the collapsed rail
+- [x] keep Dashboard pinned at the top of the same sidebar in orbit mode
 - [x] remove the orbit identity block from the persistent sidebar
 - [x] flatten orbit chat and workflow so they scroll inside the content pane instead of stretching the shell
 - [x] split codespaces into a list view plus a full-canvas open workspace mode tied to the top-bar back button
+- [x] stop rail icons from jumping during collapse/expand and tighten the collapsed width further
+- [x] switch chat conversation changes to cached in-place loading with bottom scroll anchoring
+- [x] move shell back/forward behavior onto router-backed navigation
+- [x] fix dark-mode selected text contrast
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open

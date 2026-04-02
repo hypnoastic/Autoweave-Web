@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Check, Hash, MessageSquarePlus, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
 
 import type {
@@ -39,6 +39,7 @@ export function OrbitChatPane({
   selectedConversation,
   messages,
   humanLoopItems = [],
+  conversationLoading = false,
   conversationTitle,
   conversationSearch,
   onConversationSearchChange,
@@ -66,6 +67,7 @@ export function OrbitChatPane({
   selectedConversation: ConversationSelection | null;
   messages: ConversationMessage[];
   humanLoopItems: HumanLoopItem[];
+  conversationLoading?: boolean;
   conversationTitle: string;
   conversationSearch: string;
   onConversationSearchChange: (value: string) => void;
@@ -87,6 +89,9 @@ export function OrbitChatPane({
   onWorkflowAnswerChange: (requestId: string, value: string) => void;
   onAnswerHumanRequest: (requestId: string) => void;
 }) {
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const conversationKey = selectedConversation ? `${selectedConversation.kind}:${selectedConversation.id}` : "none";
   const actionableMessageIds = useMemo(() => {
     const latestByKey = new Map<string, string>();
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -114,8 +119,43 @@ export function OrbitChatPane({
     });
   }, [humanLoopItems, messages]);
 
+  useEffect(() => {
+    stickToBottomRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const timelineElement = timelineRef.current;
+      if (!timelineElement) {
+        return;
+      }
+      timelineElement.scrollTop = timelineElement.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationKey]);
+
+  useEffect(() => {
+    if (conversationLoading || !stickToBottomRef.current) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const timelineElement = timelineRef.current;
+      if (!timelineElement) {
+        return;
+      }
+      timelineElement.scrollTop = timelineElement.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationKey, timeline.length, pendingAgent, conversationLoading]);
+
+  function onTimelineScroll() {
+    const timelineElement = timelineRef.current;
+    if (!timelineElement) {
+      return;
+    }
+    const distanceFromBottom = timelineElement.scrollHeight - timelineElement.scrollTop - timelineElement.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 36;
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
       <aside className="flex min-h-0 w-full flex-col border-b border-line bg-panelMuted/60 lg:w-[280px] lg:min-w-[280px] lg:border-b-0 lg:border-r">
         <div className="border-b border-line px-4 py-4">
           <SectionTitle
@@ -144,9 +184,8 @@ export function OrbitChatPane({
                       key={channel.id}
                       title={channel.name}
                       detail="Channel"
-                      leading={<Hash className={cx("h-4 w-4", active ? "text-accentContrast" : "text-quiet")} />}
+                      leading={<Hash className="h-4 w-4" />}
                       active={active}
-                      className={active ? "bg-accent text-accentContrast hover:bg-accent" : undefined}
                       onClick={() => onSelectConversation({ kind: "channel", id: channel.id })}
                     />
                   );
@@ -174,7 +213,6 @@ export function OrbitChatPane({
                       detail="Direct message"
                       leading={<AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7" />}
                       active={active}
-                      className={active ? "bg-accent text-accentContrast hover:bg-accent" : undefined}
                       onClick={() => onSelectConversation({ kind: "dm", id: thread.id })}
                     />
                   );
@@ -194,20 +232,22 @@ export function OrbitChatPane({
             </div>
             <p className="mt-1 text-xs text-quiet">Chat stays calm. Workflow detail belongs on the execution board, not in the channel.</p>
           </div>
-          <div className="w-full lg:max-w-[260px]">
+          <div className="relative w-full lg:max-w-[260px]">
             <TextInput
               value={conversationSearch}
               onChange={(event) => onConversationSearchChange(event.target.value)}
               placeholder="Search this conversation"
               className="pl-9"
             />
-            <Search className="pointer-events-none relative -mt-8 ml-3 h-4 w-4 text-faint" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
           </div>
         </div>
 
-        <ScrollPanel className="flex-1 px-4 py-4 sm:px-5 sm:py-5">
+        <div ref={timelineRef} onScroll={onTimelineScroll} className="scroll-region flex-1 px-4 py-4 sm:px-5 sm:py-5">
           <div className="space-y-4">
-            {timeline.length ? (
+            {conversationLoading && !timeline.length ? (
+              <EmptyState title="Loading conversation" detail="Pulling the latest messages while keeping the shell stable." />
+            ) : timeline.length ? (
               timeline.map((entry) => {
                 if ("request_kind" in entry) {
                   const isApproval = entry.request_kind === "approval";
@@ -345,7 +385,7 @@ export function OrbitChatPane({
               </div>
             ) : null}
           </div>
-        </ScrollPanel>
+        </div>
 
         <div className="border-t border-line px-4 py-4 sm:px-5">
           <div className="rounded-pane border border-line bg-panelStrong p-3">

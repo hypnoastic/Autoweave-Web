@@ -65,6 +65,7 @@ export type AppShellConfig = {
   mode: "dashboard" | "orbit";
   breadcrumb: string[];
   backAction?: () => void;
+  forwardAction?: () => void;
   orbitIdentity?: {
     label: string;
     logo?: string | null;
@@ -184,13 +185,21 @@ function ShellSidebarItem({
       title={item.label}
       onClick={item.onSelect}
       className={cx(
-        "group flex min-h-[44px] w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+        "group flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
-        collapsed ? "justify-center px-0" : "justify-start",
       )}
     >
-      <Icon className="h-[19px] w-[19px] shrink-0" />
-      <span className={cx("truncate text-sm font-medium", collapsed ? "hidden" : "hidden lg:inline")}>{item.label}</span>
+      <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
+        <Icon className="h-[19px] w-[19px]" />
+      </span>
+      <span
+        className={cx(
+          "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+          collapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+        )}
+      >
+        {item.label}
+      </span>
     </button>
   );
 }
@@ -303,21 +312,29 @@ function AppShellFrame({ children }: { children: ReactNode }) {
     <AppShellContext.Provider value={contextValue}>
       <div className="flex min-h-dvh flex-col overflow-hidden bg-shellElevated text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
-          className="z-30 flex h-16 shrink-0 items-center border-b border-shellLine bg-shellElevated px-3 sm:px-4"
+          className="z-30 flex h-16 shrink-0 items-center border-b border-shellLine bg-shellElevated px-2 sm:px-3"
           style={{ height: TOPBAR_HEIGHT }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 sm:gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <IconButton
-              className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               <PanelLeft className="h-[18px] w-[18px]" />
             </IconButton>
-            <IconButton className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink" onClick={() => (config.backAction ? config.backAction() : window.history.back())} aria-label="Go back">
+            <IconButton
+              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              onClick={() => (config.backAction ? config.backAction() : router.back())}
+              aria-label="Go back"
+            >
               <ChevronLeft className="h-[18px] w-[18px]" />
             </IconButton>
-            <IconButton className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink" onClick={() => window.history.forward()} aria-label="Go forward">
+            <IconButton
+              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              onClick={() => (config.forwardAction ? config.forwardAction() : router.forward())}
+              aria-label="Go forward"
+            >
               <ChevronRight className="h-[18px] w-[18px]" />
             </IconButton>
             <Divider className="mx-1 hidden h-6 w-px bg-shellLine sm:block" />
@@ -340,31 +357,38 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           <aside
             className={cx(
               "relative flex min-h-0 shrink-0 flex-col overflow-visible border-r border-shellLine bg-shellElevated transition-[width] duration-200 ease-productive motion-reduce:transition-none",
-              "w-[64px]",
-              sidebarCollapsed ? "lg:w-[72px]" : "lg:w-[232px]",
+              sidebarCollapsed ? "w-[60px] lg:w-[60px]" : "w-[60px] lg:w-[224px]",
             )}
           >
             <div className="flex min-h-0 flex-1 flex-col px-2 pb-3 pt-3">
               <div className="min-h-0 flex-1 overflow-auto">
                 <div className="flex flex-col gap-1.5">
+                  {config.items.map((item) => (
+                    <ShellSidebarItem key={item.key} item={item} collapsed={sidebarCollapsed} />
+                  ))}
+
                   <button
                     type="button"
                     aria-label="Search"
                     title="Search"
                     onClick={openSearch}
                     className={cx(
-                      "flex min-h-[44px] w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                      "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                       searchOpen ? "bg-shellMuted text-ink" : "text-[#a6a9b0]",
-                      sidebarCollapsed ? "justify-center px-0" : "justify-start",
                     )}
                   >
-                    <Search className="h-[19px] w-[19px] shrink-0" />
-                    <span className={cx("text-sm font-medium", sidebarCollapsed ? "hidden" : "hidden lg:inline")}>Search</span>
+                    <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
+                      <Search className="h-[19px] w-[19px]" />
+                    </span>
+                    <span
+                      className={cx(
+                        "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+                        sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+                      )}
+                    >
+                      Search
+                    </span>
                   </button>
-
-                  {config.items.map((item) => (
-                    <ShellSidebarItem key={item.key} item={item} collapsed={sidebarCollapsed} />
-                  ))}
                 </div>
 
                 {config.secondaryContent ? (
@@ -382,13 +406,21 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                     title="Open notifications"
                     onClick={openNotifications}
                     className={cx(
-                      "flex min-h-[44px] w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                      "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                       notificationsOpen ? "bg-shellMuted text-ink" : "text-[#a6a9b0]",
-                      sidebarCollapsed ? "justify-center px-0" : "justify-start",
                     )}
                   >
-                    <Bell className="h-[19px] w-[19px] shrink-0" />
-                    <span className={cx("text-sm font-medium", sidebarCollapsed ? "hidden" : "hidden lg:inline")}>Notifications</span>
+                    <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
+                      <Bell className="h-[19px] w-[19px]" />
+                    </span>
+                    <span
+                      className={cx(
+                        "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+                        sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+                      )}
+                    >
+                      Notifications
+                    </span>
                   </button>
                 ) : null}
 
@@ -398,12 +430,20 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                   title={mode === "dark" ? "Switch to light theme" : "Switch to dark theme"}
                   onClick={() => void onChangeTheme(mode === "dark" ? "light" : "dark")}
                   className={cx(
-                    "flex min-h-[44px] w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[#a6a9b0] transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-                    sidebarCollapsed ? "justify-center px-0" : "justify-start",
+                    "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left text-[#a6a9b0] transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                   )}
                 >
-                  {mode === "dark" ? <Sun className="h-[19px] w-[19px] shrink-0" /> : <Moon className="h-[19px] w-[19px] shrink-0" />}
-                  <span className={cx("text-sm font-medium", sidebarCollapsed ? "hidden" : "hidden lg:inline")}>Theme</span>
+                  <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
+                    {mode === "dark" ? <Sun className="h-[19px] w-[19px]" /> : <Moon className="h-[19px] w-[19px]" />}
+                  </span>
+                  <span
+                    className={cx(
+                      "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+                      sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+                    )}
+                  >
+                    Theme
+                  </span>
                 </button>
 
                 <button
@@ -412,9 +452,8 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                   title="Open profile menu"
                   onClick={() => setProfileMenuOpen((current) => !current)}
                   className={cx(
-                    "flex min-h-[44px] w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                    "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                     profileMenuOpen ? "bg-shellMuted text-ink" : "text-[#d5d8dc]",
-                    sidebarCollapsed ? "justify-center px-0" : "justify-start",
                   )}
                 >
                   {session ? (
@@ -424,9 +463,16 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                       className="h-9 w-9 rounded-[12px]"
                     />
                   ) : (
-                    <User2 className="h-[18px] w-[18px] shrink-0" />
+                    <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
+                      <User2 className="h-[18px] w-[18px]" />
+                    </span>
                   )}
-                  <span className={cx("min-w-0 flex-1 text-sm font-medium", sidebarCollapsed ? "hidden" : "hidden lg:block")}>
+                  <span
+                    className={cx(
+                      "min-w-0 flex-1 overflow-hidden transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+                      sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+                    )}
+                  >
                     <span className="block truncate text-ink">{session?.user.display_name || session?.user.github_login || "Profile"}</span>
                     {session ? <span className="block truncate text-xs text-quiet">{session.user.github_login}</span> : null}
                   </span>

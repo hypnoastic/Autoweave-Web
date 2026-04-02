@@ -155,6 +155,12 @@
   - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
   - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
   - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
+  - orbit now keeps a persistent Dashboard entry at the top of the same main sidebar, so dashboard and orbit navigation read as one system
+  - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand
+  - top-bar navigation now uses router-backed back/forward behavior instead of raw `window.history` calls
+  - channel and DM switches now render through a cached conversation path with in-place loading, so the shell stays stable while chat refreshes
+  - the chat timeline now re-anchors to the bottom when switching conversations instead of reopening at the top
+  - active chat rows and selected text in dark mode now use calmer contrast rules so selected content remains legible
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds
