@@ -544,6 +544,63 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     payloadRef.current = payload;
   }, [payload]);
 
+  async function applyOrbitPayload(
+    nextSession: Session,
+    nextPayload: OrbitPayload,
+    options: {
+      reloadRequestId: number;
+      requestedSelection?: ConversationSelection | null;
+    },
+  ) {
+    const { reloadRequestId, requestedSelection } = options;
+    const canHydrateOrbit = reloadRequestId === reloadRequestRef.current || payloadRef.current == null;
+    if (!canHydrateOrbit) {
+      return false;
+    }
+    setPayload(nextPayload);
+    setError(null);
+
+    const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "chat";
+    if (nextSection && ORBIT_SECTIONS.some((item) => item.key === nextSection)) {
+      setSection(nextSection);
+    }
+
+    const nextSelectedRun = nextPayload.workflow?.selected_run ?? nextPayload.workflow?.runs?.[0] ?? null;
+    const nextWorkflowActive = isActiveRun(nextSelectedRun);
+    if (nextWorkflowActive) {
+      setLocalAgentPending(false);
+      setLocalPendingConversation(null);
+      setLocalPendingSince(null);
+    } else if (
+      localAgentPending
+      && localPendingSince != null
+      && Date.now() - localPendingSince > LOCAL_AGENT_PENDING_TIMEOUT_MS
+    ) {
+      setLocalAgentPending(false);
+      setLocalPendingConversation(null);
+      setLocalPendingSince(null);
+    }
+
+    const nextSelection = deriveSelection(nextPayload, requestedSelection ?? selectedConversation);
+    setSelectedConversation(nextSelection);
+    if (nextSelection) {
+      const conversationRequestId = conversationRequestRef.current + 1;
+      conversationRequestRef.current = conversationRequestId;
+      await loadConversation(nextSession, nextPayload, nextSelection, conversationRequestId);
+      if (reloadRequestId !== reloadRequestRef.current && payloadRef.current != null) {
+        return false;
+      }
+    } else {
+      setMessages([]);
+      setHumanLoopItems([]);
+    }
+
+    const nextCodespace =
+      nextPayload.codespaces.find((item) => item.id === activeCodespaceId) ?? nextPayload.codespaces[0] ?? null;
+    setActiveCodespaceId(nextCodespace?.id ?? null);
+    return true;
+  }
+
   async function loadConversation(
     nextSession: Session,
     nextPayload: OrbitPayload,
@@ -657,59 +714,41 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       return;
     }
     try {
-      const [nextPayload, preferences] = await Promise.all([
-        fetchOrbit(nextSession.token, orbitId),
-        fetchPreferences(nextSession.token),
-      ]);
-      if (reloadRequestId !== reloadRequestRef.current) {
+      const preferencesPromise = fetchPreferences(nextSession.token)
+        .then((preferences) => ({ preferences, error: null as Error | null }))
+        .catch((error) => ({ preferences: null, error: error as Error }));
+      if (payloadRef.current == null) {
+        const bootstrapPayload = await fetchOrbit(nextSession.token, orbitId, { bootstrap: true });
+        await applyOrbitPayload(nextSession, bootstrapPayload, {
+          reloadRequestId,
+          requestedSelection,
+        });
+      }
+      const nextPayload = await fetchOrbit(nextSession.token, orbitId);
+      await applyOrbitPayload(nextSession, nextPayload, {
+        reloadRequestId,
+        requestedSelection,
+      });
+
+      const { preferences, error: preferenceError } = await preferencesPromise;
+      if (preferenceError) {
+        if (preferenceError instanceof AuthSessionError) {
+          setSession(null);
+          setPayload(null);
+          setMessages([]);
+          setHumanLoopItems([]);
+          router.replace("/");
+        }
         return;
       }
-      setPayload(nextPayload);
-      setError(null);
-
-      if (preferences.theme_preference !== mode) {
+      if (preferences && preferences.theme_preference !== mode) {
         setMode(preferences.theme_preference);
       }
-
-      const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "chat";
-      if (nextSection && ORBIT_SECTIONS.some((item) => item.key === nextSection)) {
-        setSection(nextSection);
-      }
-
-      const nextSelectedRun = nextPayload.workflow?.selected_run ?? nextPayload.workflow?.runs?.[0] ?? null;
-      const nextWorkflowActive = isActiveRun(nextSelectedRun);
-      if (nextWorkflowActive) {
-        setLocalAgentPending(false);
-        setLocalPendingConversation(null);
-        setLocalPendingSince(null);
-      } else if (
-        localAgentPending
-        && localPendingSince != null
-        && Date.now() - localPendingSince > LOCAL_AGENT_PENDING_TIMEOUT_MS
-      ) {
-        setLocalAgentPending(false);
-        setLocalPendingConversation(null);
-        setLocalPendingSince(null);
-      }
-
-      const nextSelection = deriveSelection(nextPayload, requestedSelection ?? selectedConversation);
-      setSelectedConversation(nextSelection);
-      if (nextSelection) {
-        const conversationRequestId = conversationRequestRef.current + 1;
-        conversationRequestRef.current = conversationRequestId;
-        await loadConversation(nextSession, nextPayload, nextSelection, conversationRequestId);
-        if (reloadRequestId !== reloadRequestRef.current) {
-          return;
-        }
-      } else {
-        setMessages([]);
-        setHumanLoopItems([]);
-      }
-
-      const nextCodespace =
-        nextPayload.codespaces.find((item) => item.id === activeCodespaceId) ?? nextPayload.codespaces[0] ?? null;
-      setActiveCodespaceId(nextCodespace?.id ?? null);
     } catch (nextError) {
+      const canReportError = reloadRequestId === reloadRequestRef.current || payloadRef.current == null;
+      if (!canReportError) {
+        return;
+      }
       if (nextError instanceof AuthSessionError) {
         setSession(null);
         setPayload(null);

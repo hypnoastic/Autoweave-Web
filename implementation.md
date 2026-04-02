@@ -218,6 +218,39 @@ Validation for this slice:
 Known live validation issue still open after the shell slice:
 
 - dashboard still stalls in `Loading dashboard…` in browser validation because backend CORS is blocking `localhost:3000` -> `localhost:8000`
+
+## Phase 0F - Orbit Bootstrap Hydration
+
+This hardening slice is now implemented locally.
+
+Scope landed:
+
+- added `bootstrap=1` support on `GET /api/orbits/{id}` so the first orbit read can return a lighter shell-hydration payload
+- kept the bootstrap orbit payload limited to shell-critical data plus section-specific codespaces / PRs / issues / demos / artifacts when the saved navigation section needs them
+- moved the frontend orbit reload path to:
+  - hydrate immediately from the bootstrap orbit payload when there is no prior orbit payload
+  - continue loading the full orbit payload in the background
+  - keep preferences loading non-blocking for shell hydration
+- added backend/frontend regression coverage proving:
+  - the bootstrap orbit payload keeps shell-critical data while skipping heavy lists
+  - the orbit shell renders from bootstrap before the full orbit payload finishes
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `26 passed`
+- `cd frontend && npm run build` -> success
+- `./.venv/bin/python -m pytest backend/tests -q` -> `44 passed`
+- `AUTOWEAVE_WEB_STACK_SMOKE=1 ./.venv/bin/python -m pytest tests/test_stack_smoke.py -q` -> `2 passed`
+- rebuilt Docker backend/frontend and revalidated the direct orbit route with Playwright CLI
+
+Live validation result after this slice:
+
+- the fresh authenticated orbit shell now paints in the browser instead of remaining pinned on `Loading orbit…`
+- captured:
+  - `output/playwright/phase0f-orbit-bootstrap-3s.png`
+- residual performance debt remains:
+  - the bootstrap orbit endpoint is still materially slower than ideal
+  - the full orbit payload remains much heavier than bootstrap and should be split further in a later performance pass
 - orbit still stalls in `Loading orbit…` after an 8 second browser wait
 
 ## Phase 0D - Product Surface Professionalization

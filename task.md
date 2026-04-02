@@ -68,7 +68,8 @@
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open
-- [ ] harden runtime/UI behavior after shell refactors
+- [x] harden runtime/UI behavior after shell refactors
+- [ ] continue shrinking full-orbit payload latency now that bootstrap shell hydration is in place
 
 ## Verification
 

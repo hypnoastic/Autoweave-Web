@@ -1916,10 +1916,87 @@ def create_app(
         )
         return _serialize_repository_connection(repository, refreshed_binding)
 
+    def _serialize_bootstrap_orbit_payload(db: Session, orbit: Orbit, *, user: User) -> OrbitPayload:
+        navigation_state = navigation.get_state(user.id) or {"orbit_id": orbit.id, "section": "chat"}
+        section = str(navigation_state.get("section") or "chat").strip().lower()
+        repositories = [_serialize_repository_connection(repository, binding) for repository, binding in repositories_for_orbit(db, orbit.id)]
+        permissions = serialize_permission_snapshot(permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id))
+        channels = db.scalars(select(Channel).where(Channel.orbit_id == orbit.id).order_by(Channel.slug)).all()
+        dms = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
+
+        prs: list[dict[str, Any]] = []
+        issues: list[dict[str, Any]] = []
+        codespaces: list[dict[str, Any]] = []
+        demos: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+
+        if section == "prs":
+            prs = [
+                _serialize_pull_request(db, item)
+                for item in db.scalars(
+                    select(PullRequestSnapshot)
+                    .where(PullRequestSnapshot.orbit_id == orbit.id)
+                    .order_by(PullRequestSnapshot.updated_at.desc())
+                ).all()
+            ]
+            issues = [
+                _serialize_issue(db, item)
+                for item in db.scalars(
+                    select(IssueSnapshot)
+                    .where(IssueSnapshot.orbit_id == orbit.id)
+                    .order_by(IssueSnapshot.updated_at.desc())
+                ).all()
+            ]
+        elif section == "codespaces":
+            codespaces = [
+                _serialize_codespace(db, item)
+                for item in db.scalars(
+                    select(Codespace)
+                    .where(Codespace.orbit_id == orbit.id)
+                    .order_by(Codespace.created_at.desc())
+                ).all()
+            ]
+        elif section == "demos":
+            demos = [
+                _serialize_demo(db, item)
+                for item in db.scalars(
+                    select(Demo)
+                    .where(Demo.orbit_id == orbit.id)
+                    .order_by(Demo.created_at.desc())
+                ).all()
+            ]
+            artifacts = [_serialize_artifact(db, item) for item in artifacts_for_orbit(db, orbit_id=orbit.id)[:16]]
+
+        return OrbitPayload(
+            orbit=_serialize_orbit(orbit),
+            repositories=repositories,
+            members=[],
+            channels=[_serialize_channel(channel) for channel in channels],
+            direct_messages=[_serialize_dm_thread(db, thread, viewer=user) for thread in dms],
+            messages=[],
+            human_loop_items=[],
+            notifications=[],
+            permissions=permissions,
+            workflow=_workflow_hot_read(db, orbit),
+            prs=prs,
+            issues=issues,
+            codespaces=codespaces,
+            demos=demos,
+            artifacts=artifacts,
+            navigation=navigation_state,
+        )
+
     @app.get("/api/orbits/{orbit_id}", response_model=OrbitPayload)
-    def get_orbit(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> OrbitPayload:
+    def get_orbit(
+        orbit_id: str,
+        bootstrap: bool = Query(default=False),
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> OrbitPayload:
         orbit = _orbit_for_member(db, orbit_id, user)
         ensure_primary_repo_binding(db, orbit)
+        if bootstrap:
+            return _serialize_bootstrap_orbit_payload(db, orbit, user=user)
         memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.orbit_id == orbit.id).order_by(OrbitMembership.created_at)).all()
         members = [
             _serialize_member_summary(member_user, membership, viewer=user)

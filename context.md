@@ -46,8 +46,8 @@
 - Figma MCP was not available during this redesign pass, so the redesign was executed repo-first and validated against the running product instead of being driven from live Figma nodes
 - GitHub OAuth is not configured in the current local environment, so the real login path under test is the token-backed local auth flow
 - MCP Playwright browser control is currently unreliable in this workspace; the active browser-validation path is the Playwright CLI session harness
-- the authenticated orbit shell can still stick on `Loading orbit…` from a fresh browser session even when the backend returns `200` for both orbit payload and workflow payload requests
 - fresh browser sessions currently hit CORS when the frontend is served from `127.0.0.1:3000` and calls the backend on `127.0.0.1:8000`
+- the initial orbit shell is now bootstrap-hydrated, but the full orbit payload is still heavier than it should be and remains a follow-up performance target
 
 ## Phase 0B Foundation State
 
@@ -105,8 +105,39 @@
   - the rail remains clickable while Inbox is open
   - Command palette can replace Inbox directly without manually dismissing the left panel first
 - the remaining authenticated-shell debt is narrower:
-  - fresh rebuild/browser sessions can still linger on `Loading orbit…` before the orbit route settles
+  - fresh rebuild/browser sessions no longer stay pinned indefinitely on `Loading orbit…`; the shell now hydrates from a lightweight bootstrap orbit payload before the full orbit payload finishes
+  - the full orbit payload still remains much slower than the bootstrap response and should be shrunk further in a later performance pass
   - localhost vs `127.0.0.1` origin behavior is still not fully standardized
+
+## Phase 0F Orbit Bootstrap Hydration
+
+- added a lightweight `bootstrap` read mode to `GET /api/orbits/{id}` so the first authenticated orbit load can hydrate:
+  - orbit metadata
+  - repositories
+  - channels
+  - direct messages
+  - permissions
+  - navigation
+  - workflow summary
+  - section-specific codespaces / PRs / issues / demos / artifacts when the current saved navigation section needs them
+- orbit bootstrap reads intentionally skip:
+  - members
+  - chat messages
+  - human-loop card collections
+  - notifications
+  - read-state mutation
+- the frontend orbit reload path now:
+  - hydrates from the bootstrap orbit payload when no prior payload exists
+  - continues to fetch the full orbit payload in the background
+  - keeps preferences loading decoupled from first shell render
+- current local validation for this slice:
+  - `cd frontend && npm test -- --run` -> `26 passed`
+  - `./.venv/bin/python -m pytest backend/tests -q` -> `44 passed`
+  - `AUTOWEAVE_WEB_STACK_SMOKE=1 ./.venv/bin/python -m pytest tests/test_stack_smoke.py -q` -> `2 passed`
+- current live validation for this slice:
+  - Playwright CLI on `127.0.0.1` now shows the authenticated orbit shell rendered by the 3-second post-navigation snapshot
+  - captured `output/playwright/phase0f-orbit-bootstrap-3s.png`
+  - direct API timing still shows the full orbit payload is substantially slower than bootstrap, so this slice fixes hydration predictability without claiming the full hot path is optimized
 
 ## Current Live Validation Read
 

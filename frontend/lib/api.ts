@@ -123,8 +123,13 @@ export async function createOrbit(token: string, payload: Record<string, unknown
   return request<Orbit>("/api/orbits", { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
-export async function fetchOrbit(token: string, orbitId: string) {
-  return request<OrbitPayload>(`/api/orbits/${orbitId}`, {}, token);
+export async function fetchOrbit(token: string, orbitId: string, options?: { bootstrap?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.bootstrap) {
+    params.set("bootstrap", "1");
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<OrbitPayload>(`/api/orbits/${orbitId}${suffix}`, {}, token);
 }
 
 export async function fetchAvailableRepositories(token: string, orbitId: string) {

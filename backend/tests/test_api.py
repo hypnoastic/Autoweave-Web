@@ -476,6 +476,43 @@ def test_orbit_payload_includes_repository_bindings_and_permissions(client):
     assert orbit_payload["permissions"]["can_manage_integrations"] is True
 
 
+def test_bootstrap_orbit_payload_hydrates_shell_before_full_orbit_data(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    codespace = client.post(
+        f"/api/orbits/{orbit['id']}/codespaces",
+        json={"name": "Orbit Review Space"},
+        headers=headers,
+    )
+    assert codespace.status_code == 200
+
+    client.app.state.navigation.set_state(user["id"], {"orbit_id": orbit["id"], "section": "codespaces"})
+
+    payload = client.get(f"/api/orbits/{orbit['id']}?bootstrap=1", headers=headers)
+    assert payload.status_code == 200
+    orbit_payload = payload.json()
+
+    assert orbit_payload["orbit"]["id"] == orbit["id"]
+    assert orbit_payload["channels"][0]["slug"] == "general"
+    assert orbit_payload["direct_messages"][0]["participant"]["login"] == "ERGO"
+    assert orbit_payload["repositories"][0]["full_name"] == "octocat/orbit-control"
+    assert orbit_payload["permissions"]["orbit_role"] == "owner"
+    assert orbit_payload["navigation"] == {"orbit_id": orbit["id"], "section": "codespaces"}
+    assert orbit_payload["workflow"]["status"] in {"ok", "degraded"}
+
+    assert orbit_payload["codespaces"][0]["name"] == "Orbit Review Space"
+    assert orbit_payload["messages"] == []
+    assert orbit_payload["human_loop_items"] == []
+    assert orbit_payload["notifications"] == []
+    assert orbit_payload["members"] == []
+    assert orbit_payload["prs"] == []
+    assert orbit_payload["issues"] == []
+    assert orbit_payload["demos"] == []
+    assert orbit_payload["artifacts"] == []
+
+
 def test_owner_can_list_and_connect_additional_repositories(client):
     token, _ = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
