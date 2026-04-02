@@ -70,6 +70,8 @@
 - [x] keep sidebar collapse state stable across dashboard -> orbit transitions
 - [x] validate expanded shell, collapsed shell, search modal, orbit transition loading, and loaded orbit shell in the live browser
 - [x] replace old dashboard/orbit text loaders with in-window skeleton states inside the persistent shell
+- [x] tighten top-bar/sidebar chrome alignment so the content window does not drift downward
+- [x] remove the orbit sidebar triage block and keep triage in inbox/search flows only
 - [x] professionalize high-traffic product surfaces
 - [ ] add full-canvas workspace and artifact modes
 - [x] keep the primary rail interactive while left slide panels are open

@@ -324,6 +324,28 @@ Captured artifacts:
 - `output/playwright/phase0-shell-dashboard-loading-window.png`
 - `output/playwright/phase0-shell-orbit-loading-window.png`
 
+## Phase 0 Shell Follow-up - Chrome Alignment Cleanup
+
+This shell cleanup is now implemented locally.
+
+Scope landed:
+
+- tightened `frontend/components/authenticated-shell.tsx` so the top bar and sidebar sit inside one connected chrome surface instead of visually pushing the content window downward
+- kept the content pane as the only distinct rounded work window inside the shell
+- removed the orbit sidebar `Triage / Saved views` block from `frontend/components/orbit-workspace.tsx`
+- kept triage access in search and inbox surfaces instead of treating it as persistent sidebar chrome
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `26 passed`
+- `cd frontend && npm run build` -> success
+- rebuilt the Docker frontend and revalidated dashboard and orbit in the live browser
+
+Captured artifacts:
+
+- `output/playwright/shell-audit-dashboard-fixed.png`
+- `output/playwright/shell-audit-orbit-fixed.png`
+
 - expanded the shared UI layer with:
   - a richer `ListRow` that supports active state, eyebrow labels, and supporting metadata/actions
   - a shared `SelectionChip` primitive for saved views, theme controls, and role toggles

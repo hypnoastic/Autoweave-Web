@@ -149,6 +149,8 @@
   - the same collapsed sidebar stays mounted during dashboard -> orbit navigation
   - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail
   - initial dashboard and orbit reads now render as in-window skeleton states inside the persistent shell instead of the old `Loading dashboard…` / `Loading orbit…` pill
+  - the shell frame now sits tighter to the top edge and reads as one connected top-bar + sidebar surface instead of drifting the content window downward
+  - the orbit sidebar no longer renders the old triage saved-view block; triage remains in the inbox/search flows instead of cluttering the sidebar
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds

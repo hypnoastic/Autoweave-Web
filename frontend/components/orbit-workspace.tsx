@@ -1140,38 +1140,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           onSelect: openOrbitSettings,
         },
       ],
-      secondaryContent: payload ? (
-        <div className="space-y-3">
-          <div className="px-1">
-            <SectionTitle
-              eyebrow="Triage"
-              title="Saved views"
-              detail="Keep approvals, reviews, and failures one click away."
-              dense
-            />
-          </div>
-          <div className="space-y-2">
-            {SAVED_VIEWS.filter((view) => view.key !== "all").map((view) => (
-              <button
-                key={view.key}
-                type="button"
-                onClick={() => {
-                  setActiveSavedView(view.key);
-                  openNotifications();
-                }}
-                className="flex w-full items-center justify-between rounded-[14px] border border-transparent px-3 py-2.5 text-left text-sm text-quiet transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
-              >
-                <span>{view.label}</span>
-                <span className="text-xs text-faint">{savedViewCounts[view.key] || 0}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="px-1">
-          <SectionTitle eyebrow="Triage" title="Saved views" detail="Loading counts…" dense />
-        </div>
-      ),
       search: {
         title: "Search this orbit",
         description: "Jump between conversations, work, artifacts, and triage without leaving the shell.",

@@ -301,12 +301,13 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 
   return (
     <AppShellContext.Provider value={contextValue}>
-      <div className="flex min-h-dvh flex-col bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
+      <div className="min-h-dvh bg-shell p-3 text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
+        <div className="flex min-h-[calc(100dvh-24px)] flex-col overflow-hidden rounded-[28px] bg-shellElevated">
         <header
-          className="z-30 flex h-16 shrink-0 items-center bg-shell px-3 pt-3 sm:px-4 sm:pt-4"
+          className="z-30 flex h-16 shrink-0 items-center border-b border-shellLine bg-shellElevated px-3 sm:px-4"
           style={{ height: TOPBAR_HEIGHT }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[22px] bg-shellElevated px-2.5 sm:gap-2 sm:px-3">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 sm:gap-2">
             <IconButton
               className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
@@ -336,10 +337,10 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden bg-shell px-3 pb-3">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             className={cx(
-              "relative flex min-h-0 shrink-0 flex-col overflow-visible bg-shellElevated transition-[width] duration-200 ease-productive motion-reduce:transition-none",
+              "relative flex min-h-0 shrink-0 flex-col overflow-visible border-r border-shellLine bg-shellElevated transition-[width] duration-200 ease-productive motion-reduce:transition-none",
               "w-[82px]",
               sidebarCollapsed ? "lg:w-[92px]" : "lg:w-[252px]",
             )}
@@ -488,9 +489,11 @@ function AppShellFrame({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          <div className="ml-3 min-w-0 flex-1 overflow-hidden rounded-[30px] border border-line bg-panel shadow-panel">
-            <div key={pathname} className="aw-motion-fade flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-              {children}
+          <div className="min-w-0 flex-1 overflow-hidden p-3">
+            <div className="h-full overflow-hidden rounded-[30px] border border-line bg-panel shadow-panel">
+              <div key={pathname} className="aw-motion-fade flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+                {children}
+              </div>
             </div>
           </div>
         </div>
@@ -569,6 +572,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
             ) : null}
           </div>
         </CenteredModal>
+        </div>
       </div>
     </AppShellContext.Provider>
   );
