@@ -52,6 +52,16 @@ describe("shared ui overlays", () => {
     fireEvent.click(screen.getByLabelText("Close overlay"));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps the rail exposed when a left panel uses an offset", () => {
+    render(
+      <LeftSlidePanel open onClose={() => {}} offset={88} title="Search">
+        panel content
+      </LeftSlidePanel>,
+    );
+
+    expect(screen.getByLabelText("Close overlay")).toHaveStyle({ left: "88px" });
+  });
 });
 
 describe("shared ui rows", () => {

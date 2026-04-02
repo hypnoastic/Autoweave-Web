@@ -1066,6 +1066,113 @@ describe("OrbitWorkspace", () => {
     expect(await screen.findByText("Release notes draft")).toBeInTheDocument();
   });
 
+  it("closes the inbox before opening the command palette from the rail", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [
+        {
+          id: "repo_1",
+          provider: "github",
+          full_name: "octocat/orbit-one",
+          owner_name: "octocat",
+          repo_name: "orbit-one",
+          is_private: true,
+          default_branch: "main",
+          status: "active",
+          health_state: "healthy",
+          is_primary: true,
+          binding_status: "active",
+        },
+      ],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat" }],
+      channels: [{ id: "channel_1", slug: "general", name: "general" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
+      messages: [],
+      human_loop_items: [],
+      notifications: [
+        {
+          id: "notif_1",
+          kind: "artifact",
+          title: "Artifact ready",
+          detail: "Release notes draft is ready.",
+          status: "unread",
+          source_kind: "artifact",
+          source_id: "artifact_1",
+          channel_id: null,
+          dm_thread_id: null,
+          metadata: { repository_full_name: "octocat/orbit-one", artifact_kind: "report" },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: { repo_1: "admin" },
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      codespaces: [],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+    });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchDmThread.mockResolvedValue({
+      thread: { id: "dm_1", title: "ERGO" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.updateNavigation.mockResolvedValue({});
+
+    render(
+      <ThemeProvider>
+        <OrbitWorkspace orbitId="orbit_1" />
+      </ThemeProvider>,
+    );
+
+    expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    });
+    expect(await screen.findByRole("dialog", { name: "Inbox" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /command palette/i }));
+    });
+
+    expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument();
+  });
+
   it("filters triage saved views and updates member roles from orbit settings", async () => {
     api.readSession.mockReturnValue({
       token: "session-token",

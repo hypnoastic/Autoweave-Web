@@ -96,16 +96,27 @@
   - an expanded `ListRow` with active state, eyebrow labels, and supporting meta/actions
 - workflow, PR/issues, workspaces, and artifacts now use `PageHeader` for a more consistent top-of-surface frame
 
+## Phase 0F Shell Hardening State
+
+- the shared overlay primitive now keeps the primary rail exposed when a left slide panel is open
+- orbit and dashboard rail actions now close conflicting shell overlays before opening the next surface
+- live browser validation now confirms:
+  - Inbox can open in orbit
+  - the rail remains clickable while Inbox is open
+  - Command palette can replace Inbox directly without manually dismissing the left panel first
+- the remaining authenticated-shell debt is narrower:
+  - fresh rebuild/browser sessions can still linger on `Loading orbit…` before the orbit route settles
+  - localhost vs `127.0.0.1` origin behavior is still not fully standardized
+
 ## Current Live Validation Read
 
 - browser validation on `127.0.0.1:3000` with the token-backed local session now proves:
   - dashboard renders the professionalized row-based priority/codespace surfaces
   - orbit chat renders with the new row-based channel/DM grammar
   - orbit inbox renders with the saved-view chip grammar and repo-aware inbox rows
-  - command palette renders with the shared row grammar once blocking overlays are closed
+  - command palette renders with the shared row grammar and can now replace the inbox directly from the rail
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
-  - overlay stacking can block rail actions until the current overlay is explicitly closed
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds
 
 ## Open Implementation Threads

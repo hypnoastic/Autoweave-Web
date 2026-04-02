@@ -469,6 +469,61 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const workflowPollRequestRef = useRef(0);
   const profileRef = useOutsideClose<HTMLDivElement>(showProfileMenu, () => setShowProfileMenu(false));
 
+  function closeShellOverlays() {
+    setActiveLeftPanel(null);
+    setShowCommandPalette(false);
+    setShowGlobalSettings(false);
+    setShowOrbitSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu(false);
+  }
+
+  function openLeftPanel(panel: Exclude<LeftPanelKind, null>) {
+    setShowCommandPalette(false);
+    setShowGlobalSettings(false);
+    setShowOrbitSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu(false);
+    setActiveLeftPanel(panel);
+  }
+
+  function openCommandPalette() {
+    setActiveLeftPanel(null);
+    setShowGlobalSettings(false);
+    setShowOrbitSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu(false);
+    setShowCommandPalette(true);
+    setCommandQuery("");
+  }
+
+  function openGlobalSettings() {
+    setActiveLeftPanel(null);
+    setShowCommandPalette(false);
+    setShowOrbitSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu(false);
+    setShowGlobalSettings(true);
+  }
+
+  function openOrbitSettings() {
+    setActiveLeftPanel(null);
+    setShowCommandPalette(false);
+    setShowGlobalSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu(false);
+    setShowOrbitSettings(true);
+  }
+
+  function toggleProfileMenu() {
+    setActiveLeftPanel(null);
+    setShowCommandPalette(false);
+    setShowGlobalSettings(false);
+    setShowOrbitSettings(false);
+    setShowConnectRepository(false);
+    setShowProfileMenu((current) => !current);
+  }
+
   const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
   const selectedRunId = String(selectedRun?.id ?? "").trim();
   const workflowActive = isActiveRun(selectedRun);
@@ -702,8 +757,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         return;
       }
       event.preventDefault();
-      setShowCommandPalette(true);
-      setCommandQuery("");
+      openCommandPalette();
     }
 
     document.addEventListener("keydown", handleShortcut);
@@ -1070,9 +1124,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Open inbox",
         detail: "See mentions, approvals, and run outcomes",
         action: () => {
-          setActiveLeftPanel("notifications");
+          openLeftPanel("notifications");
           setActiveSavedView("all");
-          setShowCommandPalette(false);
         },
       },
       {
@@ -1080,8 +1133,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         label: "Open orbit search",
         detail: "Browse conversations, runs, and artifacts",
         action: () => {
-          setActiveLeftPanel("search");
-          setShowCommandPalette(false);
+          openLeftPanel("search");
         },
       },
       {
@@ -1108,8 +1160,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         detail: "Open the inbox with this saved triage filter",
         action: () => {
           setActiveSavedView(view.key);
-          setActiveLeftPanel("notifications");
-          setShowCommandPalette(false);
+          openLeftPanel("notifications");
         },
       })),
       {
@@ -1496,11 +1547,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
             <Divider className="w-8" />
 
-            <RailButton title="Search" onClick={() => setActiveLeftPanel("search")}>
+            <RailButton title="Search" onClick={() => openLeftPanel("search")}>
               <Search className="h-4 w-4" />
             </RailButton>
 
-            <RailButton title="Command palette" onClick={() => setShowCommandPalette(true)}>
+            <RailButton title="Command palette" onClick={openCommandPalette}>
               <CommandIcon className="h-4 w-4" />
             </RailButton>
 
@@ -1517,14 +1568,14 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           </RailCluster>
 
           <RailCluster>
-            <RailButton title="Orbit settings" onClick={() => setShowOrbitSettings(true)}>
+            <RailButton title="Orbit settings" onClick={openOrbitSettings}>
               <Settings2 className="h-4 w-4" />
             </RailButton>
-            <RailButton title="Notifications" onClick={() => setActiveLeftPanel("notifications")}>
+            <RailButton title="Notifications" onClick={() => openLeftPanel("notifications")}>
               <Bell className="h-4 w-4" />
             </RailButton>
             <div className="relative" ref={profileRef}>
-              <RailButton title="Profile" onClick={() => setShowProfileMenu((current) => !current)}>
+              <RailButton title="Profile" onClick={toggleProfileMenu}>
                 <User2 className="h-4 w-4" />
               </RailButton>
               <PopoverMenu open={showProfileMenu} className="bottom-0 left-full top-auto ml-3 mt-0">
@@ -1534,8 +1585,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </div>
                 <MenuItem
                   onClick={() => {
-                    setShowGlobalSettings(true);
-                    setShowProfileMenu(false);
+                    openGlobalSettings();
                   }}
                 >
                   <Settings2 className="h-4 w-4" />
@@ -1911,7 +1961,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
         <LeftSlidePanel
           open={activeLeftPanel === "search"}
-          onClose={() => setActiveLeftPanel(null)}
+          onClose={closeShellOverlays}
           offset={RAIL_WIDTH}
           width="min(380px, calc(100vw - 104px))"
           title="Search this orbit"
@@ -1937,7 +1987,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
         <LeftSlidePanel
           open={activeLeftPanel === "notifications"}
-          onClose={() => setActiveLeftPanel(null)}
+          onClose={closeShellOverlays}
           offset={RAIL_WIDTH}
           width="min(420px, calc(100vw - 104px))"
           title="Inbox"
@@ -2080,13 +2130,13 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
         <CenteredModal
           open={showCommandPalette}
-          onClose={() => setShowCommandPalette(false)}
+          onClose={closeShellOverlays}
           title="Command palette"
           description="Jump between work, conversations, and triage views with Cmd/Ctrl+K."
           footer={
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs text-quiet">Typed search uses the orbit search API. Empty state shows quick actions.</p>
-              <GhostButton onClick={() => setShowCommandPalette(false)}>Close</GhostButton>
+              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
             </div>
           }
         >
@@ -2189,12 +2239,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
         <CenteredModal
           open={showGlobalSettings}
-          onClose={() => setShowGlobalSettings(false)}
+          onClose={closeShellOverlays}
           title="Global settings"
           description="Appearance and a few real user-facing preferences only."
           footer={
             <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={() => setShowGlobalSettings(false)}>Close</GhostButton>
+              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
             </div>
           }
         >
@@ -2228,12 +2278,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
         <CenteredModal
           open={showOrbitSettings}
-          onClose={() => setShowOrbitSettings(false)}
+          onClose={closeShellOverlays}
           title="Orbit settings"
           description="Repo info, invite flow, and orbit-local operational settings."
           footer={
             <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={() => setShowOrbitSettings(false)}>Close</GhostButton>
+              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
             </div>
           }
         >

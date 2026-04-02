@@ -258,8 +258,39 @@ Live validation nuance after this slice:
 - the real browser now confirms the new dashboard/orbit surface grammar is present
 - the earlier “orbit never renders” framing is too broad on `127.0.0.1`; orbit does render once the session is seeded and the page is given time to settle
 - the remaining `0F` debt is now focused on predictable authenticated-shell validation:
+  - left-panel overlay geometry and shell-surface exclusivity still need a bounded hardening pass
+  - localhost vs `127.0.0.1` origin consistency still needs cleanup
+
+## Phase 0F - Shell Overlay Hardening
+
+This bounded hardening slice is now implemented in the current Phase 0 pass.
+
+Scope landed:
+
+- added shell-level overlay-opening helpers in dashboard and orbit so left panels, command palette, settings, and profile surfaces close conflicting shell overlays before opening the next one
+- updated the shared `OverlayBackdrop` / `LeftSlidePanel` behavior so left-panel backdrops respect the rail offset instead of covering the primary rail
+- added regression coverage for:
+  - orbit inbox -> command palette overlay switching
+  - dashboard search -> notifications overlay switching
+  - left-panel backdrop geometry with an explicit rail offset
+
+Validation for this slice:
+
+- `cd frontend && npm test -- --run` -> `24 passed`
+- `cd frontend && npm run build` -> success
+- rebuilt the live frontend via `docker compose up -d --build frontend`
+- Playwright CLI validation now proves the real interaction path:
+  - open an orbit
+  - open Inbox
+  - click Command palette directly from the rail
+  - confirm Command palette opens while Inbox is gone
+  - captured `output/playwright/phase0f-orbit-overlay-switch.png`
+
+Remaining `0F` debt after this slice:
+
+- fresh rebuild/browser sessions can still capture `Loading orbit…` before the orbit route settles, even when backend orbit/workflow requests return `200`
+- full Phase 0 completion still depends on resolving that authenticated orbit-hydration predictability issue
   - timing-sensitive `Loading…` captures if validation snapshots too early
-  - overlay stacking that can intercept rail interactions until the current overlay is closed
   - lingering localhost vs `127.0.0.1` origin consistency risk for the authenticated shell
 
 ## UI Redesign Pass

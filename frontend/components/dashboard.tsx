@@ -132,6 +132,41 @@ export function DashboardScreen() {
   const [saving, setSaving] = useState(false);
   const profileRef = useOutsideClose<HTMLDivElement>(showProfileMenu, () => setShowProfileMenu(false));
 
+  function closeShellOverlays() {
+    setActiveLeftPanel(null);
+    setShowCreateOrbit(false);
+    setShowSettings(false);
+    setShowProfileMenu(false);
+  }
+
+  function openLeftPanel(panel: Exclude<LeftPanelKind, null>) {
+    setShowCreateOrbit(false);
+    setShowSettings(false);
+    setShowProfileMenu(false);
+    setActiveLeftPanel(panel);
+  }
+
+  function openCreateOrbit() {
+    setActiveLeftPanel(null);
+    setShowSettings(false);
+    setShowProfileMenu(false);
+    setShowCreateOrbit(true);
+  }
+
+  function openSettings() {
+    setActiveLeftPanel(null);
+    setShowCreateOrbit(false);
+    setShowProfileMenu(false);
+    setShowSettings(true);
+  }
+
+  function toggleProfileMenu() {
+    setActiveLeftPanel(null);
+    setShowCreateOrbit(false);
+    setShowSettings(false);
+    setShowProfileMenu((current) => !current);
+  }
+
   async function reload() {
     const nextSession = readSession();
     setSession(nextSession);
@@ -259,20 +294,20 @@ export function DashboardScreen() {
               <RailButton title="Home" active onClick={() => router.push("/app")}>
                 <Home className="h-4 w-4" />
               </RailButton>
-              <RailButton title="New orbit" onClick={() => setShowCreateOrbit(true)}>
+              <RailButton title="New orbit" onClick={openCreateOrbit}>
                 <Plus className="h-4 w-4" />
               </RailButton>
-              <RailButton title="Search" onClick={() => setActiveLeftPanel("search")}>
+              <RailButton title="Search" onClick={() => openLeftPanel("search")}>
                 <Search className="h-4 w-4" />
               </RailButton>
             </RailCluster>
 
             <RailCluster>
-              <RailButton title="Notifications" onClick={() => setActiveLeftPanel("notifications")}>
+              <RailButton title="Notifications" onClick={() => openLeftPanel("notifications")}>
                 <Bell className="h-4 w-4" />
               </RailButton>
               <div className="relative" ref={profileRef}>
-                <RailButton title="Profile" onClick={() => setShowProfileMenu((current) => !current)}>
+                <RailButton title="Profile" onClick={toggleProfileMenu}>
                   <User2 className="h-4 w-4" />
                 </RailButton>
                 <PopoverMenu open={showProfileMenu} className="bottom-0 left-full top-auto ml-3 mt-0">
@@ -280,7 +315,7 @@ export function DashboardScreen() {
                     <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
                     <p className="text-xs text-quiet">{session.user.github_login}</p>
                   </div>
-                  <MenuItem onClick={() => { setShowSettings(true); setShowProfileMenu(false); }}>
+                  <MenuItem onClick={openSettings}>
                     <Settings2 className="h-4 w-4" />
                     Global settings
                   </MenuItem>
@@ -324,7 +359,7 @@ export function DashboardScreen() {
             title="Everything important, nothing noisy."
             detail="Priority surfaces only what needs attention. Codespaces stay visible. Search, notifications, and settings stay off the main canvas until you need them."
             actions={
-              <ActionButton onClick={() => setShowCreateOrbit(true)}>
+              <ActionButton onClick={openCreateOrbit}>
                 <Plus className="h-4 w-4" />
                 New Orbit
               </ActionButton>
@@ -419,7 +454,7 @@ export function DashboardScreen() {
 
         <LeftSlidePanel
           open={activeLeftPanel === "search"}
-          onClose={() => setActiveLeftPanel(null)}
+          onClose={closeShellOverlays}
           offset={DASHBOARD_RAIL_OFFSET}
           title="Search orbits"
           description="Jump to a recent orbit or scan the current product surface quickly."
@@ -449,7 +484,7 @@ export function DashboardScreen() {
 
         <LeftSlidePanel
           open={activeLeftPanel === "notifications"}
-          onClose={() => setActiveLeftPanel(null)}
+          onClose={closeShellOverlays}
           offset={DASHBOARD_RAIL_OFFSET}
           title="Notifications"
           description="The broader activity stream, including the high-signal items already surfaced in Priority."
@@ -473,12 +508,12 @@ export function DashboardScreen() {
 
         <CenteredModal
           open={showCreateOrbit}
-          onClose={() => setShowCreateOrbit(false)}
+          onClose={closeShellOverlays}
           title="Create a new orbit"
           description="Start a GitHub-backed workspace with a clear name, a sharp logo, and the right collaborators from the beginning."
           footer={
             <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={() => setShowCreateOrbit(false)}>Cancel</GhostButton>
+              <GhostButton onClick={closeShellOverlays}>Cancel</GhostButton>
               <ActionButton onClick={onCreateOrbit} disabled={saving || !draft.name.trim()}>
                 {saving ? "Creating…" : "Create orbit"}
               </ActionButton>
@@ -523,12 +558,12 @@ export function DashboardScreen() {
 
         <CenteredModal
           open={showSettings}
-          onClose={() => setShowSettings(false)}
+          onClose={closeShellOverlays}
           title="Global settings"
           description="Quiet preferences that shape how the product feels without cluttering the interface."
           footer={
             <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={() => setShowSettings(false)}>Close</GhostButton>
+              <GhostButton onClick={closeShellOverlays}>Close</GhostButton>
             </div>
           }
         >

@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import type {
   ButtonHTMLAttributes,
+  CSSProperties,
   HTMLAttributes,
   InputHTMLAttributes,
   PropsWithChildren,
@@ -552,10 +553,12 @@ export function OverlayBackdrop({
   visible,
   onClick,
   subtle = false,
+  offsetLeft,
 }: {
   visible: boolean;
   onClick: () => void;
   subtle?: boolean;
+  offsetLeft?: number | string;
 }) {
   if (!visible) {
     return null;
@@ -566,6 +569,7 @@ export function OverlayBackdrop({
       aria-label="Close overlay"
       tabIndex={-1}
       onClick={onClick}
+      style={offsetLeft == null ? undefined : ({ left: offsetLeft } satisfies CSSProperties)}
       className={clsx(
         "aw-motion-fade fixed inset-0 z-30 transition-[opacity] duration-200 ease-productive-out motion-reduce:transition-none",
         subtle ? "bg-overlay/40" : "bg-overlay/80 backdrop-blur-[2px]",
@@ -597,7 +601,7 @@ export function LeftSlidePanel({
   }
   return (
     <>
-      <OverlayBackdrop visible={open} onClick={onClose} />
+      <OverlayBackdrop visible={open} onClick={onClose} offsetLeft={offset} />
       <aside
         ref={surfaceRef}
         role="dialog"
