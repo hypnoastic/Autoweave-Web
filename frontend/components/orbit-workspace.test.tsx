@@ -926,7 +926,7 @@ describe("OrbitWorkspace", () => {
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Orbit settings$/ }));
     });
 
     await act(async () => {
@@ -1098,7 +1098,11 @@ describe("OrbitWorkspace", () => {
     expect((await screen.findAllByText("general")).length).toBeGreaterThan(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /switch to light theme/i }));
+      fireEvent.click(screen.getByRole("button", { name: /open global settings/i }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Light$/ }));
     });
 
     await waitFor(() =>
@@ -1608,7 +1612,7 @@ describe("OrbitWorkspace", () => {
     expect(screen.queryByText("Approval required")).not.toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Orbit settings$/ }));
     });
     expect(await screen.findByText("Workspace roles")).toBeInTheDocument();
 
@@ -1772,7 +1776,7 @@ describe("OrbitWorkspace", () => {
     expect(await screen.findByRole("button", { name: /publish demo/i })).toBeDisabled();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^Settings$/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Orbit settings$/ }));
     });
 
     expect(await screen.findByText("Only orbit managers and owners can send invitations.")).toBeInTheDocument();

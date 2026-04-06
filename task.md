@@ -66,7 +66,7 @@
 - [x] standardize shared UI foundation and design-system base
 - [x] unify authenticated dashboard and orbit shells
 - [x] mount one persistent `/app` shell so dashboard and orbit no longer remount separate chrome
-- [x] keep notifications and profile utilities in the sidebar instead of the top bar
+- [x] move notifications, global settings, and profile into the top bar without changing shell persistence
 - [x] keep sidebar collapse state stable across dashboard -> orbit transitions
 - [x] validate expanded shell, collapsed shell, search modal, orbit transition loading, and loaded orbit shell in the live browser
 - [x] replace old dashboard/orbit text loaders with in-window skeleton states inside the persistent shell
@@ -76,9 +76,11 @@
 - [x] remove the duplicated dashboard/home sidebar treatment and slim the collapsed rail
 - [x] keep Dashboard pinned at the top of the same sidebar in orbit mode
 - [x] remove the orbit identity block from the persistent sidebar
+- [x] keep orbit-specific controls limited to a bottom-pinned `Orbit settings` item in orbit mode
 - [x] flatten orbit chat and workflow so they scroll inside the content pane instead of stretching the shell
 - [x] split codespaces into a list view plus a full-canvas open workspace mode tied to the top-bar back button
 - [x] stop rail icons from jumping during collapse/expand and tighten the collapsed width further
+- [x] darken the shared shell chrome so the top bar and sidebar read as one connected surface against the lighter main content
 - [x] switch chat conversation changes to cached in-place loading with bottom scroll anchoring
 - [x] move shell back/forward behavior onto router-backed navigation
 - [x] fix dark-mode selected text contrast

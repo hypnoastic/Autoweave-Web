@@ -566,6 +566,13 @@ The frontend now relies on shared UI architecture instead of page-owned one-off 
 - theme preference supports system / light / dark
 - theme preference syncs to product backend preferences
 
+### Shell chrome changes
+
+- the persistent shell is roughly 10% denser than the previous pass, with a 58px top bar and a thinner collapsed rail
+- top-bar utility actions now sit on the right in this order: notifications, global settings, profile
+- orbit mode keeps only one orbit-specific control in the sidebar footer: `Orbit settings`
+- the top bar and sidebar now share the darker shell surface while the main product canvas stays lighter, creating a clearer split without a hard border between shell regions
+
 ### Backend/UI contract changes used by the redesign
 
 - `GET /api/preferences`

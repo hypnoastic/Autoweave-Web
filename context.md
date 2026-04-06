@@ -146,7 +146,8 @@
   - dashboard renders inside the shared persistent shell
   - the dashboard no longer shows a duplicated home/dashboard treatment; the sidebar now uses a single dashboard nav item and a slimmer collapsed rail
   - the top bar stays mounted while the sidebar collapses to icon-only mode
-  - notifications and profile utilities now live in the sidebar instead of the top bar
+  - the shared shell is now denser: the top bar and sidebar are both slimmer, the collapsed rail is narrower, and icon slots stay fixed during collapse/expand
+  - notifications, global settings, and profile now live in the top bar in that order, while orbit mode keeps a separate bottom-pinned `Orbit settings` item in the sidebar
   - the same collapsed sidebar stays mounted during dashboard -> orbit navigation
   - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail, and the orbit identity block no longer occupies permanent sidebar space
   - initial dashboard and orbit reads now render as in-window skeleton states inside the persistent shell instead of the old `Loading dashboard…` / `Loading orbit…` pill
@@ -154,6 +155,7 @@
   - the orbit sidebar no longer renders the old triage saved-view block; triage remains in the inbox/search flows instead of cluttering the sidebar
   - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
   - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
+  - the top bar and sidebar now share the darker shell surface and connect to the lighter main canvas with a rounded seam instead of a boxed divider line
   - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
   - orbit now keeps a persistent Dashboard entry at the top of the same main sidebar, so dashboard and orbit navigation read as one system
   - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand

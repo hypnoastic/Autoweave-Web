@@ -29,7 +29,6 @@ import { useTheme } from "@/components/theme-provider";
 import {
   AvatarMark,
   CenteredModal,
-  Divider,
   GhostButton,
   IconButton,
   MenuItem,
@@ -43,7 +42,7 @@ import { AuthSessionError, readSession, updatePreferences, writeSession } from "
 import type { Session, ThemeMode } from "@/lib/types";
 
 const SIDEBAR_STATE_KEY = "autoweave-shell-sidebar-collapsed";
-const TOPBAR_HEIGHT = 64;
+const TOPBAR_HEIGHT = 58;
 
 type ShellPanelConfig = {
   title: string;
@@ -185,17 +184,17 @@ function ShellSidebarItem({
       title={item.label}
       onClick={item.onSelect}
       className={cx(
-        "group flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+        "group flex min-h-[40px] w-full items-center gap-2.5 overflow-hidden rounded-[12px] px-2.5 py-2 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
-      <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
-        <Icon className="h-[19px] w-[19px]" />
+      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+        <Icon className="h-[18px] w-[18px]" />
       </span>
       <span
         className={cx(
-          "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
-          collapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
+          "min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
+          collapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[138px] opacity-100",
         )}
       >
         {item.label}
@@ -283,6 +282,8 @@ function AppShellFrame({ children }: { children: ReactNode }) {
   );
 
   const breadcrumb = config.breadcrumb.length ? config.breadcrumb : [config.mode === "orbit" ? "Orbit" : "Dashboard"];
+  const orbitSettingsItem = config.mode === "orbit" ? config.items.find((item) => item.key === "settings") ?? null : null;
+  const sidebarItems = orbitSettingsItem ? config.items.filter((item) => item.key !== orbitSettingsItem.key) : config.items;
 
   async function onChangeTheme(nextMode: ThemeMode) {
     setMode(nextMode);
@@ -310,34 +311,33 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 
   return (
     <AppShellContext.Provider value={contextValue}>
-      <div className="flex min-h-dvh flex-col overflow-hidden bg-shellElevated text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
+      <div className="flex min-h-dvh flex-col overflow-hidden bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
-          className="z-30 flex h-16 shrink-0 items-center border-b border-shellLine bg-shellElevated px-2 sm:px-3"
+          className="z-30 flex shrink-0 items-center bg-shell px-2"
           style={{ height: TOPBAR_HEIGHT }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
             <IconButton
-              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              <PanelLeft className="h-[18px] w-[18px]" />
+              <PanelLeft className="h-[17px] w-[17px]" />
             </IconButton>
             <IconButton
-              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
               onClick={() => (config.backAction ? config.backAction() : router.back())}
               aria-label="Go back"
             >
-              <ChevronLeft className="h-[18px] w-[18px]" />
+              <ChevronLeft className="h-[17px] w-[17px]" />
             </IconButton>
             <IconButton
-              className="h-11 w-11 shrink-0 rounded-[14px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
               onClick={() => (config.forwardAction ? config.forwardAction() : router.forward())}
               aria-label="Go forward"
             >
-              <ChevronRight className="h-[18px] w-[18px]" />
+              <ChevronRight className="h-[17px] w-[17px]" />
             </IconButton>
-            <Divider className="mx-1 hidden h-6 w-px bg-shellLine sm:block" />
             <nav aria-label="Page context" className="min-w-0">
               <ol className="flex min-w-0 items-center gap-1.5 text-sm">
                 {breadcrumb.map((segment, index) => (
@@ -351,19 +351,81 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               </ol>
             </nav>
           </div>
+          <div className="flex shrink-0 items-center gap-1" ref={profileRef}>
+            {config.notifications ? (
+              <IconButton
+                className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+                onClick={openNotifications}
+                aria-label="Open notifications"
+              >
+                <Bell className="h-[17px] w-[17px]" />
+              </IconButton>
+            ) : null}
+            <IconButton
+              className="h-10 w-10 shrink-0 rounded-[12px] text-[#c3c7cd] hover:bg-shellMuted hover:text-ink"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open global settings"
+            >
+              <Settings2 className="h-[17px] w-[17px]" />
+            </IconButton>
+            <button
+              type="button"
+              aria-label="Open profile menu"
+              title="Open profile menu"
+              onClick={() => setProfileMenuOpen((current) => !current)}
+              className={cx(
+                "flex h-10 min-w-0 shrink-0 items-center gap-2 rounded-[12px] px-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                profileMenuOpen ? "bg-shellMuted text-ink" : "text-[#d5d8dc]",
+              )}
+            >
+              {session ? (
+                <AvatarMark
+                  label={session.user.display_name || session.user.github_login}
+                  src={session.user.avatar_url}
+                  className="h-8 w-8 rounded-[11px]"
+                />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-[11px] bg-shellMuted">
+                  <User2 className="h-[16px] w-[16px]" />
+                </span>
+              )}
+            </button>
+
+            <PopoverMenu open={profileMenuOpen} className="right-0 top-full mt-2 min-w-[220px]">
+              {session ? (
+                <div className="px-3 py-2">
+                  <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
+                  <p className="text-xs text-quiet">{session.user.github_login}</p>
+                </div>
+              ) : null}
+              <MenuItem
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                <Settings2 className="h-4 w-4" />
+                Global settings
+              </MenuItem>
+              <MenuItem onClick={signOut}>
+                <User2 className="h-4 w-4" />
+                Sign out
+              </MenuItem>
+            </PopoverMenu>
+          </div>
         </header>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             className={cx(
-              "relative flex min-h-0 shrink-0 flex-col overflow-visible border-r border-shellLine bg-shellElevated transition-[width] duration-200 ease-productive motion-reduce:transition-none",
-              sidebarCollapsed ? "w-[60px] lg:w-[60px]" : "w-[60px] lg:w-[224px]",
+              "relative flex min-h-0 shrink-0 flex-col overflow-visible bg-shell transition-[width] duration-200 ease-productive motion-reduce:transition-none",
+              sidebarCollapsed ? "w-[54px] lg:w-[54px]" : "w-[54px] lg:w-[198px]",
             )}
           >
-            <div className="flex min-h-0 flex-1 flex-col px-2 pb-3 pt-3">
+            <div className="flex min-h-0 flex-1 flex-col px-1.5 pb-2.5 pt-2.5">
               <div className="min-h-0 flex-1 overflow-auto">
                 <div className="flex flex-col gap-1.5">
-                  {config.items.map((item) => (
+                  {sidebarItems.map((item) => (
                     <ShellSidebarItem key={item.key} item={item} collapsed={sidebarCollapsed} />
                   ))}
 
@@ -398,118 +460,15 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                 ) : null}
               </div>
 
-              <div className="relative mt-3 flex shrink-0 flex-col gap-1.5 border-t border-shellLine pt-3" ref={profileRef}>
-                {config.notifications ? (
-                  <button
-                    type="button"
-                    aria-label="Open notifications"
-                    title="Open notifications"
-                    onClick={openNotifications}
-                    className={cx(
-                      "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-                      notificationsOpen ? "bg-shellMuted text-ink" : "text-[#a6a9b0]",
-                    )}
-                  >
-                    <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
-                      <Bell className="h-[19px] w-[19px]" />
-                    </span>
-                    <span
-                      className={cx(
-                        "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
-                        sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
-                      )}
-                    >
-                      Notifications
-                    </span>
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  aria-label={mode === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-                  title={mode === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-                  onClick={() => void onChangeTheme(mode === "dark" ? "light" : "dark")}
-                  className={cx(
-                    "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left text-[#a6a9b0] transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-                  )}
-                >
-                  <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
-                    {mode === "dark" ? <Sun className="h-[19px] w-[19px]" /> : <Moon className="h-[19px] w-[19px]" />}
-                  </span>
-                  <span
-                    className={cx(
-                      "min-w-0 overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
-                      sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
-                    )}
-                  >
-                    Theme
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  aria-label="Open profile menu"
-                  title="Open profile menu"
-                  onClick={() => setProfileMenuOpen((current) => !current)}
-                  className={cx(
-                    "flex min-h-[44px] w-full items-center gap-3 overflow-hidden rounded-[14px] px-3 py-2.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-                    profileMenuOpen ? "bg-shellMuted text-ink" : "text-[#d5d8dc]",
-                  )}
-                >
-                  {session ? (
-                    <AvatarMark
-                      label={session.user.display_name || session.user.github_login}
-                      src={session.user.avatar_url}
-                      className="h-9 w-9 rounded-[12px]"
-                    />
-                  ) : (
-                    <span className="flex h-[19px] w-[19px] shrink-0 items-center justify-center">
-                      <User2 className="h-[18px] w-[18px]" />
-                    </span>
-                  )}
-                  <span
-                    className={cx(
-                      "min-w-0 flex-1 overflow-hidden transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
-                      sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[160px] opacity-100",
-                    )}
-                  >
-                    <span className="block truncate text-ink">{session?.user.display_name || session?.user.github_login || "Profile"}</span>
-                    {session ? <span className="block truncate text-xs text-quiet">{session.user.github_login}</span> : null}
-                  </span>
-                </button>
-
-                <PopoverMenu
-                  open={profileMenuOpen}
-                  className={cx(
-                    "min-w-[220px]",
-                    sidebarCollapsed ? "bottom-0 left-full ml-3" : "bottom-full left-0 mb-3 w-[232px]",
-                  )}
-                >
-                  {session ? (
-                    <div className="px-3 py-2">
-                      <p className="text-sm font-semibold text-ink">{session.user.display_name}</p>
-                      <p className="text-xs text-quiet">{session.user.github_login}</p>
-                    </div>
-                  ) : null}
-                  <MenuItem
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    <Settings2 className="h-4 w-4" />
-                    Global settings
-                  </MenuItem>
-                  <MenuItem onClick={signOut}>
-                    <User2 className="h-4 w-4" />
-                    Sign out
-                  </MenuItem>
-                </PopoverMenu>
-              </div>
+              {orbitSettingsItem ? (
+                <div className="mt-2.5 flex shrink-0 flex-col gap-1.5 pt-2.5">
+                  <ShellSidebarItem item={orbitSettingsItem} collapsed={sidebarCollapsed} />
+                </div>
+              ) : null}
             </div>
           </aside>
 
-        <div className="min-w-0 flex-1 overflow-hidden bg-canvas">
+        <div className="min-w-0 flex-1 overflow-hidden rounded-tl-[28px] bg-canvas shadow-[-1px_0_0_var(--aw-shell-seam),0_-1px_0_var(--aw-shell-seam)]">
           <div key={pathname} className="aw-motion-fade flex h-full min-h-0 flex-1 flex-col overflow-hidden">
             {children}
           </div>

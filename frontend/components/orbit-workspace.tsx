@@ -1191,7 +1191,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         })),
         {
           key: "settings",
-          label: "Settings",
+          label: "Orbit settings",
           icon: Settings2,
           active: showOrbitSettings,
           onSelect: openOrbitSettings,
