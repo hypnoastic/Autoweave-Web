@@ -156,6 +156,7 @@
   - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
   - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
   - the top bar and sidebar now share the darker shell surface and connect to the lighter main canvas with a rounded seam instead of a boxed divider line
+  - the shell chrome was tightened again: top bar reduced to 54px, the collapsed rail narrowed further, profile avatar reduced/darkened, and orbit nav order now starts with `Dashboard`, then `Search`, before the section-specific items
   - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
   - orbit now keeps a persistent Dashboard entry at the top of the same main sidebar, so dashboard and orbit navigation read as one system
   - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand

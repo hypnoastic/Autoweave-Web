@@ -22,10 +22,10 @@
   --aw-overlay: rgba(18, 18, 18, 0.24);
   --aw-shadow: 0 1px 0 rgba(17, 17, 17, 0.04), 0 20px 48px rgba(17, 17, 17, 0.08);
   --aw-shadow-soft: 0 10px 24px rgba(17, 17, 17, 0.08);
-  --aw-shell: #111214;
-  --aw-shell-elevated: #17191c;
-  --aw-shell-muted: #202329;
-  --aw-shell-seam: rgba(17, 17, 17, 0.08);
+  --aw-shell: #0d0e10;
+  --aw-shell-elevated: #14161a;
+  --aw-shell-muted: #1d2026;
+  --aw-shell-seam: rgba(17, 17, 17, 0.1);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
   --aw-radius-lg: 18px;
@@ -66,10 +66,10 @@ html[data-theme="dark"] {
   --aw-overlay: rgba(5, 5, 6, 0.44);
   --aw-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 24px 56px rgba(0, 0, 0, 0.34);
   --aw-shadow-soft: 0 12px 32px rgba(0, 0, 0, 0.22);
-  --aw-shell: #0f1012;
-  --aw-shell-elevated: #15171a;
-  --aw-shell-muted: #1d2025;
-  --aw-shell-seam: rgba(255, 255, 255, 0.04);
+  --aw-shell: #0b0c0e;
+  --aw-shell-elevated: #121417;
+  --aw-shell-muted: #1a1d22;
+  --aw-shell-seam: rgba(255, 255, 255, 0.05);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
 }

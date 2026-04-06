@@ -572,6 +572,7 @@ The frontend now relies on shared UI architecture instead of page-owned one-off 
 - top-bar utility actions now sit on the right in this order: notifications, global settings, profile
 - orbit mode keeps only one orbit-specific control in the sidebar footer: `Orbit settings`
 - the top bar and sidebar now share the darker shell surface while the main product canvas stays lighter, creating a clearer split without a hard border between shell regions
+- the shell icon language was cleaned up so dashboard, workflow, and artifacts no longer reuse confusing icons, and orbit mode now orders sidebar actions as `Dashboard`, `Search`, then the execution surfaces
 
 ### Backend/UI contract changes used by the redesign
 

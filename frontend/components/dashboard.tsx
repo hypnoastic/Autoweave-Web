@@ -2,6 +2,7 @@
 
 import {
   ChevronRight,
+  House,
   LayoutGrid,
   Plus,
   Upload,
@@ -237,7 +238,7 @@ export function DashboardScreen() {
       {
         key: "home",
         label: "Dashboard",
-        icon: LayoutGrid,
+        icon: House,
         active: true,
         onSelect: () => router.push("/app"),
       },

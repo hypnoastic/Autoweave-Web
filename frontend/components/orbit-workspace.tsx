@@ -3,15 +3,16 @@
 import {
   ExternalLink,
   FileCode2,
+  Files,
   Filter,
   GitPullRequest,
-  LayoutGrid,
+  House,
   MailPlus,
   MessageSquare,
-  MonitorPlay,
   Plus,
   Search,
   Settings2,
+  Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -89,10 +90,10 @@ import type {
 
 const ORBIT_SECTIONS = [
   { key: "chat", label: "Chat", icon: MessageSquare },
-  { key: "workflow", label: "Workflow", icon: LayoutGrid },
+  { key: "workflow", label: "Workflow", icon: Workflow },
   { key: "prs", label: "PRs & issues", icon: GitPullRequest },
   { key: "codespaces", label: "Codespaces", icon: FileCode2 },
-  { key: "demos", label: "Artifacts", icon: MonitorPlay },
+  { key: "demos", label: "Artifacts", icon: Files },
 ] as const;
 
 type OrbitSection = (typeof ORBIT_SECTIONS)[number]["key"];
@@ -381,7 +382,7 @@ function EmptyState({ text }: { text: string }) {
 
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const router = useRouter();
-  const { closeNotifications, closeSearch, openNotifications, searchOpen } = useAuthenticatedShell();
+  const { closeNotifications, closeSearch, openNotifications, openSearch, searchOpen } = useAuthenticatedShell();
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState<Session | null>(readSession());
   const [payload, setPayload] = useState<OrbitPayload | null>(null);
@@ -1178,9 +1179,16 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         {
           key: "dashboard",
           label: "Dashboard",
-          icon: LayoutGrid,
+          icon: House,
           active: false,
           onSelect: () => router.push("/app"),
+        },
+        {
+          key: "search",
+          label: "Search",
+          icon: Search,
+          active: searchOpen,
+          onSelect: openSearch,
         },
         ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
           key,
@@ -1868,7 +1876,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 className="pb-5"
                 actions={
                   <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
-                    <MonitorPlay className="h-4 w-4" />
+                    <Files className="h-4 w-4" />
                     Publish demo
                   </ActionButton>
                 }

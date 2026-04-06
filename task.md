@@ -81,6 +81,8 @@
 - [x] split codespaces into a list view plus a full-canvas open workspace mode tied to the top-bar back button
 - [x] stop rail icons from jumping during collapse/expand and tighten the collapsed width further
 - [x] darken the shared shell chrome so the top bar and sidebar read as one connected surface against the lighter main content
+- [x] reduce the top bar again, shrink the profile affordance, and clean up collapsed-rail icon alignment
+- [x] reorder orbit sidebar actions to `Dashboard`, `Search`, then the orbit surfaces with clearer icon choices
 - [x] switch chat conversation changes to cached in-place loading with bottom scroll anchoring
 - [x] move shell back/forward behavior onto router-backed navigation
 - [x] fix dark-mode selected text contrast
