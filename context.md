@@ -218,6 +218,57 @@
   - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
   - orbit now keeps a persistent Dashboard entry at the top of the same main sidebar, so dashboard and orbit navigation read as one system
   - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand
+
+## Current UX Refinement Pass (2026-04-08)
+
+- shell behavior is now stable enough to stop being the main blocker; this pass focused on the broken inner-page structure and auth entry surfaces instead
+- top-bar search now behaves like a true anchored shell surface:
+  - one typed field in the top bar
+  - result panel grows downward from that same field
+  - surrounding top-bar icons stay visually fixed
+- orbit settings is now a denser modal:
+  - one clear close action
+  - tighter grouped sections
+  - stronger surface and backdrop
+- orbit chat is now flatter and denser:
+  - all messages stay left-aligned
+  - channel and DM rails are less boxed
+  - per-channel hashtag icons get deterministic color treatment
+  - ERGO has a stronger colored identity mark
+  - the composer now exposes markdown helpers, mention insertion, and staged local attachments without inventing unsupported backend upload behavior
+  - the chat pane stays internally scrollable and keeps the composer in view on narrower layouts
+- workflow now uses a lower-chrome execution board:
+  - compact status strip
+  - five clearer lanes
+  - smaller empty states instead of giant decorative wells
+- PRs and Issues now use grouped operational sections even when empty, so review pages no longer degrade into one giant dark canvas
+- workspaces now expose clearer browse/create/open behavior:
+  - explicit creating state
+  - denser operational browse list
+  - full-canvas open mode preserved behind the top-bar back action
+- artifacts now use a more integrated browse/open pattern with `Open in place` as the primary action when preview data exists
+- landing and auth are now GitHub-first product surfaces:
+  - redesigned landing page
+  - dedicated `/login`
+  - dedicated `/signup`
+  - callback now uses the same auth frame instead of a detached status line
+
+## Latest Validation Notes
+
+- frontend validation after the final UX slices:
+  - `cd Autoweave Web/frontend && npm test -- --run orbit-workspace.test.tsx orbit-chat-pane.test.tsx dashboard.test.tsx` -> `23 passed`
+  - `cd Autoweave Web/frontend && npm run build` -> success
+- live browser captures now include:
+  - top-bar search anchor
+  - dense chat
+  - workflow board
+  - structured PR and Issues pages
+  - workspace browse surface
+  - artifact surface
+  - orbit settings modal
+  - landing/login/signup/callback
+  - one forced-light validation pass
+- Matrix chat bootstrap console noise is now resolved in the live orbit browser after making local Matrix user provisioning idempotent when the Matrix user already exists
   - authenticated shell now locks to the viewport height instead of growing with page content, which keeps the mobile chat pane bounded and the composer visible inside the page
   - mobile chat now caps the conversation list height so the thread retains its own internal scroll area below it
   - the centered top-bar search now stays visually between the breadcrumb block and the right-side utilities in orbit mode instead of drifting right with the breadcrumb width

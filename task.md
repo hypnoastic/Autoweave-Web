@@ -128,8 +128,8 @@
 | T05 | clean orbit common framing and remove redundant in-page headers | P1 | [x] | orbit browser QA across workflow, PRs, Issues, codespaces, and artifacts with separate PR/Issues navigation and flatter section framing |
 | T06 | redesign chat into dense left-aligned Slack-like flow with better composer/search structure | P0 | [x] | chat open-to-latest, internal scroll, flatter channel/DM list, top-right message search results without thread filtering, richer composer scaffolding, and mobile chat composer kept inside the viewport |
 | T07 | redesign workflow surface for denser operational clarity | P1 | [x] | workflow browser validation with compact metrics strip, tighter lane cards, and stable internal scroll |
-| T08 | split PRs and Issues in sidebar/navigation and redesign both surfaces | P0 | [ ] | separate PR and Issues browser passes |
-| T09 | investigate/fix codespace creation and redesign workspaces surface | P0 | [ ] | create flow if available, browse/open/back browser flow |
-| T10 | redesign artifacts and prefer open-in-place behavior | P1 | [ ] | artifact browse/open validation |
-| T11 | redesign landing page and GitHub-first login/signup/auth callback flow | P0 | [ ] | landing/auth browser QA |
-| T12 | final light/dark QA, docs refresh, and local-only commit summary | P0 | [ ] | full browser regression and test/build checks |
+| T08 | split PRs and Issues in sidebar/navigation and redesign both surfaces | P0 | [x] | separate PR and Issues browser passes, grouped empty states instead of dead canvas |
+| T09 | investigate/fix codespace creation and redesign workspaces surface | P0 | [x] | browse/open/back browser flow, explicit creating state, clearer create-path messaging |
+| T10 | redesign artifacts and prefer open-in-place behavior | P1 | [x] | artifact browse/open browser validation, integrated preview/open actions |
+| T11 | redesign landing page and GitHub-first login/signup/auth callback flow | P0 | [x] | landing/login/signup/callback browser QA |
+| T12 | final light/dark QA, docs refresh, and local-only commit summary | P0 | [x] | full browser regression, frontend tests/build, backend health, live orbit console check |

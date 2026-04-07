@@ -109,6 +109,11 @@ class MatrixService:
         payload = response.json() if response.content else {}
         return payload if isinstance(payload, dict) else {}
 
+    @staticmethod
+    def _is_user_in_use_error(error: MatrixTransportError) -> bool:
+        message = str(error)
+        return "M_USER_IN_USE" in message or "User ID already taken" in message
+
     def client_versions(self) -> dict[str, Any]:
         return self._request("GET", "/_matrix/client/versions", use_public=False)
 
@@ -172,7 +177,11 @@ class MatrixService:
         try:
             return self.login_local_user(localpart=localpart, password=password)
         except MatrixTransportError:
-            self._shared_secret_register(localpart=localpart, password=password, display_name=display_name)
+            try:
+                self._shared_secret_register(localpart=localpart, password=password, display_name=display_name)
+            except MatrixTransportError as error:
+                if not self._is_user_in_use_error(error):
+                    raise
             return self.login_local_user(localpart=localpart, password=password)
 
     def ensure_product_user_login(self, *, user: User) -> tuple[str, str, MatrixLogin]:

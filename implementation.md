@@ -176,12 +176,24 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - ERGO uses a more recognizable colored identity mark
   - conversation search now returns matching-message results in its own panel instead of filtering the live thread
   - the composer is smaller and now exposes markdown/attachment direction without adding fake backend behavior
+  - the composer now includes markdown helper actions, mention insertion, and staged local attachment chips
   - the authenticated shell now stays locked to the viewport height, which prevents long page content from stretching the whole app taller than the screen
   - on narrower widths, the chat conversation list is height-capped so the timeline owns the remaining space and the composer stays visible inside the page
 - workflow refinements now make the execution board denser and more legible:
   - a compact metrics strip summarizes total, blocked, waiting, and completed tasks
   - lane cards are tighter and less padded
   - the board keeps the same detail-panel behavior while reading more like a tactical work surface
+- PR and Issues surfaces now finish the split with grouped operational sections:
+  - PRs -> `Ready`, `Needs work`, `Merged`
+  - Issues -> `Open`, `Blocked`, `Recently closed`
+  - empty states remain structured instead of collapsing into a giant dead canvas
+- workspaces and artifacts now use clearer browse/open behavior:
+  - workspaces show explicit create state plus denser browse rows
+  - artifacts keep `Open in place` as the primary preview path when possible
+- landing/auth now use a GitHub-first entry model:
+  - redesigned landing page
+  - dedicated `login` and `signup` routes
+  - callback page now uses a shared auth frame with clearer loading/error recovery
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation
@@ -217,6 +229,12 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - `MatrixSyncBridge`
 - dedicated bridge worker entrypoint:
   - `python -m autoweave_web.matrix_bridge`
+
+### Latest hardening
+
+- Matrix bootstrap provisioning now tolerates pre-existing Matrix users during local login/bootstrap:
+  - if shared-secret registration reports `M_USER_IN_USE`, the service now falls through to normal password login instead of failing the whole bootstrap request
+  - this removes the misleading browser-side “CORS” failure that was actually a backend 500 on `/api/chat/sync/bootstrap`
 
 ### Frontend path
 
