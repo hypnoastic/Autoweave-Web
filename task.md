@@ -126,7 +126,7 @@
 | T03 | standardize theme tokens, surfaces, active states, and modal layering | P0 | [x] | light/dark browser audit, stronger modal layering, calmer canvas/surface hierarchy, and dark-mode text selection contrast |
 | T04 | redesign dashboard body, remove redundant headings, fix internal scrolling | P1 | [x] | dashboard browser QA in light and dark, compact operational overview, stable shell with internal page scroll only |
 | T05 | clean orbit common framing and remove redundant in-page headers | P1 | [x] | orbit browser QA across workflow, PRs, Issues, codespaces, and artifacts with separate PR/Issues navigation and flatter section framing |
-| T06 | redesign chat into dense left-aligned Slack-like flow with better composer/search structure | P0 | [ ] | chat open-to-latest, internal scroll, selected-state audit |
+| T06 | redesign chat into dense left-aligned Slack-like flow with better composer/search structure | P0 | [x] | chat open-to-latest, internal scroll, flatter channel/DM list, top-right message search results without thread filtering, and richer composer scaffolding |
 | T07 | redesign workflow surface for denser operational clarity | P1 | [ ] | workflow dark/light screenshots |
 | T08 | split PRs and Issues in sidebar/navigation and redesign both surfaces | P0 | [ ] | separate PR and Issues browser passes |
 | T09 | investigate/fix codespace creation and redesign workspaces surface | P0 | [ ] | create flow if available, browse/open/back browser flow |

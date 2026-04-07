@@ -170,6 +170,12 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - workflow, PRs, Issues, workspaces, and artifacts use compact operational section bars
   - PRs and Issues are now split into separate sidebar entries and separate views
   - shell breadcrumb continues to hold the primary page context while the canvas focuses on work
+- chat refinements now move the surface closer to a dense collaboration tool instead of a prototype messenger:
+  - all messages are left-aligned
+  - channel and DM lists are flatter and less boxed
+  - ERGO uses a more recognizable colored identity mark
+  - conversation search now returns matching-message results in its own panel instead of filtering the live thread
+  - the composer is smaller and now exposes markdown/attachment direction without adding fake backend behavior
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation

@@ -915,16 +915,16 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     return payload.direct_messages.find((thread) => thread.id === selectedConversation.id)?.title ?? "Direct message";
   }, [payload, selectedConversation]);
 
-  const filteredMessages = useMemo(() => {
+  const conversationSearchResults = useMemo(() => {
     const term = conversationSearch.trim().toLowerCase();
     if (!term) {
-      return messages;
+      return [];
     }
     return messages.filter((message) => {
       const body = message.body.toLowerCase();
       const author = message.author_name.toLowerCase();
       return body.includes(term) || author.includes(term);
-    });
+    }).slice(0, 8);
   }, [conversationSearch, messages]);
 
   const repositoryNameById = useMemo(
@@ -1792,7 +1792,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               channels={payload.channels}
               directMessages={payload.direct_messages}
               selectedConversation={selectedConversation}
-              messages={filteredMessages}
+              messages={messages}
+              conversationSearchResults={conversationSearchResults}
               humanLoopItems={humanLoopItems}
               conversationLoading={conversationLoading}
               conversationTitle={currentConversationTitle}

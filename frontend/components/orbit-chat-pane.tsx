@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Check, Hash, MessageSquarePlus, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
+import { AtSign, Check, Hash, MessageSquarePlus, Paperclip, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
 
 import type {
   ChannelSummary,
@@ -32,12 +32,20 @@ export type ConversationSelection = {
   id: string;
 };
 
+type ConversationSearchResult = {
+  id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
+};
+
 export function OrbitChatPane({
   session,
   channels,
   directMessages,
   selectedConversation,
   messages,
+  conversationSearchResults = [],
   humanLoopItems = [],
   conversationLoading = false,
   conversationTitle,
@@ -67,6 +75,7 @@ export function OrbitChatPane({
   directMessages: DmThreadSummary[];
   selectedConversation: ConversationSelection | null;
   messages: ConversationMessage[];
+  conversationSearchResults?: ConversationSearchResult[];
   humanLoopItems: HumanLoopItem[];
   conversationLoading?: boolean;
   conversationTitle: string;
@@ -120,6 +129,21 @@ export function OrbitChatPane({
       return leftDate - rightDate;
     });
   }, [humanLoopItems, messages]);
+  const hasConversationSearch = conversationSearch.trim().length > 0;
+
+  function renderAuthorMark(message: ConversationMessage) {
+    if (message.author_kind === "agent") {
+      return (
+        <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[linear-gradient(135deg,#6fd1ff_0%,#8f7bff_55%,#ff9a6a_100%)] text-[11px] font-semibold text-white shadow-[0_8px_22px_rgba(80,104,255,0.22)]">
+          ER
+        </div>
+      );
+    }
+    if (message.author_kind === "system") {
+      return <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-panelStrong text-[11px] font-semibold text-ink">SY</div>;
+    }
+    return <AvatarMark label={message.author_name} className="h-8 w-8 shrink-0 rounded-[10px]" />;
+  }
 
   useEffect(() => {
     stickToBottomRef.current = true;
@@ -158,18 +182,15 @@ export function OrbitChatPane({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-      <aside className="flex min-h-0 w-full flex-col border-b border-line bg-panelMuted/60 lg:w-[280px] lg:min-w-[280px] lg:border-b-0 lg:border-r">
-        <div className="border-b border-line px-4 py-4">
-          <SectionTitle
-            eyebrow="Chat"
-            title="Channels and DMs"
-            detail="Channels stay at the top. Direct messages live only here, at the bottom of the same sidebar."
-            dense
-          />
+      <aside className="flex min-h-0 w-full flex-col border-b border-line bg-panelMuted/35 lg:w-[268px] lg:min-w-[268px] lg:border-b-0 lg:border-r">
+        <div className="border-b border-line px-4 py-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Chat</p>
+          <p className="mt-2 text-sm font-semibold text-ink">Channels and DMs</p>
+          <p className="mt-1 text-xs text-quiet">Channels stay together. Direct messages live below in the same surface.</p>
         </div>
 
-        <ScrollPanel className="max-h-[240px] flex-1 px-3 py-3 lg:max-h-none">
-          <div className="space-y-5 lg:space-y-5">
+        <ScrollPanel className="max-h-[240px] flex-1 px-2.5 py-3 lg:max-h-none">
+          <div className="space-y-5">
             <div>
               <div className="mb-2 flex items-center justify-between px-2">
                 <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Channels</p>
@@ -182,14 +203,20 @@ export function OrbitChatPane({
                 {channels.map((channel) => {
                   const active = selectedConversation?.kind === "channel" && selectedConversation.id === channel.id;
                   return (
-                    <ListRow
+                    <button
                       key={channel.id}
-                      title={channel.name}
-                      detail="Channel"
-                      leading={<Hash className="h-4 w-4" />}
-                      active={active}
+                      type="button"
                       onClick={() => onSelectConversation({ kind: "channel", id: channel.id })}
-                    />
+                      className={cx(
+                        "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-[background-color,color] duration-150 ease-productive",
+                        active ? "bg-panelStrong text-ink shadow-[inset_0_0_0_1px_var(--aw-border-strong)]" : "text-quiet hover:bg-panel hover:text-ink",
+                      )}
+                    >
+                      <span className={cx("flex h-7 w-7 items-center justify-center rounded-[9px]", active ? "bg-panel text-ink" : "bg-panel text-[#5b79f7] dark:text-[#9fb3ff]")}>
+                        <Hash className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{channel.name}</span>
+                    </button>
                   );
                 })}
               </div>
@@ -209,14 +236,21 @@ export function OrbitChatPane({
                 {directMessages.map((thread) => {
                   const active = selectedConversation?.kind === "dm" && selectedConversation.id === thread.id;
                   return (
-                    <ListRow
+                    <button
                       key={thread.id}
-                      title={thread.title}
-                      detail="Direct message"
-                      leading={<AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7" />}
-                      active={active}
+                      type="button"
                       onClick={() => onSelectConversation({ kind: "dm", id: thread.id })}
-                    />
+                      className={cx(
+                        "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-[background-color,color] duration-150 ease-productive",
+                        active ? "bg-panelStrong text-ink shadow-[inset_0_0_0_1px_var(--aw-border-strong)]" : "text-quiet hover:bg-panel hover:text-ink",
+                      )}
+                    >
+                      <AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7 rounded-[9px]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{thread.title}</p>
+                        <p className="mt-0.5 text-[11px] text-faint">Direct message</p>
+                      </div>
+                    </button>
                   );
                 })}
               </div>
@@ -226,15 +260,15 @@ export function OrbitChatPane({
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-line px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              {selectedConversation?.kind === "channel" ? <Hash className="h-4 w-4 text-quiet" /> : <Users className="h-4 w-4 text-quiet" />}
+              {selectedConversation?.kind === "channel" ? <Hash className="h-4 w-4 text-[#5b79f7] dark:text-[#9fb3ff]" /> : <Users className="h-4 w-4 text-quiet" />}
               <h3 className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{conversationTitle}</h3>
             </div>
             <p className="mt-1 text-xs text-quiet">Chat stays calm. Workflow detail belongs on the execution board, not in the channel.</p>
           </div>
-          <div className="relative w-full lg:max-w-[260px]">
+          <div className="relative w-full lg:max-w-[280px]">
             <TextInput
               value={conversationSearch}
               onChange={(event) => onConversationSearchChange(event.target.value)}
@@ -242,15 +276,37 @@ export function OrbitChatPane({
               className="pl-9"
             />
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            {hasConversationSearch ? (
+              <div className="aw-motion-pop absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-[14px] border border-line bg-panelStrong shadow-soft">
+                <div className="border-b border-line px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-quiet">
+                  Matching messages
+                </div>
+                <div className="max-h-[280px] overflow-auto p-2">
+                  {conversationSearchResults.length ? (
+                    conversationSearchResults.map((result) => (
+                      <div key={result.id} className="rounded-[10px] px-2.5 py-2 hover:bg-panel">
+                        <div className="flex items-center gap-2 text-[11px] text-quiet">
+                          <span className="font-medium text-ink">{result.author_name}</span>
+                          <span>{new Date(result.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-sm text-ink">{result.body}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState title="No matching messages" detail="Try a different name or phrase. The conversation stays intact while you search." />
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div ref={timelineRef} onScroll={onTimelineScroll} className="scroll-region flex-1 px-4 py-4 sm:px-5 sm:py-5">
-          <div className="space-y-4">
+          <div className="space-y-3">
             {conversationLoading && !timeline.length ? (
               <EmptyState title="Loading conversation" detail="Pulling the latest messages while keeping the shell stable." />
             ) : timeline.length ? (
-              timeline.map((entry) => {
+              timeline.map((entry, index) => {
                 if ("request_kind" in entry) {
                   const isApproval = entry.request_kind === "approval";
                   const open = ["open", "requested"].includes(entry.status);
@@ -318,12 +374,19 @@ export function OrbitChatPane({
                   && actionableMessageIds.has(message.id);
                 const openHumanRequest = canAct && promptType === "human_request" ? openHumanRequests[requestId] : undefined;
                 const openApprovalRequest = canAct && promptType === "approval_request" ? openApprovalRequests[requestId] : undefined;
+                const previousEntry = index > 0 && !("request_kind" in timeline[index - 1]) ? (timeline[index - 1] as ConversationMessage) : null;
+                const groupedWithPrevious =
+                  Boolean(previousEntry)
+                  && previousEntry?.author_name === message.author_name
+                  && previousEntry?.author_kind === message.author_kind;
                 return (
-                  <div key={message.id} className={cx("flex gap-3", isCurrentUser && "justify-end")}>
-                    {!isCurrentUser ? <AvatarMark label={message.author_name} className="h-8 w-8 shrink-0" /> : null}
-                    <div className={cx("max-w-full min-w-0 sm:max-w-[680px]", isCurrentUser && "items-end")}>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-ink">{message.author_name}</p>
+                  <div key={message.id} className="flex gap-3">
+                    <div className="w-8 shrink-0 pt-0.5">
+                      {groupedWithPrevious ? <div className="h-8 w-8" /> : renderAuthorMark(message)}
+                    </div>
+                    <div className="min-w-0 max-w-full flex-1 sm:max-w-[760px]">
+                      <div className={cx("flex items-center gap-2", groupedWithPrevious && "sr-only")}>
+                        <p className="text-sm font-medium text-ink">{isCurrentUser ? "You" : message.author_name}</p>
                         <span className="text-[11px] text-faint">
                           {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
@@ -331,7 +394,7 @@ export function OrbitChatPane({
                         {message.transport_state === "pending_remote" ? <StatusPill tone="muted">syncing</StatusPill> : null}
                         {message.transport_state === "failed_remote" ? <StatusPill tone="danger">retry needed</StatusPill> : null}
                       </div>
-                      <div className={cx("mt-1 rounded-pane border border-line bg-panelMuted px-4 py-3 text-sm leading-6 text-ink", isCurrentUser && "bg-panelStrong")}>
+                      <div className={cx("mt-1 rounded-[14px] border border-line bg-panel px-3.5 py-2.5 text-sm leading-6 text-ink", isCurrentUser && "bg-panelStrong")}>
                         {message.body}
                       </div>
                       {message.transport_state === "failed_remote" ? (
@@ -387,8 +450,10 @@ export function OrbitChatPane({
 
             {pendingAgent ? (
               <div className="flex gap-3">
-                <AvatarMark label="ERGO" className="h-8 w-8 shrink-0" />
-                <div className="rounded-pane border border-line bg-panelStrong px-4 py-3 text-sm text-quiet">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[linear-gradient(135deg,#6fd1ff_0%,#8f7bff_55%,#ff9a6a_100%)] text-[11px] font-semibold text-white shadow-[0_8px_22px_rgba(80,104,255,0.22)]">
+                  ER
+                </div>
+                <div className="rounded-[14px] border border-line bg-panelStrong px-4 py-3 text-sm text-quiet">
                   <div className="flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
                     ERGO is preparing a response…
@@ -399,16 +464,30 @@ export function OrbitChatPane({
           </div>
         </div>
 
-        <div className="border-t border-line px-4 py-4 sm:px-5">
+        <div className="border-t border-line px-4 py-3 sm:px-5">
           <div className="rounded-pane border border-line bg-panelStrong p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-quiet">
+              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
+                <AtSign className="h-3 w-3" />
+                Reply with @ERGO
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
+                <Check className="h-3 w-3" />
+                Markdown-ready
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
+                <Paperclip className="h-3 w-3" />
+                Attachments next
+              </span>
+            </div>
             <TextArea
               value={messageBody}
               onChange={(event) => onMessageBodyChange(event.target.value)}
               placeholder="@ERGO clean up the task board and keep chat calm"
-              className="min-h-[120px] border-0 bg-transparent px-0 py-0"
+              className="min-h-[92px] border-0 bg-transparent px-0 py-0"
             />
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-quiet">Your message appears immediately.</p>
+              <p className="text-xs text-quiet">Your message appears immediately and syncs in the background.</p>
               <ActionButton onClick={onSendMessage} disabled={!messageBody.trim()}>
                 <SendHorizonal className="h-4 w-4" />
                 Send

@@ -226,6 +226,7 @@
   - the dashboard body now starts with a compact greeting and signal strip instead of a redundant hero title stack, and the priority/workspace sections stay inside a stable internal scroll region
   - orbit workflow, PRs, Issues, workspaces, and artifact views now use flatter operational section bars instead of repeating large in-page page titles and orbit-name headers
   - PRs and Issues are now split into separate sidebar entries and separate product surfaces instead of one ambiguous combined review page
+  - chat now uses a denser left-aligned message flow for all participants, a flatter channel/DM list, a more recognizable ERGO identity mark, and a conversation-search results panel that does not mutate the visible thread
   - top-bar navigation now uses router-backed back/forward behavior instead of raw `window.history` calls
   - channel and DM switches now render through a cached conversation path with in-place loading, so the shell stays stable while chat refreshes
   - the chat timeline now re-anchors to the bottom when switching conversations instead of reopening at the top
