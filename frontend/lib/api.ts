@@ -29,30 +29,41 @@ export class AuthSessionError extends Error {
   }
 }
 
+export function normalizeLoopbackBaseUrl(
+  configuredBaseUrl: string | undefined,
+  currentLocation: Pick<Location, "protocol" | "hostname"> | null = typeof window === "undefined" ? null : window.location,
+) {
+  const configured = configuredBaseUrl?.trim();
+  if (!configured) {
+    return configuredBaseUrl;
+  }
+  const currentHostname = currentLocation?.hostname?.trim().toLowerCase();
+  try {
+    const parsed = new URL(configured);
+    const configuredHostname = parsed.hostname.trim().toLowerCase();
+    const loopbackHosts = new Set(["localhost", "127.0.0.1"]);
+    if (
+      currentHostname &&
+      configuredHostname !== currentHostname &&
+      loopbackHosts.has(configuredHostname) &&
+      loopbackHosts.has(currentHostname)
+    ) {
+      parsed.hostname = currentHostname;
+      parsed.protocol = currentLocation?.protocol ?? parsed.protocol;
+      return parsed.toString().replace(/\/$/, "");
+    }
+  } catch {
+    return configured;
+  }
+  return configured;
+}
+
 export function resolveApiBaseUrl(
   configuredBaseUrl: string | undefined = process.env.NEXT_PUBLIC_API_BASE_URL,
   currentLocation: Pick<Location, "protocol" | "hostname"> | null = typeof window === "undefined" ? null : window.location,
 ) {
-  const configured = configuredBaseUrl?.trim();
+  const configured = normalizeLoopbackBaseUrl(configuredBaseUrl, currentLocation);
   if (configured) {
-    const currentHostname = currentLocation?.hostname?.trim().toLowerCase();
-    try {
-      const parsed = new URL(configured);
-      const configuredHostname = parsed.hostname.trim().toLowerCase();
-      const loopbackHosts = new Set(["localhost", "127.0.0.1"]);
-      if (
-        currentHostname &&
-        configuredHostname !== currentHostname &&
-        loopbackHosts.has(configuredHostname) &&
-        loopbackHosts.has(currentHostname)
-      ) {
-        parsed.hostname = currentHostname;
-        parsed.protocol = currentLocation?.protocol ?? parsed.protocol;
-        return parsed.toString().replace(/\/$/, "");
-      }
-    } catch {
-      return configured;
-    }
     return configured;
   }
   const protocol = currentLocation?.protocol ?? "http:";

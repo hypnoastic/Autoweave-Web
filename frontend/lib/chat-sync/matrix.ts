@@ -1,10 +1,15 @@
 "use client";
 
 import type { ChatSyncBootstrap } from "@/lib/types";
+import { normalizeLoopbackBaseUrl } from "@/lib/api";
 
 export type ConversationSelection = { kind: "channel" | "dm"; id: string };
 
 type MatrixModule = typeof import("matrix-js-sdk");
+
+export function resolveMatrixSyncBaseUrl(baseUrl: string) {
+  return normalizeLoopbackBaseUrl(baseUrl);
+}
 
 export class MatrixChatSyncAdapter {
   private matrixModule: MatrixModule | null = null;
@@ -34,7 +39,7 @@ export class MatrixChatSyncAdapter {
     this.matrixModule = await import("matrix-js-sdk");
     const { createClient } = this.matrixModule;
     this.client = createClient({
-      baseUrl: bootstrap.base_url,
+      baseUrl: resolveMatrixSyncBaseUrl(bootstrap.base_url),
       accessToken: bootstrap.access_token,
       userId: bootstrap.user_id,
       deviceId: bootstrap.device_id ?? undefined,

@@ -214,7 +214,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [session, setSession] = useState<Session | null>(readSession());
+  const [session, setSession] = useState<Session | null>(null);
   const profileRef = useOutsideClose<HTMLDivElement>(profileMenuOpen, () => setProfileMenuOpen(false));
 
   const toggleSidebar = useCallback(() => {

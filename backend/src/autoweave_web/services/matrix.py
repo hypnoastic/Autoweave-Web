@@ -53,7 +53,7 @@ class MatrixTransportError(RuntimeError):
 
 
 def _normalize_localpart(raw: str) -> str:
-    normalized = re.sub(r"[^a-z0-9._=-/]+", "-", raw.strip().lower()).strip("-")
+    normalized = re.sub(r"[^a-z0-9._=/:-]+", "-", raw.strip().lower()).strip("-")
     return normalized or f"user-{secrets.token_hex(4)}"
 
 

@@ -19,6 +19,7 @@ fi
 python - <<'PY'
 from pathlib import Path
 import os
+import re
 
 config_path = Path("/data/homeserver.yaml")
 text = config_path.read_text(encoding="utf-8")
@@ -31,11 +32,27 @@ for old, new in replacements.items():
     if old in text:
         text = text.replace(old, new)
 
-if "registration_shared_secret:" not in text:
-    text += f"\nregistration_shared_secret: \"{os.environ.get('MATRIX_REGISTRATION_SHARED_SECRET', '')}\"\n"
-if "public_baseurl:" not in text:
-    public_url = os.environ.get("MATRIX_HOMESERVER_PUBLIC_URL", "http://localhost:8008").rstrip("/")
-    text += f"\npublic_baseurl: \"{public_url}/\"\n"
+registration_secret = os.environ.get("MATRIX_REGISTRATION_SHARED_SECRET", "")
+if re.search(r"^registration_shared_secret:\s*.*$", text, flags=re.MULTILINE):
+    text = re.sub(
+        r'^registration_shared_secret:\s*".*"$',
+        f'registration_shared_secret: "{registration_secret}"',
+        text,
+        flags=re.MULTILINE,
+    )
+else:
+    text += f'\nregistration_shared_secret: "{registration_secret}"\n'
+
+public_url = os.environ.get("MATRIX_HOMESERVER_PUBLIC_URL", "http://localhost:8008").rstrip("/")
+if re.search(r"^public_baseurl:\s*.*$", text, flags=re.MULTILINE):
+    text = re.sub(
+        r'^public_baseurl:\s*".*"$',
+        f'public_baseurl: "{public_url}/"',
+        text,
+        flags=re.MULTILINE,
+    )
+else:
+    text += f'\npublic_baseurl: "{public_url}/"\n'
 text = text.replace("  - bind_addresses:\n    - ::1\n    - 127.0.0.1", "  - bind_addresses:\n    - 0.0.0.0")
 if "enable_registration:" not in text:
     text += "\nenable_registration: false\n"

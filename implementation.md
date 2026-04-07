@@ -221,6 +221,34 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - Matrix rollout is channel-first and forward-only; historical product chat is not migrated into Matrix
 - DM bridging and typing/presence remain flag-gated follow-up work
 - Synapse answers correctly inside the container, but host-side direct port probing on `127.0.0.1:8008` remains unreliable in this environment
+- one Matrix bridge ingest unit test is still failing locally and remains outside the current UI pass scope:
+  - `backend/tests/test_matrix_service.py::test_matrix_bridge_ingests_inbound_events_once_and_tracks_sync_cursor`
+
+## UX Refinement Pass (2026-04-07)
+
+The current major UX pass is intentionally local-only and starts from a browser-audited baseline instead of trusting the current inner-page layouts.
+
+Completed preconditions:
+
+- checkpointed the existing Matrix transport work into its own local commit so UI slices can stay isolated
+- cleared the two live browser blockers that would otherwise pollute page-level QA:
+  - Matrix chat bootstrap no longer fails with a backend `500` in the live stack
+  - shell avatar/session rendering no longer emits the earlier hydration mismatch during orbit loads
+- added loopback URL normalization for Matrix sync bootstrap so the local browser does not bounce between `localhost` and `127.0.0.1`
+
+Next active implementation slices:
+
+1. shell geometry, collapsed rail alignment, top-bar search, and sidebar cleanup
+2. light/dark theme token and surface consistency
+3. dashboard redesign
+4. orbit page redesigns:
+   - chat
+   - workflow
+   - PRs
+   - Issues
+   - workspaces
+   - artifacts
+5. landing and GitHub-first auth redesign
 
 ## Phase 0 Stabilization Baseline (2026-04-02)
 

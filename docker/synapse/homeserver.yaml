@@ -29,7 +29,7 @@ database:
     database: /homeserver.db
 log_config: "/data/autoweave.local.log.config"
 media_store_path: /media_store
-registration_shared_secret: "qH,eU=+T23ebt2^t_.b^.El#*+S*=P,xL-lNF.A0^+U2tb-=jk"
+registration_shared_secret: "autoweave-matrix-dev-secret"
 report_stats: false
 macaroon_secret_key: "lNUyxjpC4oUHW0;iYZ~,V5VQlZINxTy,5ZGTzReiGJv*M@Z^kL"
 form_secret: "Tk_ij=XgGVx@:URU,oSsF#Y8c1Jr.6qtv8InknU7:3Borq4D21"

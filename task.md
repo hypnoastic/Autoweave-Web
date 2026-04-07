@@ -115,3 +115,21 @@
 - [ ] add scoped typing indicators once low-noise behavior is proven
 - [ ] remove local backend startup `create_all` race during container recreation
 - [ ] explain or eliminate the remaining host-side Synapse probe inconsistency on `127.0.0.1:8008`
+
+## Current UX Refinement Pass
+
+| ID | Task | Priority | Status | Validation |
+|---|---|---|---|---|
+| T00 | checkpoint existing Matrix transport groundwork so UI commits stay isolated | P0 | [x] | backend/frontend test smoke before checkpoint, local commit only |
+| T01 | fix live browser blockers: Matrix bootstrap failure and shell hydration mismatch | P0 | [x] | `/api/chat/sync/bootstrap` live `200`, orbit browser console clear of prior errors |
+| T02 | refine shell geometry, collapse alignment, top-bar search, and sidebar clutter | P0 | [ ] in progress | light/dark screenshots, expanded/collapsed shell checks |
+| T03 | standardize theme tokens, surfaces, active states, and modal layering | P0 | [ ] | page-by-page theme audit in browser |
+| T04 | redesign dashboard body, remove redundant headings, fix internal scrolling | P1 | [ ] | dashboard browser QA in light and dark |
+| T05 | clean orbit common framing and remove redundant in-page headers | P1 | [ ] | orbit page browser QA across sections |
+| T06 | redesign chat into dense left-aligned Slack-like flow with better composer/search structure | P0 | [ ] | chat open-to-latest, internal scroll, selected-state audit |
+| T07 | redesign workflow surface for denser operational clarity | P1 | [ ] | workflow dark/light screenshots |
+| T08 | split PRs and Issues in sidebar/navigation and redesign both surfaces | P0 | [ ] | separate PR and Issues browser passes |
+| T09 | investigate/fix codespace creation and redesign workspaces surface | P0 | [ ] | create flow if available, browse/open/back browser flow |
+| T10 | redesign artifacts and prefer open-in-place behavior | P1 | [ ] | artifact browse/open validation |
+| T11 | redesign landing page and GitHub-first login/signup/auth callback flow | P0 | [ ] | landing/auth browser QA |
+| T12 | final light/dark QA, docs refresh, and local-only commit summary | P0 | [ ] | full browser regression and test/build checks |

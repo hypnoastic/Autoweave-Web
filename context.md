@@ -49,10 +49,10 @@
 - Figma MCP was not available during this redesign pass, so the redesign was executed repo-first and validated against the running product instead of being driven from live Figma nodes
 - GitHub OAuth is not configured in the current local environment, so the real login path under test is the token-backed local auth flow
 - MCP Playwright browser control is currently unreliable in this workspace; the active browser-validation path is the Playwright CLI session harness
-- fresh browser sessions currently hit CORS when the frontend is served from `127.0.0.1:3000` and calls the backend on `127.0.0.1:8000`
 - the initial orbit shell is now bootstrap-hydrated, but the full orbit payload is still heavier than it should be and remains a follow-up performance target
 - local Docker validation now forces backend + matrix-bridge onto the compose Postgres service through `DOCKER_DATABASE_URL` and `DOCKER_RUNTIME_POSTGRES_URL` so the stack no longer inherits the remote Neon `DATABASE_URL` from `.env`
 - Synapse is healthy and reachable from inside Docker, but host-side `curl http://127.0.0.1:8008/_matrix/client/versions` remains unreliable in this environment even after correcting the bind address
+- the current major UX pass is being executed in local commits only; nothing from this pass should be pushed until the page-by-page browser audit is complete
 
 ## Matrix Chat Transport State
 
@@ -218,6 +218,19 @@
   - active chat rows and selected text in dark mode now use calmer contrast rules so selected content remains legible
 - the remaining live debt is now narrower than the earlier baseline suggested:
   - dashboard and orbit do render in a real browser session, but scripted validation can still capture `Loading…` if it snapshots too early
+
+## UX Refinement Pass Status (2026-04-07)
+
+- the current redesign pass starts from a stable live browser baseline in both light and dark theme
+- the first browser blockers have been cleared:
+  - Matrix bootstrap now returns `200` in the live stack instead of throwing a backend `500`
+  - the shell avatar/session path no longer emits the earlier hydration mismatch in the orbit browser console
+  - Matrix client bootstrap URLs now normalize loopback hosts so `localhost` and `127.0.0.1` do not diverge during local browser sync
+- the next active slice is shell refinement:
+  - make top bar height match collapsed rail width
+  - move global search into the top bar
+  - simplify dashboard sidebar/recent orbit treatment
+  - tighten collapsed icon alignment and remove jumpy motion
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds
 
 ## Open Implementation Threads
