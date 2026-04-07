@@ -54,6 +54,7 @@ import {
   createChannel,
   createCodespace,
   createDmThread,
+  fetchChatSyncBootstrap,
   fetchAvailableRepositories,
   fetchChannelMessages,
   fetchDmThread,
@@ -66,6 +67,7 @@ import {
   readSession,
   refreshPrsIssues,
   resolveWorkflowApprovalRequest,
+  retryMessageTransport,
   sendChannelMessage,
   sendDmMessage,
   setPrimaryOrbitRepository,
@@ -75,6 +77,7 @@ import {
 import type {
   AvailableRepository,
   BoardItem,
+  ChatSyncBootstrap,
   ConversationMessage,
   ConversationSendResult,
   DmThreadSummary,
@@ -87,6 +90,7 @@ import type {
   WorkflowRun,
   WorkflowTask,
 } from "@/lib/types";
+import { MatrixChatSyncAdapter, type ConversationSelection as MatrixConversationSelection } from "@/lib/chat-sync/matrix";
 
 const ORBIT_SECTIONS = [
   { key: "chat", label: "Chat", icon: MessageSquare },
@@ -422,6 +426,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const conversationRequestRef = useRef(0);
   const workflowPollRequestRef = useRef(0);
   const conversationCacheRef = useRef<Record<string, { messages: ConversationMessage[]; humanLoopItems: HumanLoopItem[] }>>({});
+  const matrixAdapterRef = useRef<MatrixChatSyncAdapter | null>(null);
+  const matrixBootstrapRef = useRef<ChatSyncBootstrap | null>(null);
 
   function openOrbitSettings() {
     setShowConnectRepository(false);
@@ -583,6 +589,50 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
   }
 
+  async function refreshConversationOnly(
+    nextSession: Session,
+    nextSelection: ConversationSelection,
+    options?: { silent?: boolean; preserveRequestId?: boolean },
+  ) {
+    const currentRequestId = options?.preserveRequestId ? conversationRequestRef.current : conversationRequestRef.current + 1;
+    if (!options?.preserveRequestId) {
+      conversationRequestRef.current = currentRequestId;
+    }
+    const cacheKey = conversationCacheKey(nextSelection);
+    if (!options?.silent) {
+      setConversationLoading(true);
+    }
+    try {
+      if (nextSelection.kind === "dm") {
+        const thread = await fetchDmThread(nextSession.token, orbitId, nextSelection.id);
+        if (currentRequestId !== conversationRequestRef.current) {
+          return;
+        }
+        conversationCacheRef.current[cacheKey] = {
+          messages: thread.messages,
+          humanLoopItems: thread.human_loop_items ?? [],
+        };
+        setMessages(thread.messages);
+        setHumanLoopItems(thread.human_loop_items ?? []);
+        return;
+      }
+      const channelPayload = await fetchChannelMessages(nextSession.token, orbitId, nextSelection.id);
+      if (currentRequestId !== conversationRequestRef.current) {
+        return;
+      }
+      conversationCacheRef.current[cacheKey] = {
+        messages: channelPayload.messages,
+        humanLoopItems: channelPayload.human_loop_items ?? [],
+      };
+      setMessages(channelPayload.messages);
+      setHumanLoopItems(channelPayload.human_loop_items ?? []);
+    } finally {
+      if (!options?.silent && currentRequestId === conversationRequestRef.current) {
+        setConversationLoading(false);
+      }
+    }
+  }
+
   async function refreshActiveWorkflow() {
     const currentPayload = payloadRef.current;
     if (!session || !currentPayload) {
@@ -720,6 +770,44 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }, [orbitId]);
 
   useEffect(() => {
+    if (!session || !payload) {
+      void matrixAdapterRef.current?.stop();
+      matrixBootstrapRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    const adapter = matrixAdapterRef.current ?? new MatrixChatSyncAdapter();
+    matrixAdapterRef.current = adapter;
+    void fetchChatSyncBootstrap(session.token, orbitId)
+      .then(async (bootstrap) => {
+        if (cancelled) {
+          return;
+        }
+        matrixBootstrapRef.current = bootstrap;
+        if (!bootstrap.enabled) {
+          await adapter.stop();
+          return;
+        }
+        await adapter.start(bootstrap, (selection: MatrixConversationSelection) => {
+          if (cancelled || !session) {
+            return;
+          }
+          if (sameConversation(selection, selectedConversation)) {
+            void refreshConversationOnly(session, selection, { silent: true });
+            return;
+          }
+          delete conversationCacheRef.current[conversationCacheKey(selection)];
+        });
+      })
+      .catch(() => {
+        matrixBootstrapRef.current = null;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session, payload, orbitId, selectedConversation]);
+
+  useEffect(() => {
     if (!session || !payload || (!workflowActive && !localAgentPending)) {
       return;
     }
@@ -779,6 +867,22 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       window.clearTimeout(handle);
     };
   }, [searchOpen, session, orbitId, leftSearch]);
+
+  useEffect(() => {
+    if (!session || !selectedConversation) {
+      return;
+    }
+    const hasUnconfirmedMessages = messages.some((message) =>
+      ["pending_remote", "failed_remote"].includes(String(message.transport_state || "").toLowerCase()),
+    );
+    if (!hasUnconfirmedMessages) {
+      return;
+    }
+    const handle = window.setInterval(() => {
+      void refreshConversationOnly(session, selectedConversation, { silent: true, preserveRequestId: true });
+    }, 3500);
+    return () => window.clearInterval(handle);
+  }, [session, selectedConversation, messages]);
 
   const currentConversationTitle = useMemo(() => {
     if (!payload || !selectedConversation) {
@@ -1478,6 +1582,21 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     }
   }
 
+  async function onRetryMessage(messageId: string) {
+    if (!session || !selectedConversation) {
+      return;
+    }
+    try {
+      const result = await retryMessageTransport(session.token, orbitId, messageId);
+      setMessages((current) =>
+        current.map((message) => (message.id === messageId ? result.message : message)),
+      );
+      await refreshConversationOnly(session, selectedConversation, { silent: true, preserveRequestId: true });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to retry that message.");
+    }
+  }
+
   async function onCreateCodespace() {
     if (!session || !payload) {
       return;
@@ -1652,6 +1771,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               messageBody={messageBody}
               onMessageBodyChange={setMessageBody}
               onSendMessage={() => void onSendMessage()}
+              onRetryMessage={(messageId) => void onRetryMessage(messageId)}
               humanLoopAnswers={workflowAnswers}
               onHumanLoopAnswerChange={(requestId, value) => setWorkflowAnswers((current) => ({ ...current, [requestId]: value }))}
               onSubmitHumanLoopAnswer={(requestId) => void onAnswerHumanRequest(requestId)}
@@ -1846,7 +1966,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                         payload.codespaces.map((item) => (
                           <ListRow
                             key={item.id}
-                            eyebrow="Workspace"
                             title={item.name}
                             detail={[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
                             active={activeCodespaceId === item.id}

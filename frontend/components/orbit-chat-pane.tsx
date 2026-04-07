@@ -46,6 +46,7 @@ export function OrbitChatPane({
   messageBody,
   onMessageBodyChange,
   onSendMessage,
+  onRetryMessage,
   humanLoopAnswers = {},
   onHumanLoopAnswerChange = () => {},
   onSubmitHumanLoopAnswer = () => {},
@@ -74,6 +75,7 @@ export function OrbitChatPane({
   messageBody: string;
   onMessageBodyChange: (value: string) => void;
   onSendMessage: () => void;
+  onRetryMessage: (messageId: string) => void;
   humanLoopAnswers: Record<string, string>;
   onHumanLoopAnswerChange: (requestId: string, value: string) => void;
   onSubmitHumanLoopAnswer: (requestId: string) => void;
@@ -326,10 +328,20 @@ export function OrbitChatPane({
                           {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                         {message.pending ? <StatusPill tone="muted">sending</StatusPill> : null}
+                        {message.transport_state === "pending_remote" ? <StatusPill tone="muted">syncing</StatusPill> : null}
+                        {message.transport_state === "failed_remote" ? <StatusPill tone="danger">retry needed</StatusPill> : null}
                       </div>
                       <div className={cx("mt-1 rounded-pane border border-line bg-panelMuted px-4 py-3 text-sm leading-6 text-ink", isCurrentUser && "bg-panelStrong")}>
                         {message.body}
                       </div>
+                      {message.transport_state === "failed_remote" ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-quiet">
+                          <span>{message.transport_error || "Message did not sync to Matrix yet."}</span>
+                          <GhostButton className="h-8 px-2 text-xs" onClick={() => onRetryMessage(message.id)}>
+                            Retry send
+                          </GhostButton>
+                        </div>
+                      ) : null}
                       {openHumanRequest ? (
                         <div className="mt-2 rounded-pane border border-line bg-panel px-3 py-3">
                           <p className="text-xs font-medium uppercase tracking-[0.12em] text-quiet">Human clarification</p>
@@ -396,7 +408,7 @@ export function OrbitChatPane({
               className="min-h-[120px] border-0 bg-transparent px-0 py-0"
             />
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-quiet">Your message appears immediately. Chat is for human-facing replies, clarifications, and approvals.</p>
+              <p className="text-xs text-quiet">Your message appears immediately.</p>
               <ActionButton onClick={onSendMessage} disabled={!messageBody.trim()}>
                 <SendHorizonal className="h-4 w-4" />
                 Send
@@ -404,6 +416,11 @@ export function OrbitChatPane({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+       </div>
       </div>
     </div>
   );
