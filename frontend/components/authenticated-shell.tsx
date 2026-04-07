@@ -45,6 +45,8 @@ const SIDEBAR_STATE_KEY = "autoweave-shell-sidebar-collapsed";
 const TOPBAR_HEIGHT = 48;
 const COLLAPSED_SIDEBAR_WIDTH = 48;
 const EXPANDED_SIDEBAR_WIDTH = 184;
+const SHELL_EDGE_INSET_CLASS = "px-[5px]";
+const RAIL_ICON_INSET_CLASS = "pl-[9px]";
 
 type ShellPanelConfig = {
   title: string;
@@ -193,7 +195,7 @@ function ShellSidebarItem({
       onClick={item.onSelect}
       className={cx(
         "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-        collapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5",
+        collapsed ? cx("justify-start px-0", RAIL_ICON_INSET_CLASS) : cx("justify-start pr-2.5", RAIL_ICON_INSET_CLASS),
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
@@ -336,12 +338,15 @@ function AppShellFrame({ children }: { children: ReactNode }) {
     <AppShellContext.Provider value={contextValue}>
       <div className="flex min-h-dvh flex-col overflow-hidden bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
-          className="z-30 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(280px,420px)_minmax(0,1fr)] items-center gap-2 bg-shell px-1.5"
+          className={cx(
+            "z-30 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(280px,420px)_minmax(0,1fr)] items-center gap-2 bg-shell",
+            SHELL_EDGE_INSET_CLASS,
+          )}
           style={{ height: TOPBAR_HEIGHT }}
         >
           <div className="flex min-w-0 items-center gap-0.5">
             <IconButton
-              className="h-8 w-8 shrink-0 justify-start rounded-[10px] pl-[11px] pr-0 text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className={cx("h-8 w-8 shrink-0 justify-start rounded-[10px] pr-0 text-[#bcc0c6] hover:bg-shellMuted hover:text-ink", RAIL_ICON_INSET_CLASS)}
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -388,41 +393,41 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                     <input
                       ref={searchInputRef}
                       aria-label="Search"
-                      value={searchOpen ? searchConfig.query ?? "" : ""}
+                      value={searchConfig.query ?? ""}
                       onFocus={openSearch}
-                      onChange={(event) => searchConfig.onQueryChange?.(event.target.value)}
+                      onChange={(event) => {
+                        if (!searchOpen) {
+                          openSearch();
+                        }
+                        searchConfig.onQueryChange?.(event.target.value);
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === "Escape") {
                           closeSearch();
                         }
                       }}
-                      placeholder={searchOpen ? searchConfig.placeholder || searchConfig.title : searchConfig.title}
+                      placeholder={searchConfig.placeholder || searchConfig.title}
                       className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-ink outline-none placeholder:text-[#a8adb4]"
                     />
-                    <button
-                      type="button"
-                      onClick={() => (searchOpen ? closeSearch() : openSearch())}
-                      aria-label={searchOpen ? "Close search" : "Open search"}
-                      className="ml-auto flex h-5 shrink-0 items-center text-[11px] uppercase tracking-[0.14em] text-faint transition-colors duration-200 ease-productive hover:text-ink"
-                    >
+                    <span className="ml-auto flex h-5 shrink-0 items-center text-[11px] uppercase tracking-[0.14em] text-faint">
                       {searchOpen ? "Esc" : "⌘K"}
-                    </button>
+                    </span>
                   </div>
+                  {searchOpen ? (
+                    <div
+                      role="search"
+                      aria-label={searchConfig.title}
+                      className="aw-motion-fade overflow-hidden border-t border-shellLine"
+                    >
+                      <div className="aw-motion-slide-left px-3 py-2.5 text-xs text-quiet">
+                        {searchConfig.description || "Search the current product surface without leaving the shell."}
+                      </div>
+                      <div className="max-h-[min(70dvh,520px)] overflow-auto px-3 py-3">
+                        {searchConfig.content || <PageLoader label="Loading search…" fullscreen={false} />}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                {searchOpen ? (
-                  <div
-                    role="search"
-                    aria-label={searchConfig.title}
-                    className="aw-motion-pop absolute left-0 right-0 top-full z-40 mt-1.5 origin-top overflow-hidden rounded-[14px] border border-shellLine bg-shellElevated shadow-soft backdrop-blur-xl"
-                  >
-                    <div className="border-b border-shellLine px-3 py-2.5 text-xs text-quiet">
-                      {searchConfig.description || "Search the current product surface without leaving the shell."}
-                    </div>
-                    <div className="max-h-[min(70dvh,520px)] overflow-auto px-3 py-3">
-                      {searchConfig.content || <PageLoader label="Loading search…" fullscreen={false} />}
-                    </div>
-                  </div>
-                ) : null}
               </div>
             </div>
           ) : (
@@ -499,7 +504,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               sidebarCollapsed ? "w-12 lg:w-12" : "w-12 lg:w-[184px]",
             )}
           >
-            <div className="flex min-h-0 flex-1 flex-col px-1 pb-2 pt-2">
+            <div className={cx("flex min-h-0 flex-1 flex-col pb-2 pt-2", SHELL_EDGE_INSET_CLASS)}>
               <div className="min-h-0 flex-1 overflow-auto">
                 <div className="flex flex-col gap-1.5">
                   {sidebarItems.map((item) => (

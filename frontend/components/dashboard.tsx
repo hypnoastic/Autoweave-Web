@@ -139,7 +139,7 @@ function DashboardSidebarContent({
             onClick={() => onSelectOrbit(orbit.id)}
             className={cx(
               "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-              sidebarCollapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5 text-[#a6a9b0]",
+              sidebarCollapsed ? "justify-start px-0 pl-[9px]" : "justify-start pl-[9px] pr-2.5 text-[#a6a9b0]",
             )}
           >
             <AvatarMark
@@ -174,7 +174,7 @@ function DashboardSidebarContentSkeleton() {
           key={index}
           className={cx(
             "flex min-h-[36px] w-full items-center gap-2 rounded-[10px] py-1.5",
-            sidebarCollapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5",
+            sidebarCollapsed ? "justify-start px-0 pl-[9px]" : "justify-start pl-[9px] pr-2.5",
           )}
         >
           <div className="h-[18px] w-[18px] rounded-[6px] bg-shellMuted" />
