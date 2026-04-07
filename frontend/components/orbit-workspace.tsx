@@ -1287,13 +1287,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           active: false,
           onSelect: () => router.push("/app"),
         },
-        {
-          key: "search",
-          label: "Search",
-          icon: Search,
-          active: searchOpen,
-          onSelect: openSearch,
-        },
         ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
           key,
           label,

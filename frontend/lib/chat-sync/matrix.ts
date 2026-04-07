@@ -8,7 +8,7 @@ export type ConversationSelection = { kind: "channel" | "dm"; id: string };
 type MatrixModule = typeof import("matrix-js-sdk");
 
 export function resolveMatrixSyncBaseUrl(baseUrl: string) {
-  return normalizeLoopbackBaseUrl(baseUrl);
+  return normalizeLoopbackBaseUrl(baseUrl) ?? baseUrl;
 }
 
 export class MatrixChatSyncAdapter {

@@ -227,10 +227,30 @@
   - the shell avatar/session path no longer emits the earlier hydration mismatch in the orbit browser console
   - Matrix client bootstrap URLs now normalize loopback hosts so `localhost` and `127.0.0.1` do not diverge during local browser sync
 - the next active slice is shell refinement:
-  - make top bar height match collapsed rail width
-  - move global search into the top bar
-  - simplify dashboard sidebar/recent orbit treatment
-  - tighten collapsed icon alignment and remove jumpy motion
+  - standardize theme surfaces and modal layering
+  - redesign dashboard and orbit inner pages more aggressively
+  - split PRs and Issues and rebuild chat/workflow/code/artifact surfaces
+
+## Shell Refinement Status (2026-04-07)
+
+- the shell geometry slice is now landed locally and validated in the live browser:
+  - top bar height now matches the collapsed rail thickness at `48px`
+  - top-right utilities stay compact and the profile avatar scales down with the chrome
+  - global search moved from the sidebar into the center of the top bar on both dashboard and orbit
+  - dashboard sidebar clutter is reduced:
+    - no `Home` heading
+    - no `Recent orbits` heading
+    - no helper copy
+  - recent orbits now render as plain sidebar items with icon + orbit name only, capped at four
+  - collapsed dashboard rail still keeps recent orbit logos visible instead of hiding them entirely
+  - collapsed icon slots now stay centered and stable instead of feeling left-biased during collapse/expand
+  - orbit search was removed from the sidebar item list and is now only exposed through the top-bar search trigger
+- live browser artifacts for this slice:
+  - `output/playwright/shell-slice-dashboard-light-expanded-v2.png`
+  - `output/playwright/shell-slice-dashboard-light-expanded-open.png`
+  - `output/playwright/shell-slice-dashboard-dark-expanded.png`
+  - `output/playwright/shell-slice-orbit-dark-expanded.png`
+  - `output/playwright/shell-slice-orbit-dark-collapsed.png`
   - localhost vs `127.0.0.1` origin behavior still needs one deliberate `0F` pass so the authenticated shell is predictably validation-safe without timing/origin workarounds
 
 ## Open Implementation Threads

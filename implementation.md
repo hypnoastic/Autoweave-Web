@@ -238,17 +238,25 @@ Completed preconditions:
 
 Next active implementation slices:
 
-1. shell geometry, collapsed rail alignment, top-bar search, and sidebar cleanup
-2. light/dark theme token and surface consistency
-3. dashboard redesign
-4. orbit page redesigns:
+1. light/dark theme token and surface consistency
+2. dashboard redesign
+3. orbit page redesigns:
    - chat
    - workflow
    - PRs
    - Issues
    - workspaces
    - artifacts
-5. landing and GitHub-first auth redesign
+4. landing and GitHub-first auth redesign
+
+### Shell refinement slice completed
+
+- top bar height and collapsed rail width now match at `48px`
+- global search moved into the center of the top bar and is no longer a sidebar route/button
+- dashboard recent orbits are now plain sidebar items instead of boxed rows with extra metadata
+- collapsed dashboard rail still preserves recent orbit icons
+- orbit mode now keeps search in the top bar instead of duplicating it in the sidebar nav
+- shell validation for this slice completed in the live browser in both light and dark themes
 
 ## Phase 0 Stabilization Baseline (2026-04-02)
 

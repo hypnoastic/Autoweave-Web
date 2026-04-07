@@ -21,6 +21,7 @@ import {
 import type { DashboardPayload, Orbit } from "@/lib/types";
 import {
   type AppShellConfig,
+  useAuthenticatedShell,
   useAuthenticatedShellConfig,
 } from "@/components/authenticated-shell";
 import { useTheme } from "@/components/theme-provider";
@@ -44,6 +45,7 @@ import {
   SurfaceCard,
   TextArea,
   TextInput,
+  cx,
 } from "@/components/ui";
 
 type OrbitDraft = {
@@ -135,32 +137,169 @@ function DashboardSidebarContent({
   recentOrbits: DashboardPayload["recent_orbits"];
   onSelectOrbit: (orbitId: string) => void;
 }) {
+  const { sidebarCollapsed } = useAuthenticatedShell();
+
   return (
-    <div className="space-y-3">
-      <div className="px-1">
-        <SectionTitle
-          eyebrow="Home"
-          title="Recent orbits"
-          detail="Keep active work close without turning the dashboard into a dense admin surface."
-          dense
-        />
-      </div>
-      <div className="space-y-2">
-        {recentOrbits.length ? (
-          recentOrbits.slice(0, 6).map((orbit) => (
-            <ListRow
-              key={orbit.id}
-              title={orbit.name}
-              detail={orbit.repo_full_name || "Repository pending"}
-              leading={<AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} className="h-8 w-8 rounded-[11px]" />}
-              onClick={() => onSelectOrbit(orbit.id)}
-            />
-          ))
-        ) : (
-          <EmptyState title="No recent orbits" detail="Create a new orbit or open one from search to pin it into this workspace frame." />
-        )}
-      </div>
+    <div className="space-y-1.5">
+      {recentOrbits.length ? (
+        recentOrbits.slice(0, 4).map((orbit) => (
+          <button
+            key={orbit.id}
+            type="button"
+            title={orbit.name}
+            aria-label={orbit.name}
+            onClick={() => onSelectOrbit(orbit.id)}
+            className={cx(
+              "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+              sidebarCollapsed ? "justify-center px-0" : "justify-start px-2.5 text-[#a6a9b0]",
+            )}
+          >
+            <AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} className="h-[18px] w-[18px] rounded-[6px]" />
+            <span
+              className={cx(
+                "min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-[#a6a9b0] transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none group-hover:text-ink",
+                sidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[120px] opacity-100",
+              )}
+            >
+              {orbit.name}
+            </span>
+          </button>
+        ))
+      ) : (
+        !sidebarCollapsed ? <p className="px-2.5 text-xs text-quiet">No recent orbits yet.</p> : null
+      )}
     </div>
+  );
+}
+
+function DashboardSidebarContentSkeleton() {
+  const { sidebarCollapsed } = useAuthenticatedShell();
+
+  return (
+    <div className="space-y-1.5">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className={cx(
+            "flex min-h-[36px] w-full items-center gap-2 rounded-[10px] py-1.5",
+            sidebarCollapsed ? "justify-center px-0" : "justify-start px-2.5",
+          )}
+        >
+          <div className="h-[18px] w-[18px] rounded-[6px] bg-shellMuted" />
+          <div className={cx("h-3 rounded-full bg-shellMuted", sidebarCollapsed ? "hidden" : "w-20")} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardScreenBody({
+  payload,
+  error,
+  onCreateOrbitClick,
+}: {
+  payload: DashboardPayload;
+  error: string | null;
+  onCreateOrbitClick: () => void;
+}) {
+  return (
+    <ShellPage>
+      <PageHeader
+        eyebrow={`Hello, ${payload.me.display_name}`}
+        title="Everything important, nothing noisy."
+        detail="Priority surfaces only what needs attention. Workspaces stay visible. Search and notifications stay close without taking over the canvas."
+        actions={
+          <ActionButton onClick={onCreateOrbitClick}>
+            <Plus className="h-4 w-4" />
+            New Orbit
+          </ActionButton>
+        }
+      />
+
+      {error ? (
+        <InlineNotice
+          className="mt-4"
+          tone="danger"
+          title="Dashboard action blocked"
+          detail={error}
+        />
+      ) : null}
+
+      <div className="mt-5 grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <div className="border-b border-line px-5 py-4">
+            <SectionTitle eyebrow="Priority" title="Signals worth looking at" detail="Approvals, ready reviews, completed work, and live demos appear here only when they matter." dense />
+          </div>
+          <ScrollPanel className="flex-1 px-4 py-4">
+            <div className="space-y-2.5">
+              {payload.priority_items.length ? (
+                payload.priority_items.map((item, index) => (
+                  <ListRow
+                    key={index}
+                    eyebrow="Priority signal"
+                    title={String(item.title ?? "Work item")}
+                    detail={String(item.summary ?? item.agent ?? "ERGO")}
+                    trailing={
+                      <StatusPill tone={String(item.status ?? "").includes("review") ? "accent" : "muted"}>
+                        {String(item.status ?? "active")}
+                      </StatusPill>
+                    }
+                    supporting={
+                      <>
+                        {item.branch_name ? <span>{String(item.branch_name)}</span> : null}
+                        {item.agent ? <span>{String(item.agent)}</span> : null}
+                        {item.demo_url ? (
+                          <a href={String(item.demo_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
+                            Open demo
+                          </a>
+                        ) : null}
+                        {item.draft_pr_url ? (
+                          <a href={String(item.draft_pr_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
+                            Review PR
+                          </a>
+                        ) : null}
+                      </>
+                    }
+                  />
+                ))
+              ) : (
+                <EmptyState detail="Create an orbit, ask ERGO to build something, and meaningful signals will surface here." />
+              )}
+            </div>
+          </ScrollPanel>
+        </Panel>
+
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <div className="border-b border-line px-5 py-4">
+            <SectionTitle eyebrow="Workspaces" title="Recent branch contexts" detail="Open a workspace, see whether it is running, and get back to active development quickly." dense />
+          </div>
+          <ScrollPanel className="flex-1 px-4 py-4">
+            <div className="space-y-2.5">
+              {payload.codespaces.length ? (
+                payload.codespaces.map((item) => (
+                  <ListRow
+                    key={item.id}
+                    title={item.name}
+                    detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
+                    trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
+                    supporting={
+                      item.editor_url ? (
+                        <a href={item.editor_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                          Open editor
+                          <ChevronRight className="h-4 w-4" />
+                        </a>
+                      ) : null
+                    }
+                  />
+                ))
+              ) : (
+                <EmptyState detail="Workspaces appear here with a running or stopped state once they are created inside an orbit." />
+              )}
+            </div>
+          </ScrollPanel>
+        </Panel>
+      </div>
+    </ShellPage>
   );
 }
 
@@ -255,9 +394,7 @@ export function DashboardScreen() {
         onSelectOrbit={(orbitId) => router.push(`/app/orbits/${orbitId}`)}
       />
     ) : (
-      <div className="px-1">
-        <SectionTitle eyebrow="Home" title="Recent orbits" detail="Loading orbit context…" dense />
-      </div>
+      <DashboardSidebarContentSkeleton />
     ),
     search: {
       title: "Search orbits",
@@ -328,103 +465,7 @@ export function DashboardScreen() {
 
   return (
     <>
-      <ShellPage>
-        <PageHeader
-          eyebrow={`Hello, ${payload.me.display_name}`}
-          title="Everything important, nothing noisy."
-          detail="Priority surfaces only what needs attention. Workspaces stay visible. Search and notifications stay close without taking over the canvas."
-          actions={
-            <ActionButton onClick={() => setShowCreateOrbit(true)}>
-              <Plus className="h-4 w-4" />
-              New Orbit
-            </ActionButton>
-          }
-        />
-
-        {error ? (
-          <InlineNotice
-            className="mt-4"
-            tone="danger"
-            title="Dashboard action blocked"
-            detail={error}
-          />
-        ) : null}
-
-        <div className="mt-5 grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-          <Panel className="flex min-h-0 flex-col overflow-hidden">
-            <div className="border-b border-line px-5 py-4">
-              <SectionTitle eyebrow="Priority" title="Signals worth looking at" detail="Approvals, ready reviews, completed work, and live demos appear here only when they matter." dense />
-            </div>
-            <ScrollPanel className="flex-1 px-4 py-4">
-              <div className="space-y-2.5">
-                {payload.priority_items.length ? (
-                  payload.priority_items.map((item, index) => (
-                    <ListRow
-                      key={index}
-                      eyebrow="Priority signal"
-                      title={String(item.title ?? "Work item")}
-                      detail={String(item.summary ?? item.agent ?? "ERGO")}
-                      trailing={
-                        <StatusPill tone={String(item.status ?? "").includes("review") ? "accent" : "muted"}>
-                          {String(item.status ?? "active")}
-                        </StatusPill>
-                      }
-                      supporting={
-                        <>
-                          {item.branch_name ? <span>{String(item.branch_name)}</span> : null}
-                          {item.agent ? <span>{String(item.agent)}</span> : null}
-                          {item.demo_url ? (
-                            <a href={String(item.demo_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
-                              Open demo
-                            </a>
-                          ) : null}
-                          {item.draft_pr_url ? (
-                            <a href={String(item.draft_pr_url)} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-4">
-                              Review PR
-                            </a>
-                          ) : null}
-                        </>
-                      }
-                    />
-                  ))
-                ) : (
-                  <EmptyState detail="Create an orbit, ask ERGO to build something, and meaningful signals will surface here." />
-                )}
-              </div>
-            </ScrollPanel>
-          </Panel>
-
-          <Panel className="flex min-h-0 flex-col overflow-hidden">
-            <div className="border-b border-line px-5 py-4">
-              <SectionTitle eyebrow="Workspaces" title="Recent branch contexts" detail="Open a workspace, see whether it is running, and get back to active development quickly." dense />
-            </div>
-            <ScrollPanel className="flex-1 px-4 py-4">
-              <div className="space-y-2.5">
-                {payload.codespaces.length ? (
-                  payload.codespaces.map((item) => (
-                    <ListRow
-                      key={item.id}
-                      title={item.name}
-                      detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
-                      trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
-                      supporting={
-                        item.editor_url ? (
-                          <a href={item.editor_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-                            Open editor
-                            <ChevronRight className="h-4 w-4" />
-                          </a>
-                        ) : null
-                      }
-                    />
-                  ))
-                ) : (
-                  <EmptyState detail="Workspaces appear here with a running or stopped state once they are created inside an orbit." />
-                )}
-              </div>
-            </ScrollPanel>
-          </Panel>
-        </div>
-      </ShellPage>
+      <DashboardScreenBody payload={payload} error={error} onCreateOrbitClick={() => setShowCreateOrbit(true)} />
 
       <CenteredModal
         open={showCreateOrbit}

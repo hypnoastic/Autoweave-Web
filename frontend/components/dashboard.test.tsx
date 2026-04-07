@@ -90,7 +90,7 @@ describe("DashboardScreen", () => {
     expect(screen.getByRole("button", { name: "Open notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open profile menu" })).toBeInTheDocument();
     expect(screen.getByText("Orbit Alpha")).toBeInTheDocument();
-    expect(screen.getByText("octocat/orbit-alpha")).toBeInTheDocument();
+    expect(screen.queryByText("octocat/orbit-alpha")).not.toBeInTheDocument();
   });
 
   it("closes search before opening notifications from the persistent shell", async () => {

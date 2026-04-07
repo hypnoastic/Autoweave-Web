@@ -42,7 +42,9 @@ import { AuthSessionError, readSession, updatePreferences, writeSession } from "
 import type { Session, ThemeMode } from "@/lib/types";
 
 const SIDEBAR_STATE_KEY = "autoweave-shell-sidebar-collapsed";
-const TOPBAR_HEIGHT = 54;
+const TOPBAR_HEIGHT = 48;
+const COLLAPSED_SIDEBAR_WIDTH = 48;
+const EXPANDED_SIDEBAR_WIDTH = 184;
 
 type ShellPanelConfig = {
   title: string;
@@ -184,8 +186,8 @@ function ShellSidebarItem({
       title={item.label}
       onClick={item.onSelect}
       className={cx(
-        "group flex min-h-[38px] w-full items-center gap-2 overflow-hidden rounded-[11px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-        "justify-start px-2.5",
+        "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+        collapsed ? "justify-center px-0" : "justify-start px-2.5",
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
@@ -319,21 +321,21 @@ function AppShellFrame({ children }: { children: ReactNode }) {
         >
           <div className="flex min-w-0 flex-1 items-center gap-0.5">
             <IconButton
-              className="h-9 w-9 shrink-0 rounded-[11px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               <PanelLeft className="h-4 w-4" />
             </IconButton>
             <IconButton
-              className="h-9 w-9 shrink-0 rounded-[11px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={() => (config.backAction ? config.backAction() : router.back())}
               aria-label="Go back"
             >
               <ChevronLeft className="h-4 w-4" />
             </IconButton>
             <IconButton
-              className="h-9 w-9 shrink-0 rounded-[11px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={() => (config.forwardAction ? config.forwardAction() : router.forward())}
               aria-label="Go forward"
             >
@@ -352,10 +354,26 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               </ol>
             </nav>
           </div>
+          {config.search ? (
+            <div className="mx-3 hidden min-w-0 flex-1 justify-center md:flex">
+              <button
+                type="button"
+                onClick={openSearch}
+                aria-label="Search"
+                className="flex h-8 w-full max-w-[360px] items-center gap-2 rounded-[10px] border border-shellLine bg-shellElevated px-3 text-left text-sm text-[#a8adb4] transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
+              >
+                <Search className="h-4 w-4 shrink-0" />
+                <span className="truncate">{config.search.title}</span>
+                <span className="ml-auto text-[11px] uppercase tracking-[0.14em] text-faint">⌘K</span>
+              </button>
+            </div>
+          ) : (
+            <div className="hidden flex-1 md:block" />
+          )}
           <div className="flex shrink-0 items-center gap-0.5" ref={profileRef}>
             {config.notifications ? (
               <IconButton
-                className="h-9 w-9 shrink-0 rounded-[11px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+                className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
                 onClick={openNotifications}
                 aria-label="Open notifications"
               >
@@ -363,7 +381,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               </IconButton>
             ) : null}
             <IconButton
-              className="h-9 w-9 shrink-0 rounded-[11px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={() => setSettingsOpen(true)}
               aria-label="Open global settings"
             >
@@ -375,7 +393,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               title="Open profile menu"
               onClick={() => setProfileMenuOpen((current) => !current)}
               className={cx(
-                "flex h-9 min-w-0 shrink-0 items-center gap-2 rounded-[11px] px-1 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                "flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-[10px] px-1 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                 profileMenuOpen ? "bg-shellMuted text-ink" : "text-[#aeb2b8]",
               )}
             >
@@ -383,10 +401,10 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                 <AvatarMark
                   label={session.user.display_name || session.user.github_login}
                   src={session.user.avatar_url}
-                  className="h-7 w-7 rounded-[10px] brightness-90 saturate-[0.72]"
+                  className="h-6 w-6 rounded-[9px] brightness-90 saturate-[0.72]"
                 />
               ) : (
-                <span className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-shellMuted text-[#b4b8be]">
+                <span className="flex h-6 w-6 items-center justify-center rounded-[9px] bg-shellMuted text-[#b4b8be]">
                   <User2 className="h-[14px] w-[14px]" />
                 </span>
               )}
@@ -420,7 +438,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           <aside
             className={cx(
               "relative flex min-h-0 shrink-0 flex-col overflow-visible bg-shell transition-[width] duration-200 ease-productive motion-reduce:transition-none",
-              sidebarCollapsed ? "w-[48px] lg:w-[48px]" : "w-[48px] lg:w-[188px]",
+              sidebarCollapsed ? "w-12 lg:w-12" : "w-12 lg:w-[184px]",
             )}
           >
             <div className="flex min-h-0 flex-1 flex-col px-1 pb-2 pt-2">
@@ -429,36 +447,10 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                   {sidebarItems.map((item) => (
                     <ShellSidebarItem key={item.key} item={item} collapsed={sidebarCollapsed} />
                   ))}
-
-                  {config.mode !== "orbit" ? (
-                    <button
-                      type="button"
-                      aria-label="Search"
-                      title="Search"
-                      onClick={openSearch}
-                      className={cx(
-                        "flex min-h-[38px] w-full items-center gap-2 overflow-hidden rounded-[11px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-                        sidebarCollapsed ? "justify-start px-[11px]" : "px-2.5",
-                        searchOpen ? "bg-shellMuted text-ink" : "text-[#a6a9b0]",
-                      )}
-                    >
-                      <span className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
-                        <Search className="h-[17px] w-[17px]" />
-                      </span>
-                      <span
-                        className={cx(
-                          "min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none",
-                          sidebarCollapsed ? "max-w-0 opacity-0 lg:max-w-0" : "max-w-[138px] opacity-100",
-                        )}
-                      >
-                        Search
-                      </span>
-                    </button>
-                  ) : null}
                 </div>
 
                 {config.secondaryContent ? (
-                  <div className={cx("hidden min-h-0 pt-4 lg:block", sidebarCollapsed && "lg:hidden")}>
+                  <div className="min-h-0 pt-4">
                     {config.secondaryContent}
                   </div>
                 ) : null}
