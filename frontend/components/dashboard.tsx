@@ -478,5 +478,3 @@ export function DashboardScreen() {
     </>
   );
 }
-);
-}

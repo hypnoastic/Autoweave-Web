@@ -849,5 +849,3 @@ export function ScrollPanel({
 export function Divider({ className }: { className?: string }) {
   return <div className={clsx("h-px bg-line", className)} />;
 }
-g-line", className)} />;
-}

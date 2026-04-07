@@ -420,8 +420,3 @@ export function OrbitChatPane({
     </div>
   );
 }
-       </div>
-      </div>
-    </div>
-  );
-}

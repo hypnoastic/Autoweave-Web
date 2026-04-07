@@ -561,5 +561,3 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 export function AuthenticatedAppShell({ children }: { children: ReactNode }) {
   return <AppShellFrame>{children}</AppShellFrame>;
 }
-ldren}</AppShellFrame>;
-}
