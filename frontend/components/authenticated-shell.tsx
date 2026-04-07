@@ -381,10 +381,10 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           </div>
           {searchConfig ? (
             <div className="hidden min-w-0 justify-center md:flex">
-              <div className="relative w-full max-w-[360px]" ref={searchRef}>
+              <div className="relative w-full max-w-[420px]" ref={searchRef}>
                 <div
                   className={cx(
-                    "overflow-hidden rounded-[10px] border border-shellLine bg-shellElevated transition-[border-color,background-color,box-shadow] duration-200 ease-productive",
+                    "relative z-20 rounded-[10px] border border-shellLine bg-shellElevated transition-[border-color,background-color,box-shadow] duration-200 ease-productive",
                     searchOpen && "border-shellLineStrong bg-shellMuted shadow-soft",
                   )}
                 >
@@ -413,21 +413,21 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                       {searchOpen ? "Esc" : "⌘K"}
                     </span>
                   </div>
-                  {searchOpen ? (
-                    <div
-                      role="search"
-                      aria-label={searchConfig.title}
-                      className="aw-motion-fade overflow-hidden border-t border-shellLine"
-                    >
-                      <div className="aw-motion-slide-left px-3 py-2.5 text-xs text-quiet">
-                        {searchConfig.description || "Search the current product surface without leaving the shell."}
-                      </div>
-                      <div className="max-h-[min(70dvh,520px)] overflow-auto px-3 py-3">
-                        {searchConfig.content || <PageLoader label="Loading search…" fullscreen={false} />}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
+                {searchOpen ? (
+                  <div
+                    role="search"
+                    aria-label={searchConfig.title}
+                    className="aw-motion-pop absolute left-1/2 top-[calc(100%+10px)] z-30 w-[min(720px,calc(100vw-320px))] max-w-[720px] -translate-x-1/2 overflow-hidden rounded-[18px] border border-shellLineStrong bg-shellElevated shadow-[0_24px_60px_rgba(0,0,0,0.34)]"
+                  >
+                    <div className="border-b border-shellLine px-4 py-3 text-xs text-quiet">
+                      {searchConfig.description || "Search the current product surface without leaving the shell."}
+                    </div>
+                    <div className="max-h-[min(70dvh,520px)] overflow-auto px-4 py-4">
+                      {searchConfig.content || <PageLoader label="Loading search…" fullscreen={false} />}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (
