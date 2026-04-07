@@ -292,7 +292,7 @@ export function InlineNotice({
 }
 
 export function EmptyState({
-  title = "Nothing here yet",
+  title,
   detail,
   action,
   className,
@@ -304,8 +304,8 @@ export function EmptyState({
 }) {
   return (
     <div className={clsx("rounded-pane border border-dashed border-line bg-panel px-4 py-4 text-sm text-quiet", className)}>
-      <p className="font-medium text-ink">{title}</p>
-      {detail ? <p className="mt-1 leading-6">{detail}</p> : null}
+      {title ? <p className="font-medium text-ink">{title}</p> : null}
+      {detail ? <p className={clsx(title ? "mt-1" : "", "leading-6")}>{detail}</p> : null}
       {action ? <div className="mt-3 flex items-center gap-2">{action}</div> : null}
     </div>
   );
@@ -848,4 +848,6 @@ export function ScrollPanel({
 
 export function Divider({ className }: { className?: string }) {
   return <div className={clsx("h-px bg-line", className)} />;
+}
+g-line", className)} />;
 }
