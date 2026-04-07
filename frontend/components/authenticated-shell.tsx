@@ -187,11 +187,11 @@ function ShellSidebarItem({
       onClick={item.onSelect}
       className={cx(
         "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-        collapsed ? "justify-center px-0" : "justify-start px-2.5",
+        collapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5",
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
-      <span className={cx("flex h-[17px] w-[17px] shrink-0 items-center justify-center", collapsed && "translate-x-px")}>
+      <span className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
         <Icon className="h-[17px] w-[17px]" />
       </span>
       <span
@@ -217,6 +217,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const searchRef = useOutsideClose<HTMLDivElement>(searchOpen, () => setSearchOpen(false));
   const profileRef = useOutsideClose<HTMLDivElement>(profileMenuOpen, () => setProfileMenuOpen(false));
 
   const toggleSidebar = useCallback(() => {
@@ -356,16 +357,34 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           </div>
           {config.search ? (
             <div className="hidden min-w-0 justify-center md:flex">
-              <button
-                type="button"
-                onClick={openSearch}
-                aria-label="Search"
-                className="flex h-8 w-full max-w-[360px] items-center gap-2 rounded-[10px] border border-shellLine bg-shellElevated px-3 text-left text-sm text-[#a8adb4] transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
-              >
-                <Search className="h-4 w-4 shrink-0" />
-                <span className="truncate">{config.search.title}</span>
-                <span className="ml-auto text-[11px] uppercase tracking-[0.14em] text-faint">⌘K</span>
-              </button>
+              <div className="relative w-full max-w-[360px]" ref={searchRef}>
+                <button
+                  type="button"
+                  onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                  aria-label="Search"
+                  aria-expanded={searchOpen}
+                  aria-haspopup="dialog"
+                  className="flex h-8 w-full items-center gap-2 rounded-[10px] border border-shellLine bg-shellElevated px-3 text-left text-sm text-[#a8adb4] transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{config.search.title}</span>
+                  <span className="ml-auto text-[11px] uppercase tracking-[0.14em] text-faint">⌘K</span>
+                </button>
+                {searchOpen ? (
+                  <div
+                    role="search"
+                    aria-label={config.search.title}
+                    className="aw-motion-pop absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-[14px] border border-shellLine bg-shellElevated shadow-soft backdrop-blur-xl"
+                  >
+                    <div className="border-b border-shellLine px-3 py-2.5 text-xs text-quiet">
+                      {config.search.description || "Search the current product surface without leaving the shell."}
+                    </div>
+                    <div className="max-h-[min(70dvh,520px)] overflow-auto px-3 py-3">
+                      {config.search.content || <PageLoader label="Loading search…" fullscreen={false} />}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <div className="hidden md:block" />
@@ -470,23 +489,6 @@ function AppShellFrame({ children }: { children: ReactNode }) {
           </div>
         </div>
       </div>
-
-        <CenteredModal
-          open={searchOpen && Boolean(config.search)}
-          onClose={() => setSearchOpen(false)}
-          title={config.search?.title || "Search"}
-          description={config.search?.description}
-          panelClassName="max-w-[760px] border-shellLine bg-shellElevated"
-          bodyClassName="pt-4"
-          footer={
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-quiet">Cmd/Ctrl+K opens this search surface.</p>
-              <GhostButton onClick={() => setSearchOpen(false)}>Close</GhostButton>
-            </div>
-          }
-        >
-          {config.search?.content || <PageLoader label="Loading search…" fullscreen={false} />}
-        </CenteredModal>
 
         <CenteredModal
           open={notificationsOpen && Boolean(config.notifications)}

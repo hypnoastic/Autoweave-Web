@@ -133,11 +133,12 @@ describe("DashboardScreen", () => {
     expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(await screen.findByRole("dialog", { name: "Search orbits" })).toBeInTheDocument();
+    expect(await screen.findByRole("search", { name: "Search orbits" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search by orbit name or repository")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open notifications" }));
     expect(await screen.findByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Search orbits" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("search", { name: "Search orbits" })).not.toBeInTheDocument();
   });
 
   it("opens the profile menu from the persistent shell", async () => {

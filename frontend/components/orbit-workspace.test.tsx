@@ -1380,7 +1380,7 @@ describe("OrbitWorkspace", () => {
       fireEvent.keyDown(document, { key: "k", ctrlKey: true });
     });
 
-    expect(await screen.findByRole("dialog", { name: "Search this orbit" })).toBeInTheDocument();
+    expect(await screen.findByRole("search", { name: "Search this orbit" })).toBeInTheDocument();
     await act(async () => {
       fireEvent.change(screen.getByPlaceholderText("Search this orbit or run a quick action"), { target: { value: "release notes" } });
     });
@@ -1488,7 +1488,7 @@ describe("OrbitWorkspace", () => {
       fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
     });
 
-    expect(await screen.findByRole("dialog", { name: "Search this orbit" })).toBeInTheDocument();
+    expect(await screen.findByRole("search", { name: "Search this orbit" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument();
   });
 
