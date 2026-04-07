@@ -4,13 +4,14 @@ import clsx from "clsx";
 import type {
   ButtonHTMLAttributes,
   CSSProperties,
+  ForwardedRef,
   HTMLAttributes,
   InputHTMLAttributes,
   PropsWithChildren,
   ReactNode,
   TextareaHTMLAttributes,
 } from "react";
-import { useEffect, useId, useRef } from "react";
+import { forwardRef, useEffect, useId, useRef } from "react";
 
 export function cx(...values: Parameters<typeof clsx>) {
   return clsx(...values);
@@ -171,12 +172,16 @@ export function IconButton({
   );
 }
 
-export function TextInput({
-  className,
-  ...rest
-}: InputHTMLAttributes<HTMLInputElement>) {
+export const TextInput = forwardRef(function TextInput(
+  {
+    className,
+    ...rest
+  }: InputHTMLAttributes<HTMLInputElement>,
+  ref: ForwardedRef<HTMLInputElement>,
+) {
   return (
     <input
+      ref={ref}
       className={clsx(
         "w-full rounded-chip border border-line bg-panel px-3.5 py-2.5 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panelStrong focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
@@ -184,14 +189,18 @@ export function TextInput({
       {...rest}
     />
   );
-}
+});
 
-export function TextArea({
-  className,
-  ...rest
-}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export const TextArea = forwardRef(function TextArea(
+  {
+    className,
+    ...rest
+  }: TextareaHTMLAttributes<HTMLTextAreaElement>,
+  ref: ForwardedRef<HTMLTextAreaElement>,
+) {
   return (
     <textarea
+      ref={ref}
       className={clsx(
         "min-h-24 w-full resize-none rounded-chip border border-line bg-panel px-3.5 py-3 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panelStrong focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
@@ -199,7 +208,7 @@ export function TextArea({
       {...rest}
     />
   );
-}
+});
 
 export function AvatarMark({
   label,

@@ -238,4 +238,53 @@ describe("OrbitChatPane", () => {
     expect(aside).toHaveClass("max-h-[min(34dvh,280px)]", "shrink-0");
     expect(composer).toHaveClass("shrink-0");
   });
+
+  it("offers mention suggestions from the richer composer flow", () => {
+    const onMessageBodyChange = vi.fn();
+
+    render(
+      <OrbitChatPane
+        session={{
+          token: "session",
+          user: {
+            id: "user_1",
+            github_login: "octocat",
+            display_name: "Octo Cat",
+          },
+        }}
+        channels={[{ id: "channel_1", slug: "general", name: "general" }]}
+        directMessages={[{ id: "dm_1", title: "ERGO" }]}
+        selectedConversation={{ kind: "channel", id: "channel_1" }}
+        messages={[]}
+        humanLoopItems={[]}
+        mentionOptions={[
+          { id: "mention-ergo", label: "ERGO", handle: "ERGO", kind: "ergo" },
+          { id: "mention-octo", label: "Octo Cat", handle: "octocat", kind: "member" },
+        ]}
+        conversationTitle="general"
+        conversationSearch=""
+        onConversationSearchChange={() => {}}
+        messageBody="@er"
+        onMessageBodyChange={onMessageBodyChange}
+        onSendMessage={() => {}}
+        onRetryMessage={() => {}}
+        onSelectConversation={() => {}}
+        onOpenCreateChannel={() => {}}
+        onOpenStartDm={() => {}}
+        pendingAgent={false}
+        selectedRunId=""
+        openHumanRequests={{}}
+        openApprovalRequests={{}}
+        workflowAnswers={{}}
+        onWorkflowAnswerChange={() => {}}
+        onAnswerHumanRequest={() => {}}
+        onResolveApproval={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Mention someone")).toBeInTheDocument();
+    const ergoButtons = screen.getAllByRole("button", { name: /ERGO/i });
+    fireEvent.click(ergoButtons[ergoButtons.length - 1]);
+    expect(onMessageBodyChange).toHaveBeenCalledWith("@ERGO ");
+  });
 });

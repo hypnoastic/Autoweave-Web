@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { AtSign, Check, Hash, MessageSquarePlus, Paperclip, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { AtSign, Bold, Check, Code2, Hash, Italic, MessageSquarePlus, Paperclip, Plus, Search, SendHorizonal, Users, X } from "lucide-react";
 
 import type {
   ChannelSummary,
@@ -39,6 +39,56 @@ type ConversationSearchResult = {
   created_at: string;
 };
 
+type MentionOption = {
+  id: string;
+  label: string;
+  handle: string;
+  avatarUrl?: string | null;
+  kind?: "ergo" | "member";
+};
+
+type StagedAttachment = {
+  id: string;
+  name: string;
+  sizeLabel: string;
+};
+
+function hashColor(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = value.charCodeAt(index) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return {
+    background: `hsla(${hue}, 72%, 58%, 0.18)`,
+    foreground: `hsl(${hue}, 82%, 68%)`,
+  };
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 KB";
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function mentionMatch(value: string, cursor: number) {
+  const beforeCursor = value.slice(0, cursor);
+  const match = /(^|\s)@([a-z0-9._-]*)$/i.exec(beforeCursor);
+  if (!match) {
+    return null;
+  }
+  const query = match[2] ?? "";
+  return {
+    start: cursor - query.length - 1,
+    end: cursor,
+    query: query.toLowerCase(),
+  };
+}
+
 export function OrbitChatPane({
   session,
   channels,
@@ -47,6 +97,7 @@ export function OrbitChatPane({
   messages,
   conversationSearchResults = [],
   humanLoopItems = [],
+  mentionOptions = [],
   conversationLoading = false,
   conversationTitle,
   conversationSearch,
@@ -77,6 +128,7 @@ export function OrbitChatPane({
   messages: ConversationMessage[];
   conversationSearchResults?: ConversationSearchResult[];
   humanLoopItems: HumanLoopItem[];
+  mentionOptions?: MentionOption[];
   conversationLoading?: boolean;
   conversationTitle: string;
   conversationSearch: string;
@@ -101,7 +153,11 @@ export function OrbitChatPane({
   onAnswerHumanRequest: (requestId: string) => void;
 }) {
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
   const conversationKey = selectedConversation ? `${selectedConversation.kind}:${selectedConversation.id}` : "none";
   const actionableMessageIds = useMemo(() => {
     const latestByKey = new Map<string, string>();
@@ -130,6 +186,35 @@ export function OrbitChatPane({
     });
   }, [humanLoopItems, messages]);
   const hasConversationSearch = conversationSearch.trim().length > 0;
+  const mentionState = useMemo(() => mentionMatch(messageBody, composerRef.current?.selectionStart ?? messageBody.length), [messageBody]);
+  const mentionSuggestions = useMemo(() => {
+    if (!mentionState) {
+      return [];
+    }
+    const seen = new Set<string>();
+    return mentionOptions
+      .filter((option) => {
+        const key = option.handle.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        if (!mentionState.query) {
+          return true;
+        }
+        const query = mentionState.query;
+        return option.handle.toLowerCase().includes(query) || option.label.toLowerCase().includes(query);
+      })
+      .slice(0, 6);
+  }, [mentionOptions, mentionState]);
+
+  useEffect(() => {
+    setMentionIndex(0);
+  }, [messageBody, selectedConversation?.id, selectedConversation?.kind]);
+
+  useEffect(() => {
+    setStagedAttachments([]);
+  }, [conversationKey]);
 
   function renderAuthorMark(message: ConversationMessage) {
     if (message.author_kind === "agent") {
@@ -180,13 +265,94 @@ export function OrbitChatPane({
     stickToBottomRef.current = distanceFromBottom < 36;
   }
 
+  function updateComposer(nextValue: string, nextCursor?: number) {
+    onMessageBodyChange(nextValue);
+    window.requestAnimationFrame(() => {
+      if (!composerRef.current || nextCursor == null) {
+        return;
+      }
+      composerRef.current.focus();
+      composerRef.current.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  function wrapComposerSelection(prefix: string, suffix = prefix, placeholder = "text") {
+    const textarea = composerRef.current;
+    const start = textarea?.selectionStart ?? messageBody.length;
+    const end = textarea?.selectionEnd ?? messageBody.length;
+    const selectedText = messageBody.slice(start, end);
+    const nextSelection = selectedText || placeholder;
+    const nextValue = `${messageBody.slice(0, start)}${prefix}${nextSelection}${suffix}${messageBody.slice(end)}`;
+    const nextCursor = start + prefix.length + nextSelection.length + suffix.length;
+    updateComposer(nextValue, nextCursor);
+  }
+
+  function insertCodeBlock() {
+    const textarea = composerRef.current;
+    const start = textarea?.selectionStart ?? messageBody.length;
+    const end = textarea?.selectionEnd ?? messageBody.length;
+    const selectedText = messageBody.slice(start, end) || "code";
+    const block = `\n\`\`\`\n${selectedText}\n\`\`\`\n`;
+    updateComposer(`${messageBody.slice(0, start)}${block}${messageBody.slice(end)}`, start + block.length);
+  }
+
+  function applyMention(option: MentionOption) {
+    const state = mentionState;
+    if (!state) {
+      return;
+    }
+    const mentionToken = `@${option.handle} `;
+    const nextValue = `${messageBody.slice(0, state.start)}${mentionToken}${messageBody.slice(state.end)}`;
+    updateComposer(nextValue, state.start + mentionToken.length);
+  }
+
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionSuggestions.length) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setMentionIndex((current) => (current + 1) % mentionSuggestions.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionIndex((current) => (current - 1 + mentionSuggestions.length) % mentionSuggestions.length);
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        applyMention(mentionSuggestions[mentionIndex] || mentionSuggestions[0]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMentionIndex(0);
+        return;
+      }
+    }
+  }
+
+  function onStageAttachments(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) {
+      return;
+    }
+    setStagedAttachments((current) => [
+      ...current,
+      ...files.map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        name: file.name,
+        sizeLabel: formatBytes(file.size),
+      })),
+    ]);
+    event.target.value = "";
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-      <aside className="flex min-h-0 max-h-[min(34dvh,280px)] w-full shrink-0 flex-col border-b border-line bg-panelMuted/35 lg:max-h-none lg:w-[268px] lg:min-w-[268px] lg:border-b-0 lg:border-r">
+      <aside className="flex min-h-0 max-h-[min(34dvh,280px)] w-full shrink-0 flex-col border-b border-line bg-panelMuted/25 lg:max-h-none lg:w-[252px] lg:min-w-[252px] lg:border-b-0 lg:border-r">
         <div className="border-b border-line px-4 py-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Chat</p>
-          <p className="mt-2 text-sm font-semibold text-ink">Channels and DMs</p>
-          <p className="mt-1 text-xs text-quiet">Channels stay together. Direct messages live below in the same surface.</p>
+          <p className="mt-1 text-sm font-semibold text-ink">Channels and DMs</p>
         </div>
 
         <ScrollPanel className="max-h-[240px] flex-1 px-2.5 py-3 lg:max-h-none">
@@ -202,17 +368,21 @@ export function OrbitChatPane({
               <div className="space-y-1">
                 {channels.map((channel) => {
                   const active = selectedConversation?.kind === "channel" && selectedConversation.id === channel.id;
+                  const channelTone = hashColor(channel.id || channel.name);
                   return (
                     <button
                       key={channel.id}
                       type="button"
                       onClick={() => onSelectConversation({ kind: "channel", id: channel.id })}
                       className={cx(
-                        "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-[background-color,color] duration-150 ease-productive",
-                        active ? "bg-panelStrong text-ink shadow-[inset_0_0_0_1px_var(--aw-border-strong)]" : "text-quiet hover:bg-panel hover:text-ink",
+                        "flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-1.5 text-left transition-[background-color,color] duration-150 ease-productive",
+                        active ? "bg-panel text-ink" : "text-quiet hover:bg-panel/75 hover:text-ink",
                       )}
                     >
-                      <span className={cx("flex h-7 w-7 items-center justify-center rounded-[9px]", active ? "bg-panel text-ink" : "bg-panel text-[#5b79f7] dark:text-[#9fb3ff]")}>
+                      <span
+                        className="flex h-6 w-6 items-center justify-center rounded-[8px]"
+                        style={{ backgroundColor: active ? "var(--aw-panel-strong)" : channelTone.background, color: channelTone.foreground }}
+                      >
                         <Hash className="h-4 w-4" />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">{channel.name}</span>
@@ -241,15 +411,12 @@ export function OrbitChatPane({
                       type="button"
                       onClick={() => onSelectConversation({ kind: "dm", id: thread.id })}
                       className={cx(
-                        "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-[background-color,color] duration-150 ease-productive",
-                        active ? "bg-panelStrong text-ink shadow-[inset_0_0_0_1px_var(--aw-border-strong)]" : "text-quiet hover:bg-panel hover:text-ink",
+                        "flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-1.5 text-left transition-[background-color,color] duration-150 ease-productive",
+                        active ? "bg-panel text-ink" : "text-quiet hover:bg-panel/75 hover:text-ink",
                       )}
                     >
                       <AvatarMark label={thread.title} src={thread.participant?.avatar_url} className="h-7 w-7 rounded-[9px]" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{thread.title}</p>
-                        <p className="mt-0.5 text-[11px] text-faint">Direct message</p>
-                      </div>
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{thread.title}</p>
                     </button>
                   );
                 })}
@@ -266,7 +433,7 @@ export function OrbitChatPane({
               {selectedConversation?.kind === "channel" ? <Hash className="h-4 w-4 text-[#5b79f7] dark:text-[#9fb3ff]" /> : <Users className="h-4 w-4 text-quiet" />}
               <h3 className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{conversationTitle}</h3>
             </div>
-            <p className="mt-1 text-xs text-quiet">Chat stays calm. Workflow detail belongs on the execution board, not in the channel.</p>
+            <p className="mt-1 text-xs text-quiet">Chat stays calm. Workflow detail belongs on the execution board.</p>
           </div>
           <div className="relative w-full lg:max-w-[280px]">
             <TextInput
@@ -380,7 +547,7 @@ export function OrbitChatPane({
                   && previousEntry?.author_name === message.author_name
                   && previousEntry?.author_kind === message.author_kind;
                 return (
-                  <div key={message.id} className="flex gap-3">
+                  <div key={message.id} className="flex gap-3 rounded-[14px] px-2 py-1 transition-colors duration-150 ease-productive hover:bg-panel/45">
                     <div className="w-8 shrink-0 pt-0.5">
                       {groupedWithPrevious ? <div className="h-8 w-8" /> : renderAuthorMark(message)}
                     </div>
@@ -394,7 +561,7 @@ export function OrbitChatPane({
                         {message.transport_state === "pending_remote" ? <StatusPill tone="muted">syncing</StatusPill> : null}
                         {message.transport_state === "failed_remote" ? <StatusPill tone="danger">retry needed</StatusPill> : null}
                       </div>
-                      <div className={cx("mt-1 rounded-[14px] border border-line bg-panel px-3.5 py-2.5 text-sm leading-6 text-ink", isCurrentUser && "bg-panelStrong")}>
+                      <div className={cx("mt-0.5 rounded-[10px] px-2 py-1.5 text-sm leading-6 text-ink", isCurrentUser ? "bg-panel/70" : "bg-transparent")}>
                         {message.body}
                       </div>
                       {message.transport_state === "failed_remote" ? (
@@ -466,28 +633,87 @@ export function OrbitChatPane({
 
         <div className="shrink-0 border-t border-line bg-canvas px-4 py-3 sm:px-5">
           <div className="rounded-pane border border-line bg-panelStrong p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-quiet">
-              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
-                <AtSign className="h-3 w-3" />
-                Reply with @ERGO
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
-                <Check className="h-3 w-3" />
-                Markdown-ready
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">
-                <Paperclip className="h-3 w-3" />
-                Attachments next
-              </span>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {[
+                { label: "Bold", icon: Bold, action: () => wrapComposerSelection("**", "**", "bold") },
+                { label: "Italic", icon: Italic, action: () => wrapComposerSelection("*", "*", "italic") },
+                { label: "Inline code", icon: Code2, action: () => wrapComposerSelection("`", "`", "code") },
+                { label: "Code block", icon: Code2, action: insertCodeBlock },
+                { label: "Mention", icon: AtSign, action: () => updateComposer(`${messageBody}${messageBody.endsWith(" ") || !messageBody ? "" : " "}@`, messageBody.length + (messageBody.endsWith(" ") || !messageBody ? 1 : 2)) },
+                { label: "Attach files", icon: Paperclip, action: () => attachmentInputRef.current?.click() },
+              ].map(({ label, icon: Icon, action }) => (
+                <button
+                  key={label}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  onClick={action}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 text-xs font-medium text-quiet transition-[background-color,border-color,color] duration-150 ease-productive hover:bg-panelMuted hover:text-ink"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+              <input ref={attachmentInputRef} type="file" multiple className="hidden" onChange={onStageAttachments} />
             </div>
-            <TextArea
-              value={messageBody}
-              onChange={(event) => onMessageBodyChange(event.target.value)}
-              placeholder="@ERGO clean up the task board and keep chat calm"
-              className="min-h-[92px] border-0 bg-transparent px-0 py-0"
-            />
+            {stagedAttachments.length ? (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {stagedAttachments.map((attachment) => (
+                  <div key={attachment.id} className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-2.5 py-1 text-xs text-quiet">
+                    <Paperclip className="h-3.5 w-3.5" />
+                    <span className="font-medium text-ink">{attachment.name}</span>
+                    <span>{attachment.sizeLabel}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${attachment.name}`}
+                      onClick={() => setStagedAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-faint hover:bg-panelMuted hover:text-ink"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="relative">
+              <TextArea
+                ref={composerRef}
+                value={messageBody}
+                onChange={(event) => onMessageBodyChange(event.target.value)}
+                onKeyDown={onComposerKeyDown}
+                placeholder="@ERGO clean up the task board and keep chat calm"
+                className="min-h-[84px] border-0 bg-transparent px-0 py-0"
+              />
+              {mentionSuggestions.length ? (
+                <div className="aw-motion-pop absolute bottom-[calc(100%+10px)] left-0 z-20 min-w-[260px] overflow-hidden rounded-[14px] border border-line bg-panelStrong shadow-soft">
+                  <div className="border-b border-line px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-quiet">Mention someone</div>
+                  <div className="max-h-[240px] overflow-auto p-2">
+                    {mentionSuggestions.map((option, index) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => applyMention(option)}
+                        className={cx(
+                          "flex w-full items-center gap-2 rounded-[10px] px-2.5 py-2 text-left transition-[background-color,color] duration-150 ease-productive",
+                          index === mentionIndex ? "bg-panel text-ink" : "text-quiet hover:bg-panel hover:text-ink",
+                        )}
+                      >
+                        <AvatarMark label={option.label} src={option.avatarUrl} className="h-7 w-7 rounded-[9px]" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{option.label}</p>
+                          <p className="mt-0.5 text-[11px] text-faint">@{option.handle}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-quiet">Your message appears immediately and syncs in the background.</p>
+              <div className="space-y-1 text-xs text-quiet">
+                <p>Your message appears immediately and syncs in the background.</p>
+                {stagedAttachments.length ? <p>Attachments are staged locally while the product upload flow is being wired.</p> : null}
+              </div>
               <ActionButton onClick={onSendMessage} disabled={!messageBody.trim()}>
                 <SendHorizonal className="h-4 w-4" />
                 Send

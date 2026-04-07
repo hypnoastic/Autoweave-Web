@@ -364,19 +364,67 @@ function workflowColumns(run: WorkflowRun | null) {
     {
       key: "ready",
       label: "Ready",
-      cards: tasks.filter((task) => ["ready", "waiting_for_dependency"].includes(task.state)),
+      cards: tasks.filter((task) => ["ready", "waiting_for_dependency", "queued"].includes(task.state)),
     },
     {
-      key: "in_process",
-      label: "In Process",
-      cards: tasks.filter((task) =>
-        ["in_progress", "waiting_for_human", "waiting_for_approval", "blocked"].includes(task.state),
-      ),
+      key: "in_progress",
+      label: "In progress",
+      cards: tasks.filter((task) => ["in_progress", "active"].includes(task.state)),
     },
     {
-      key: "completed",
-      label: "Completed",
+      key: "waiting",
+      label: "Waiting",
+      cards: tasks.filter((task) => ["waiting_for_human", "waiting_for_approval"].includes(task.state)),
+    },
+    {
+      key: "blocked",
+      label: "Blocked",
+      cards: tasks.filter((task) => ["blocked", "failed"].includes(task.state)),
+    },
+    {
+      key: "done",
+      label: "Done",
       cards: tasks.filter((task) => task.state === "completed"),
+    },
+  ];
+}
+
+function pullRequestGroups(items: BoardItem[]) {
+  return [
+    {
+      key: "ready",
+      label: "Ready",
+      items: items.filter((item) => ["awaiting_review", "in_review", "ready_for_review"].includes(String(item.operational_status || item.state).toLowerCase())),
+    },
+    {
+      key: "needs_work",
+      label: "Needs work",
+      items: items.filter((item) => ["changes_requested", "draft", "blocked"].includes(String(item.operational_status || item.state).toLowerCase())),
+    },
+    {
+      key: "merged",
+      label: "Merged",
+      items: items.filter((item) => ["merged", "closed"].includes(String(item.operational_status || item.state).toLowerCase())),
+    },
+  ];
+}
+
+function issueGroups(items: BoardItem[]) {
+  return [
+    {
+      key: "open",
+      label: "Open",
+      items: items.filter((item) => !["blocked", "closed", "done", "resolved"].includes(String(item.operational_status || item.state).toLowerCase())),
+    },
+    {
+      key: "blocked",
+      label: "Blocked",
+      items: items.filter((item) => ["blocked"].includes(String(item.operational_status || item.state).toLowerCase())),
+    },
+    {
+      key: "recently_closed",
+      label: "Recently closed",
+      items: items.filter((item) => ["closed", "done", "resolved"].includes(String(item.operational_status || item.state).toLowerCase())),
     },
   ];
 }
@@ -415,12 +463,12 @@ function BoardCard({
 }) {
   return (
     <button
-      className="w-full rounded-pane border border-line bg-panelStrong px-3.5 py-3 text-left transition hover:bg-panelMuted"
+      className="w-full rounded-[14px] border border-line bg-panel px-3 py-2.5 text-left transition-[background-color,border-color] duration-150 ease-productive hover:border-lineStrong hover:bg-panelMuted"
       onClick={onClick}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-ink">{title}</p>
+          <p className="truncate text-sm font-medium text-ink">{title}</p>
           <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{detail}</p>
         </div>
         <StatusPill tone={tone}>{label}</StatusPill>
@@ -429,8 +477,18 @@ function BoardCard({
   );
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <SharedEmptyState detail={text} />;
+function EmptyState({
+  text,
+  title,
+  detail,
+  className,
+}: {
+  text?: string;
+  title?: string;
+  detail?: string;
+  className?: string;
+}) {
+  return <SharedEmptyState title={title} detail={detail ?? text ?? ""} className={className} />;
 }
 
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
@@ -465,6 +523,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [updatingMemberRole, setUpdatingMemberRole] = useState<string | null>(null);
   const [activeCodespaceId, setActiveCodespaceId] = useState<string | null>(null);
   const [codespaceMode, setCodespaceMode] = useState<"browse" | "open">("browse");
+  const [creatingCodespace, setCreatingCodespace] = useState(false);
+  const [publishingArtifact, setPublishingArtifact] = useState(false);
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+  const [artifactMode, setArtifactMode] = useState<"browse" | "open">("browse");
   const [localAgentPending, setLocalAgentPending] = useState(false);
   const [localPendingConversation, setLocalPendingConversation] = useState<ConversationSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -501,6 +563,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   }, [selectedRun]);
   const selectedCodespace =
     payload?.codespaces.find((item) => item.id === activeCodespaceId) ?? payload?.codespaces[0] ?? null;
+  const selectedArtifact =
+    payload?.artifacts?.find((item) => item.id === activeArtifactId) ?? payload?.artifacts?.[0] ?? null;
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
     [selectedRun],
@@ -1338,6 +1402,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       breadcrumb: payload
         ? section === "codespaces" && codespaceMode === "open" && selectedCodespace
           ? [payload.orbit.name, "Codespaces", selectedCodespace.name]
+          : section === "demos" && artifactMode === "open" && selectedArtifact
+            ? [payload.orbit.name, "Artifacts", selectedArtifact.title]
           : [payload.orbit.name, currentSectionLabel]
         : ["Orbit"],
       backAction:
@@ -1345,6 +1411,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           ? () => {
               setCodespaceMode("browse");
             }
+          : section === "demos" && artifactMode === "open"
+            ? () => {
+                setArtifactMode("browse");
+              }
           : undefined,
       items: [
         {
@@ -1438,6 +1508,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       section,
       codespaceMode,
       selectedCodespace,
+      artifactMode,
+      selectedArtifact,
       showOrbitSettings,
       leftSearch,
       loadingCommandResults,
@@ -1450,6 +1522,36 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   );
 
   useAuthenticatedShellConfig(shellConfig);
+
+  const mentionOptions = useMemo(() => {
+    if (!payload) {
+      return [];
+    }
+    const seen = new Set<string>();
+    return [
+      {
+        id: "mention-ergo",
+        label: "ERGO",
+        handle: "ERGO",
+        avatarUrl: payload.direct_messages.find((thread) => thread.participant?.login === "ERGO")?.participant?.avatar_url ?? null,
+        kind: "ergo" as const,
+      },
+      ...payload.members.map((member) => ({
+        id: `member-${member.user_id}`,
+        label: member.display_name || member.github_login || member.login || member.user_id,
+        handle: member.github_login || member.login || (member.display_name || member.user_id).replace(/\s+/g, "").toLowerCase(),
+        avatarUrl: member.avatar_url ?? null,
+        kind: "member" as const,
+      })),
+    ].filter((option) => {
+      const key = option.handle.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [payload]);
 
   if (!session || !payload) {
     return <ShellPageSkeleton mode="orbit" />;
@@ -1545,6 +1647,10 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (result.section === "codespaces" && result.detail_id) {
       setActiveCodespaceId(result.detail_id);
       setCodespaceMode("open");
+    }
+    if (result.section === "demos" && result.detail_id) {
+      setActiveArtifactId(result.detail_id);
+      setArtifactMode("open");
     }
     if (result.workflow_run_id && payload?.workflow.runs.some((run) => run.id === result.workflow_run_id)) {
       void onSectionChange("workflow");
@@ -1668,6 +1774,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     if (!session || !payload) {
       return;
     }
+    setCreatingCodespace(true);
     try {
       const created = await createCodespace(session.token, orbitId, { name: `${payload.orbit.name} workspace` });
       await onSectionChange("codespaces");
@@ -1676,6 +1783,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       await reload(selectedConversation);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to create the codespace.");
+    } finally {
+      setCreatingCodespace(false);
     }
   }
 
@@ -1688,6 +1797,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       setError("Create a codespace first so there is something to publish.");
       return;
     }
+    setPublishingArtifact(true);
     try {
       await publishDemo(session.token, orbitId, {
         title: `${payload.orbit.name} demo`,
@@ -1696,6 +1806,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       await reload(selectedConversation);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to publish the demo.");
+    } finally {
+      setPublishingArtifact(false);
     }
   }
 
@@ -1832,6 +1944,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               messages={messages}
               conversationSearchResults={conversationSearchResults}
               humanLoopItems={humanLoopItems}
+              mentionOptions={mentionOptions}
               conversationLoading={conversationLoading}
               conversationTitle={currentConversationTitle}
               conversationSearch={conversationSearch}
@@ -1871,30 +1984,27 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   }
                 />
                 <ScrollPanel className="flex-1 px-3 py-3">
-                  <div className="mb-3 grid gap-2 lg:grid-cols-4">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
                     {[
-                      { label: "Total tasks", value: workflowMetrics.total, tone: "muted" as const },
+                      { label: "Total", value: workflowMetrics.total, tone: "muted" as const },
                       { label: "Blocked", value: workflowMetrics.blocked, tone: workflowMetrics.blocked ? "danger" as const : "muted" as const },
                       { label: "Waiting", value: workflowMetrics.waiting, tone: workflowMetrics.waiting ? "accent" as const : "muted" as const },
-                      { label: "Completed", value: workflowMetrics.completed, tone: workflowMetrics.completed ? "success" as const : "muted" as const },
+                      { label: "Done", value: workflowMetrics.completed, tone: workflowMetrics.completed ? "success" as const : "muted" as const },
                     ].map((metric) => (
-                      <SurfaceCard key={metric.label} className="bg-panelStrong p-3">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{metric.label}</p>
-                        <div className="mt-2 flex items-center justify-between gap-3">
-                          <p className="text-xl font-semibold tracking-[-0.03em] text-ink">{metric.value}</p>
-                          <StatusPill tone={metric.tone}>{metric.value}</StatusPill>
-                        </div>
-                      </SurfaceCard>
+                      <div key={metric.label} className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-sm">
+                        <span className="text-quiet">{metric.label}</span>
+                        <StatusPill tone={metric.tone}>{metric.value}</StatusPill>
+                      </div>
                     ))}
                   </div>
-                  <div className="grid min-h-0 gap-3 xl:grid-cols-3">
+                  <div className="grid min-h-0 gap-3 xl:grid-cols-5">
                   {workflowLanes.map((lane) => (
-                    <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-3.5">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-ink">{lane.label}</p>
+                    <div key={lane.key} className="flex min-h-[188px] flex-col rounded-[16px] border border-line bg-panelStrong p-3">
+                      <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
+                        <p className="text-sm font-medium text-ink">{lane.label}</p>
                         <StatusPill tone="muted">{lane.cards.length}</StatusPill>
                       </div>
-                      <div className="mt-4 flex-1 space-y-3">
+                      <div className="mt-3 flex-1 space-y-2">
                         {lane.cards.length ? (
                           lane.cards.map((task) => (
                             <BoardCard
@@ -1907,7 +2017,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                             />
                           ))
                         ) : (
-                          <EmptyState text="Nothing in this lane right now." />
+                          <div className="rounded-[12px] border border-dashed border-line bg-panel px-3 py-3 text-xs text-quiet">
+                            Nothing active here right now.
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1932,25 +2044,41 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   }
                 />
                 <ScrollPanel className="flex-1 px-4 py-4">
-                  <div className="space-y-3">
-                    {payload.prs.length ? (
-                      payload.prs.map((item) => (
-                        <BoardCard
-                          key={item.id}
-                          title={`PR #${item.number} · ${item.title}`}
-                          detail={
-                            [item.repository_full_name, item.branch_name || "Branch not captured yet"]
-                              .filter(Boolean)
-                              .join(" · ")
-                          }
-                          tone={boardTone(item.operational_status)}
-                          label={formatStateLabel(item.operational_status || item.state)}
-                          onClick={() => setDetailPanel({ kind: "pr", item })}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState text="No pull requests are mirrored into this orbit yet." />
-                    )}
+                  <div className="space-y-4">
+                    {pullRequestGroups(payload.prs).map((group) => (
+                        <div key={group.key} className="rounded-[16px] border border-line bg-panelStrong">
+                          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                            <p className="text-sm font-medium text-ink">{group.label}</p>
+                            <StatusPill tone="muted">{group.items.length}</StatusPill>
+                          </div>
+                          <div className="space-y-2 px-3 py-3">
+                            {group.items.length ? (
+                              group.items.map((item) => (
+                                <BoardCard
+                                  key={item.id}
+                                  title={`PR #${item.number} · ${item.title}`}
+                                  detail={[item.repository_full_name, item.branch_name || "Branch not captured yet"].filter(Boolean).join(" · ")}
+                                  tone={boardTone(item.operational_status)}
+                                  label={formatStateLabel(item.operational_status || item.state)}
+                                  onClick={() => setDetailPanel({ kind: "pr", item })}
+                                />
+                              ))
+                            ) : (
+                              <EmptyState
+                                title={`No ${group.label.toLowerCase()} pull requests`}
+                                detail={
+                                  group.key === "ready"
+                                    ? "Review-ready work will collect here once GitHub sync brings pull requests into this orbit."
+                                    : group.key === "needs_work"
+                                      ? "Drafts, blocked reviews, and change-requested work stays grouped here."
+                                      : "Merged work stays visible here as a recent outcome, not as a full-page empty state."
+                                }
+                                className="bg-panel"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </ScrollPanel>
               </Panel>
@@ -1971,25 +2099,41 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   }
                 />
                 <ScrollPanel className="flex-1 px-4 py-4">
-                  <div className="space-y-3">
-                    {payload.issues.length ? (
-                      payload.issues.map((item) => (
-                        <BoardCard
-                          key={item.id}
-                          title={`Issue #${item.number} · ${item.title}`}
-                          detail={
-                            [item.repository_full_name, item.priority ? `Priority ${item.priority}` : "Tracked in GitHub"]
-                              .filter(Boolean)
-                              .join(" · ")
-                          }
-                          tone={boardTone(item.operational_status)}
-                          label={formatStateLabel(item.operational_status || item.state)}
-                          onClick={() => setDetailPanel({ kind: "issue", item })}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState text="No issues are mirrored into this orbit yet." />
-                    )}
+                  <div className="space-y-4">
+                    {issueGroups(payload.issues).map((group) => (
+                        <div key={group.key} className="rounded-[16px] border border-line bg-panelStrong">
+                          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                            <p className="text-sm font-medium text-ink">{group.label}</p>
+                            <StatusPill tone="muted">{group.items.length}</StatusPill>
+                          </div>
+                          <div className="space-y-2 px-3 py-3">
+                            {group.items.length ? (
+                              group.items.map((item) => (
+                                <BoardCard
+                                  key={item.id}
+                                  title={`Issue #${item.number} · ${item.title}`}
+                                  detail={[item.repository_full_name, item.priority ? `Priority ${item.priority}` : "Tracked in GitHub"].filter(Boolean).join(" · ")}
+                                  tone={boardTone(item.operational_status)}
+                                  label={formatStateLabel(item.operational_status || item.state)}
+                                  onClick={() => setDetailPanel({ kind: "issue", item })}
+                                />
+                              ))
+                            ) : (
+                              <EmptyState
+                                title={`No ${group.label.toLowerCase()} issues`}
+                                detail={
+                                  group.key === "open"
+                                    ? "Active tracked work will land here once issue sync is populated."
+                                    : group.key === "blocked"
+                                      ? "Blocked issues stay isolated here so they do not disappear into the broader issue stream."
+                                      : "Recently closed issues stay here as resolved context instead of leaving the page blank."
+                                }
+                                className="bg-panel"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </ScrollPanel>
               </Panel>
@@ -2018,31 +2162,60 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                     label="Workspaces"
                     detail="Open a branch workspace and it takes over the canvas. Use the top back button to return here."
                     actions={
-                      <ActionButton onClick={() => void onCreateCodespace()}>
+                      <ActionButton onClick={() => void onCreateCodespace()} disabled={creatingCodespace}>
                         <Plus className="h-4 w-4" />
-                        Create workspace
+                        {creatingCodespace ? "Creating…" : "Create workspace"}
                       </ActionButton>
                     }
                   />
                   <ScrollPanel className="flex-1 px-4 py-4">
                     <div className="space-y-3">
-                      {payload.codespaces.length ? (
-                        payload.codespaces.map((item) => (
-                          <ListRow
-                            key={item.id}
-                            title={item.name}
-                            detail={[item.repository_full_name, item.branch_name].filter(Boolean).join(" · ")}
-                            active={activeCodespaceId === item.id}
-                            trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
-                            onClick={() => {
-                              setActiveCodespaceId(item.id);
-                              setCodespaceMode("open");
-                            }}
-                          />
-                        ))
-                      ) : (
-                        <EmptyState text="No codespaces yet. Create one and it will open here." />
-                      )}
+                      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+                        <div className="space-y-2">
+                          {creatingCodespace ? (
+                            <InlineNotice detail="Creating a fresh workspace and reopening the canvas as soon as it is ready." />
+                          ) : null}
+                          {payload.codespaces.length ? (
+                            payload.codespaces.map((item) => (
+                              <ListRow
+                                key={item.id}
+                                eyebrow={item.repository_full_name || "Workspace"}
+                                title={item.name}
+                                detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
+                                active={activeCodespaceId === item.id}
+                                trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
+                                supporting={
+                                  item.editor_url ? (
+                                    <span className="inline-flex items-center gap-2 text-xs text-quiet">Embeddable editor available</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-2 text-xs text-quiet">Waiting for editor URL</span>
+                                  )
+                                }
+                                onClick={() => {
+                                  setActiveCodespaceId(item.id);
+                                  setCodespaceMode("open");
+                                }}
+                              />
+                            ))
+                          ) : (
+                            <EmptyState text="No workspaces yet. Create one and it will open here." />
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <SurfaceCard className="bg-panelStrong">
+                            <p className="text-sm font-semibold text-ink">Workspace behavior</p>
+                            <p className="mt-2 text-sm text-quiet">
+                              Active workspaces take over the canvas. The top back button returns to this operational list.
+                            </p>
+                          </SurfaceCard>
+                          <SurfaceCard className="bg-panelStrong">
+                            <p className="text-sm font-semibold text-ink">Creation path</p>
+                            <p className="mt-2 text-sm text-quiet">
+                              New workspaces are created against the current orbit repository and open directly when the editor URL is available.
+                            </p>
+                          </SurfaceCard>
+                        </div>
+                      </div>
                     </div>
                   </ScrollPanel>
                 </Panel>
@@ -2051,76 +2224,129 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           ) : null}
 
           {section === "demos" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[1fr_320px]">
-              <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <OrbitSectionBar
-                  label="Artifacts"
-                  detail="Deliverables, previews, and publishable outputs stay tied to repo scope instead of disappearing into workflow side effects."
-                  actions={
-                    <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
-                      <Files className="h-4 w-4" />
-                      Publish demo
-                    </ActionButton>
-                  }
-                />
-                <ScrollPanel className="flex-1 px-4 py-4">
-                  <div className="space-y-3">
-                    {(payload.artifacts ?? []).length ? (
-                      (payload.artifacts ?? []).map((artifact) => (
-                        <ListRow
-                          key={artifact.id}
-                          eyebrow={formatStateLabel(artifact.artifact_kind)}
-                          title={artifact.title}
-                          detail={[artifact.repository_full_name, artifact.summary || formatStateLabel(artifact.artifact_kind)].filter(Boolean).join(" · ")}
-                          trailing={
-                            <StatusPill tone={artifact.status === "running" || artifact.status === "ready" ? "success" : "muted"}>
-                              {formatStateLabel(artifact.status)}
-                            </StatusPill>
-                          }
-                          supporting={
-                            artifact.external_url ? (
-                              <a href={artifact.external_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-                                Open artifact
-                                <ExternalLink className="h-4 w-4" />
-                              </a>
-                            ) : null
-                          }
-                        />
-                      ))
-                    ) : (
-                      <EmptyState text="No artifacts are linked into this orbit yet." />
-                    )}
+            artifactMode === "open" && selectedArtifact ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panelStrong">
+                {selectedArtifact.external_url ? (
+                  <iframe
+                    title={selectedArtifact.title}
+                    src={selectedArtifact.external_url}
+                    className="h-full min-h-0 w-full flex-1 bg-white"
+                  />
+                ) : (
+                  <div className="grid min-h-0 flex-1 gap-4 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                    <Panel className="flex min-h-0 flex-col overflow-hidden">
+                      <OrbitSectionBar label={selectedArtifact.title} detail={selectedArtifact.summary || formatStateLabel(selectedArtifact.artifact_kind)} />
+                      <ScrollPanel className="flex-1 px-4 py-4">
+                        <div className="rounded-[16px] border border-dashed border-line bg-panel px-4 py-4 text-sm text-quiet">
+                          This artifact does not expose an embeddable preview yet. Use the metadata and external link while the product preview contract is still narrow.
+                        </div>
+                      </ScrollPanel>
+                    </Panel>
+                    <Panel className="flex min-h-0 flex-col overflow-hidden">
+                      <OrbitSectionBar label="Artifact context" detail={selectedArtifact.repository_full_name || "Repository pending"} />
+                      <ScrollPanel className="flex-1 px-4 py-4">
+                        <div className="space-y-3 text-sm">
+                          <SurfaceCard className="bg-panelStrong">
+                            <p className="font-semibold text-ink">Kind</p>
+                            <p className="mt-2 text-quiet">{formatStateLabel(selectedArtifact.artifact_kind)}</p>
+                          </SurfaceCard>
+                          <SurfaceCard className="bg-panelStrong">
+                            <p className="font-semibold text-ink">Source</p>
+                            <p className="mt-2 text-quiet">{selectedArtifact.source_kind}</p>
+                          </SurfaceCard>
+                        </div>
+                      </ScrollPanel>
+                    </Panel>
                   </div>
-                </ScrollPanel>
-              </Panel>
-
-              <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <OrbitSectionBar
-                  label="Artifact context"
-                  detail={payload.orbit.repo_full_name || "Repository pending"}
-                />
-                <ScrollPanel className="flex-1 px-4 py-4">
-                  <div className="space-y-4 text-sm">
-                    <SurfaceCard className="bg-panelStrong">
-                      <p className="font-semibold text-ink">Repository spread</p>
-                      <p className="mt-2 text-quiet">
-                        {payload.repositories.length > 1
-                          ? `${payload.repositories.length} repositories are bound to this orbit. Artifacts keep their repo identity when the product syncs or renders them.`
-                          : "The current artifact set is still anchored to the primary repository when no secondary bindings exist."}
-                      </p>
-                    </SurfaceCard>
-                    <SurfaceCard className="bg-panelStrong">
-                      <p className="font-semibold text-ink">Codespace source</p>
-                      <p className="mt-2 text-quiet">
-                        Demos publish from the currently selected or most recent codespace workspace path, and the resulting artifact keeps the workspace repository binding.
-                      </p>
-                    </SurfaceCard>
-                  </div>
-                </ScrollPanel>
-              </Panel>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <Panel className="flex min-h-0 flex-col overflow-hidden">
+                  <OrbitSectionBar
+                    label="Artifacts"
+                    detail="Deliverables, previews, and publishable outputs stay tied to repo scope instead of disappearing into workflow side effects."
+                    actions={
+                      <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact || publishingArtifact}>
+                        <Files className="h-4 w-4" />
+                        {publishingArtifact ? "Publishing…" : "Publish demo"}
+                      </ActionButton>
+                    }
+                  />
+                  <ScrollPanel className="flex-1 px-4 py-4">
+                    <div className="space-y-3">
+                      {publishingArtifact ? (
+                        <InlineNotice detail="Publishing an artifact from the active workspace and refreshing this orbit once it lands." />
+                      ) : null}
+                      {(payload.artifacts ?? []).length ? (
+                        (payload.artifacts ?? []).map((artifact) => (
+                          <ListRow
+                            key={artifact.id}
+                            eyebrow={formatStateLabel(artifact.artifact_kind)}
+                            title={artifact.title}
+                            detail={[artifact.repository_full_name, artifact.summary || formatStateLabel(artifact.artifact_kind)].filter(Boolean).join(" · ")}
+                            active={activeArtifactId === artifact.id}
+                            trailing={
+                              <StatusPill tone={artifact.status === "running" || artifact.status === "ready" ? "success" : "muted"}>
+                                {formatStateLabel(artifact.status)}
+                              </StatusPill>
+                            }
+                            supporting={
+                              <div className="flex flex-wrap items-center gap-2">
+                                <GhostButton
+                                  className="h-8 px-3 text-xs"
+                                  onClick={() => {
+                                    setActiveArtifactId(artifact.id);
+                                    setArtifactMode("open");
+                                  }}
+                                >
+                                  Open in place
+                                </GhostButton>
+                                {artifact.external_url ? (
+                                  <a href={artifact.external_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                                    Open external
+                                    <ExternalLink className="h-4 w-4" />
+                                  </a>
+                                ) : null}
+                              </div>
+                            }
+                          />
+                        ))
+                      ) : (
+                        <EmptyState text="No artifacts are linked into this orbit yet." />
+                      )}
+                    </div>
+                  </ScrollPanel>
+                </Panel>
+
+                <Panel className="flex min-h-0 flex-col overflow-hidden">
+                  <OrbitSectionBar
+                    label="Artifact context"
+                    detail={payload.orbit.repo_full_name || "Repository pending"}
+                  />
+                  <ScrollPanel className="flex-1 px-4 py-4">
+                    <div className="space-y-4 text-sm">
+                      <SurfaceCard className="bg-panelStrong">
+                        <p className="font-semibold text-ink">Repository spread</p>
+                        <p className="mt-2 text-quiet">
+                          {payload.repositories.length > 1
+                            ? `${payload.repositories.length} repositories are bound to this orbit. Artifacts keep their repo identity when the product syncs or renders them.`
+                            : "The current artifact set is still anchored to the primary repository when no secondary bindings exist."}
+                        </p>
+                      </SurfaceCard>
+                      <SurfaceCard className="bg-panelStrong">
+                        <p className="font-semibold text-ink">Codespace source</p>
+                        <p className="mt-2 text-quiet">
+                          Demos publish from the currently selected or most recent codespace workspace path, and the resulting artifact keeps the workspace repository binding.
+                        </p>
+                      </SurfaceCard>
+                    </div>
+                  </ScrollPanel>
+                </Panel>
+                </div>
+              </div>
+            )
           ) : null}
       </ShellPage>
 
