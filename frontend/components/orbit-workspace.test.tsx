@@ -519,7 +519,7 @@ describe("OrbitWorkspace", () => {
 
     renderOrbit();
 
-    expect(await screen.findByText("Execution board")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /manager plan/i })).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getAllByRole("button", { name: /manager plan/i })[0]);
     });
@@ -1051,7 +1051,7 @@ describe("OrbitWorkspace", () => {
     });
 
     await waitFor(() => expect(screen.queryByTitle("Orbit workspace")).not.toBeInTheDocument());
-    expect(screen.getByText("Branch workspaces")).toBeInTheDocument();
+    expect(screen.getByText("Workspaces")).toBeInTheDocument();
   });
 
   it("updates the theme preference from the persistent top bar", async () => {

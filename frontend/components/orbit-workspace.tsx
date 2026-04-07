@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bug,
   ExternalLink,
   FileCode2,
   Files,
@@ -35,7 +36,6 @@ import {
   InlineNotice,
   ListRow,
   Panel,
-  PageHeader,
   RightDetailPanel,
   ScrollPanel,
   SelectionChip,
@@ -95,7 +95,8 @@ import { MatrixChatSyncAdapter, type ConversationSelection as MatrixConversation
 const ORBIT_SECTIONS = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "workflow", label: "Workflow", icon: Workflow },
-  { key: "prs", label: "PRs & issues", icon: GitPullRequest },
+  { key: "prs", label: "PRs", icon: GitPullRequest },
+  { key: "issues", label: "Issues", icon: Bug },
   { key: "codespaces", label: "Codespaces", icon: FileCode2 },
   { key: "demos", label: "Artifacts", icon: Files },
 ] as const;
@@ -197,6 +198,26 @@ function boardTone(status: string | undefined) {
     return "accent" as const;
   }
   return "muted" as const;
+}
+
+function OrbitSectionBar({
+  label,
+  detail,
+  actions,
+}: {
+  label: string;
+  detail: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{label}</p>
+        <p className="mt-1 text-xs text-quiet">{detail}</p>
+      </div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+    </div>
+  );
 }
 
 function isLegacyWorkflowPromptMessage(message: ConversationMessage) {
@@ -965,9 +986,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         detail: item.repository_full_name ? `Issue · ${item.repository_full_name}` : "Issue",
         action: () => {
           closeSearch();
-          setSection("prs");
+          setSection("issues");
           setDetailPanel({ kind: "issue", item });
-          void onSectionChange("prs");
+          void onSectionChange("issues");
         },
       })),
       ...payload.codespaces.map((item) => ({
@@ -1221,11 +1242,20 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       },
       {
         key: "cmd-prs",
-        label: "Open PRs and issues",
+        label: "Open pull requests",
         detail: "Move to the repo review surface",
         action: () => {
           closeSearch();
           void onSectionChange("prs");
+        },
+      },
+      {
+        key: "cmd-issues",
+        label: "Open issues",
+        detail: "Move to the tracked issue surface",
+        action: () => {
+          closeSearch();
+          void onSectionChange("issues");
         },
       },
       {
@@ -1455,12 +1485,24 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       const item = payload?.prs.find((entry) => entry.id === result.detail_id);
       if (item) {
         setDetailPanel({ kind: "pr", item });
+        await onSectionChange("prs");
+        return;
       }
     }
     if (result.section === "prs" && result.detail_kind === "issue" && result.detail_id) {
       const item = payload?.issues.find((entry) => entry.id === result.detail_id);
       if (item) {
         setDetailPanel({ kind: "issue", item });
+        await onSectionChange("issues");
+        return;
+      }
+    }
+    if (result.section === "issues" && result.detail_kind === "issue" && result.detail_id) {
+      const item = payload?.issues.find((entry) => entry.id === result.detail_id);
+      if (item) {
+        setDetailPanel({ kind: "issue", item });
+        await onSectionChange("issues");
+        return;
       }
     }
     if (result.section === "codespaces" && result.detail_id) {
@@ -1779,31 +1821,21 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
           {section === "workflow" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <PageHeader
-                eyebrow={payload.orbit.name}
-                title="Execution board"
-                detail="Workflow detail stays here. Chat remains clean."
-                className="pb-5"
-                actions={
-                  <div className="flex items-center gap-2">
-                    {selectedRun ? <StatusPill tone={boardTone(selectedRun.operator_status)}>{formatStateLabel(selectedRun.operator_status)}</StatusPill> : null}
-                    {selectedRun ? <StatusPill tone="muted">{formatStateLabel(selectedRun.execution_status)}</StatusPill> : null}
-                  </div>
-                }
-              />
-
-              <div className="shrink-0 border-b border-line pb-4">
-                <SectionTitle
-                  eyebrow="Workflow run"
-                  title={selectedRun?.title || "No workflow yet"}
-                  detail={selectedRun?.operator_summary || "Ask ERGO to build something and the board will populate here."}
-                  dense
+              <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <OrbitSectionBar
+                  label={selectedRun?.title || "Execution board"}
+                  detail={selectedRun?.operator_summary || "Workflow detail stays here. Chat remains clean."}
+                  actions={
+                    <div className="flex items-center gap-2">
+                      {selectedRun ? <StatusPill tone={boardTone(selectedRun.operator_status)}>{formatStateLabel(selectedRun.operator_status)}</StatusPill> : null}
+                      {selectedRun ? <StatusPill tone="muted">{formatStateLabel(selectedRun.execution_status)}</StatusPill> : null}
+                    </div>
+                  }
                 />
-              </div>
-              <ScrollPanel className="flex-1 pt-5">
-                <div className="grid min-h-0 gap-4 xl:grid-cols-3">
+                <ScrollPanel className="flex-1 px-3 py-3">
+                  <div className="grid min-h-0 gap-3 xl:grid-cols-3">
                   {workflowLanes.map((lane) => (
-                    <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-4">
+                    <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-3.5">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-ink">{lane.label}</p>
                         <StatusPill tone="muted">{lane.cards.length}</StatusPill>
@@ -1826,31 +1858,26 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                       </div>
                     </div>
                   ))}
-                </div>
-              </ScrollPanel>
+                  </div>
+                </ScrollPanel>
+              </Panel>
             </div>
           ) : null}
 
           {section === "prs" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <PageHeader
-                eyebrow={payload.orbit.name}
-                title="PRs and issues"
-                detail="Review-ready code and tracked follow-up work stay repo-aware and operational."
-                className="pb-5"
-                actions={<GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>}
-              />
-              <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-2">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Pull requests"
-                    title="Review-ready work"
-                    detail="Operational status is clearer than a bare high/medium/low label."
-                    dense
-                  />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
+                <OrbitSectionBar
+                  label="Pull requests"
+                  detail="Repo-aware review work with readiness and merge state kept visible."
+                  actions={
+                    <div className="flex items-center gap-2">
+                      <StatusPill tone="muted">{payload.prs.length}</StatusPill>
+                      <GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>
+                    </div>
+                  }
+                />
+                <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-3">
                     {payload.prs.length ? (
                       payload.prs.map((item) => (
@@ -1873,17 +1900,23 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   </div>
                 </ScrollPanel>
               </Panel>
+            </div>
+          ) : null}
 
+          {section === "issues" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Issues"
-                    title="Open tracked work"
-                    detail="Issues stay separate from PRs so the board stays legible."
-                    dense
-                  />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
+                <OrbitSectionBar
+                  label="Issues"
+                  detail="Tracked product and engineering work stays separate from review-ready pull requests."
+                  actions={
+                    <div className="flex items-center gap-2">
+                      <StatusPill tone="muted">{payload.issues.length}</StatusPill>
+                      <GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>
+                    </div>
+                  }
+                />
+                <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-3">
                     {payload.issues.length ? (
                       payload.issues.map((item) => (
@@ -1906,7 +1939,6 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   </div>
                 </ScrollPanel>
               </Panel>
-              </div>
             </div>
           ) : null}
 
@@ -1927,28 +1959,18 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <PageHeader
-                  eyebrow={payload.orbit.name}
-                  title="Workspaces"
-                  detail="Open a workspace and it takes over the main canvas. Use the top back button to return here."
-                  className="pb-5"
-                  actions={
-                    <ActionButton onClick={() => void onCreateCodespace()}>
-                      <Plus className="h-4 w-4" />
-                      Create workspace
-                    </ActionButton>
-                  }
-                />
                 <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <div className="border-b border-line px-5 py-4">
-                    <SectionTitle
-                      eyebrow="Codespaces"
-                      title="Branch workspaces"
-                      detail="Each workspace opens into a dedicated full-canvas editor view."
-                      dense
-                    />
-                  </div>
-                  <ScrollPanel className="flex-1 px-5 py-5">
+                  <OrbitSectionBar
+                    label="Workspaces"
+                    detail="Open a branch workspace and it takes over the canvas. Use the top back button to return here."
+                    actions={
+                      <ActionButton onClick={() => void onCreateCodespace()}>
+                        <Plus className="h-4 w-4" />
+                        Create workspace
+                      </ActionButton>
+                    }
+                  />
+                  <ScrollPanel className="flex-1 px-4 py-4">
                     <div className="space-y-3">
                       {payload.codespaces.length ? (
                         payload.codespaces.map((item) => (
@@ -1976,29 +1998,19 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
 
           {section === "demos" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <PageHeader
-                eyebrow={payload.orbit.name}
-                title="Artifacts"
-                detail="Deliverables, previews, and publishable outputs stay linked to their repo and workflow scope."
-                className="pb-5"
-                actions={
-                  <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
-                    <Files className="h-4 w-4" />
-                    Publish demo
-                  </ActionButton>
-                }
-              />
               <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[1fr_320px]">
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Artifacts"
-                    title="Deliverables and previews"
-                    detail="Draft PRs and demos stay linked to their repo scope instead of disappearing into workflow side effects."
-                    dense
-                  />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
+                <OrbitSectionBar
+                  label="Artifacts"
+                  detail="Deliverables, previews, and publishable outputs stay tied to repo scope instead of disappearing into workflow side effects."
+                  actions={
+                    <ActionButton onClick={() => void onPublishDemo()} disabled={!payload.permissions?.can_publish_artifact}>
+                      <Files className="h-4 w-4" />
+                      Publish demo
+                    </ActionButton>
+                  }
+                />
+                <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-3">
                     {(payload.artifacts ?? []).length ? (
                       (payload.artifacts ?? []).map((artifact) => (
@@ -2030,15 +2042,11 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               </Panel>
 
               <Panel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-b border-line px-5 py-4">
-                  <SectionTitle
-                    eyebrow="Orbit summary"
-                    title={payload.orbit.name}
-                    detail={payload.orbit.repo_full_name || "Repository pending"}
-                    dense
-                  />
-                </div>
-                <ScrollPanel className="flex-1 px-5 py-5">
+                <OrbitSectionBar
+                  label="Artifact context"
+                  detail={payload.orbit.repo_full_name || "Repository pending"}
+                />
+                <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-4 text-sm">
                     <SurfaceCard className="bg-panelStrong">
                       <p className="font-semibold text-ink">Repository spread</p>

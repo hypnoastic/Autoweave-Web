@@ -125,7 +125,7 @@
 | T02 | refine shell geometry, collapse alignment, anchored recent-orbit marks, typed top-bar search dropdown, sidebar clutter, and profile menu behavior | P0 | [x] | light/dark screenshots, expanded/collapsed shell checks, profile menu opens in live shell, top-bar search expands downward from the same field, and the top-left toggle / collapsed rail icons share one fixed anchor line |
 | T03 | standardize theme tokens, surfaces, active states, and modal layering | P0 | [x] | light/dark browser audit, stronger modal layering, calmer canvas/surface hierarchy, and dark-mode text selection contrast |
 | T04 | redesign dashboard body, remove redundant headings, fix internal scrolling | P1 | [x] | dashboard browser QA in light and dark, compact operational overview, stable shell with internal page scroll only |
-| T05 | clean orbit common framing and remove redundant in-page headers | P1 | [ ] | orbit page browser QA across sections |
+| T05 | clean orbit common framing and remove redundant in-page headers | P1 | [x] | orbit browser QA across workflow, PRs, Issues, codespaces, and artifacts with separate PR/Issues navigation and flatter section framing |
 | T06 | redesign chat into dense left-aligned Slack-like flow with better composer/search structure | P0 | [ ] | chat open-to-latest, internal scroll, selected-state audit |
 | T07 | redesign workflow surface for denser operational clarity | P1 | [ ] | workflow dark/light screenshots |
 | T08 | split PRs and Issues in sidebar/navigation and redesign both surfaces | P0 | [ ] | separate PR and Issues browser passes |

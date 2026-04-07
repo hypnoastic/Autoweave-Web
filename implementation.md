@@ -166,6 +166,10 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - three concise summary tiles
   - denser priority and recent-workspace columns
   - stable internal page scrolling instead of a long stacked page feel
+- orbit common framing refinements now strip out the repeated orbit-name/page-title stacks inside the canvas:
+  - workflow, PRs, Issues, workspaces, and artifacts use compact operational section bars
+  - PRs and Issues are now split into separate sidebar entries and separate views
+  - shell breadcrumb continues to hold the primary page context while the canvas focuses on work
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation

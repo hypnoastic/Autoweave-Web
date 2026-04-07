@@ -224,6 +224,8 @@
   - the profile affordance is smaller/darker and now correctly opens its menu in the live shell
   - recent orbit marks in the sidebar now use the same rounded-square language as the profile avatar and stay visible in the collapsed rail, and the collapsed rail icons now share the same fixed left inset as the top-bar toggle instead of drifting left during collapse/expand
   - the dashboard body now starts with a compact greeting and signal strip instead of a redundant hero title stack, and the priority/workspace sections stay inside a stable internal scroll region
+  - orbit workflow, PRs, Issues, workspaces, and artifact views now use flatter operational section bars instead of repeating large in-page page titles and orbit-name headers
+  - PRs and Issues are now split into separate sidebar entries and separate product surfaces instead of one ambiguous combined review page
   - top-bar navigation now uses router-backed back/forward behavior instead of raw `window.history` calls
   - channel and DM switches now render through a cached conversation path with in-place loading, so the shell stays stable while chat refreshes
   - the chat timeline now re-anchors to the bottom when switching conversations instead of reopening at the top
