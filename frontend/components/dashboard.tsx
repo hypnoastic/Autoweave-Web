@@ -404,7 +404,6 @@ export function DashboardScreen() {
                   payload.codespaces.map((item) => (
                     <ListRow
                       key={item.id}
-                      eyebrow="Workspace"
                       title={item.name}
                       detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
                       trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
@@ -478,4 +477,6 @@ export function DashboardScreen() {
       </CenteredModal>
     </>
   );
+}
+);
 }
