@@ -185,7 +185,7 @@ function ShellSidebarItem({
       onClick={item.onSelect}
       className={cx(
         "group flex min-h-[38px] w-full items-center gap-2 overflow-hidden rounded-[11px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-        collapsed ? "justify-start px-[11px]" : "px-2.5",
+        "justify-start px-2.5",
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
@@ -560,4 +560,6 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 
 export function AuthenticatedAppShell({ children }: { children: ReactNode }) {
   return <AppShellFrame>{children}</AppShellFrame>;
+}
+ldren}</AppShellFrame>;
 }
