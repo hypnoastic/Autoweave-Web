@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   createChannel: vi.fn(),
   createCodespace: vi.fn(),
   createDmThread: vi.fn(),
+  fetchChatSyncBootstrap: vi.fn(),
   fetchAvailableRepositories: vi.fn(),
   fetchChannelMessages: vi.fn(),
   fetchDmThread: vi.fn(),
@@ -22,6 +23,7 @@ const api = vi.hoisted(() => ({
   readSession: vi.fn(),
   refreshPrsIssues: vi.fn(),
   resolveWorkflowApprovalRequest: vi.fn(),
+  retryMessageTransport: vi.fn(),
   sendChannelMessage: vi.fn(),
   sendDmMessage: vi.fn(),
   setPrimaryOrbitRepository: vi.fn(),
@@ -61,6 +63,21 @@ describe("OrbitWorkspace", () => {
     vi.clearAllMocks();
     window.localStorage.removeItem?.("autoweave-shell-sidebar-collapsed");
     mockPathname = "/app/orbits/orbit_1";
+    api.fetchChatSyncBootstrap.mockResolvedValue({ enabled: false, provider: "product", room_bindings: [] });
+    api.retryMessageTransport.mockResolvedValue({
+      message: {
+        id: "msg_retry",
+        author_kind: "user",
+        author_name: "Octo Cat",
+        body: "Retried",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        channel_id: "channel_1",
+        dm_thread_id: null,
+        transport_state: "pending_remote",
+        transport_error: null,
+      },
+    });
   });
 
   it("hydrates the orbit shell from the bootstrap payload before the full orbit payload finishes", async () => {

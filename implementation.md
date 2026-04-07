@@ -152,10 +152,75 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - architecture and repo structure established
 - package-installed runtime integration working
 - product data and runtime data remain separated
+- Matrix chat transport integration is now implemented behind feature flags while keeping product DB canonical for conversations, messages, notifications, and human-loop cards
 - UI shell redesign implemented for dashboard and orbit surfaces
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation
+
+## Matrix Transport Integration (2026-04-07)
+
+### Architecture
+
+- product conversations and messages remain canonical in the web database
+- Matrix is transport and sync only:
+  - room provisioning
+  - message send
+  - timeline ingest
+  - transport confirmation / retry metadata
+- Matrix identifiers stay behind service boundaries and do not replace product IDs
+
+### Additive schema
+
+- new tables:
+  - `MatrixUserMapping`
+  - `MatrixRoomBinding`
+  - `MatrixMessageLink`
+  - `MatrixSyncState`
+  - `MatrixMembershipState`
+- new additive product message fields:
+  - `transport_state`
+  - `transport_error`
+
+### Backend services
+
+- `MatrixService`
+- `MatrixProvisioningService`
+- `MatrixSyncBridge`
+- dedicated bridge worker entrypoint:
+  - `python -m autoweave_web.matrix_bridge`
+
+### Frontend path
+
+- `matrix-js-sdk` is integrated only through a hidden product adapter
+- initial chat hydration still comes from product REST
+- local echo stays product-owned
+- Matrix sync only nudges targeted conversation refresh/reconciliation
+- failed remote sends surface as retryable product states in the existing chat UI
+
+### Local Docker topology
+
+- added `synapse` service
+- added `matrix-bridge` service
+- local Docker backend and bridge now use:
+  - `DOCKER_DATABASE_URL`
+  - `DOCKER_RUNTIME_POSTGRES_URL`
+- this avoids inheriting the remote Neon `DATABASE_URL` from `.env` during local Matrix validation
+
+### Validation
+
+- `cd Autoweave Web && ./.venv/bin/python -m pytest backend/tests -q` -> `47 passed`
+- `cd Autoweave Web/frontend && npm test -- --run` -> `29 passed`
+- `cd Autoweave Web/frontend && npm run build` -> success
+- `cd Autoweave Web && AUTOWEAVE_WEB_STACK_SMOKE=1 ./.venv/bin/python -m pytest tests/test_stack_smoke.py -q` -> `2 passed`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build backend worker frontend matrix-bridge synapse`
+- `curl -s http://127.0.0.1:8000/api/health` -> healthy
+
+### Known limitations
+
+- Matrix rollout is channel-first and forward-only; historical product chat is not migrated into Matrix
+- DM bridging and typing/presence remain flag-gated follow-up work
+- Synapse answers correctly inside the container, but host-side direct port probing on `127.0.0.1:8008` remains unreliable in this environment
 
 ## Phase 0 Stabilization Baseline (2026-04-02)
 

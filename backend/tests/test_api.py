@@ -10,8 +10,15 @@ import autoweave_web.api.app as app_module
 from autoweave_web.api.app import create_app
 from autoweave_web.core.settings import get_settings
 from autoweave_web.db.session import Base, get_engine, reset_database_state
-from autoweave_web.models.entities import Channel, ConversationState, OrbitRepositoryBinding, RepoGrant, RepositoryConnection
-from conftest import FakeContainerOrchestrator, FakeGitHubGateway, FakeNavigationStore, FakeRuntimeManager
+from autoweave_web.models.entities import Channel, ConversationState, MatrixMessageLink, Message, OrbitRepositoryBinding, RepoGrant, RepositoryConnection
+from conftest import (
+    FakeContainerOrchestrator,
+    FakeGitHubGateway,
+    FakeMatrixProvisioningService,
+    FakeMatrixService,
+    FakeNavigationStore,
+    FakeRuntimeManager,
+)
 
 
 def _login(client):
@@ -284,6 +291,79 @@ def test_dm_workflow_actions_codespaces_and_demos(client):
     )
     assert demo_response.status_code == 200
     assert demo_response.json()["url"].startswith("http://localhost:9100/")
+
+
+def test_matrix_flagged_channel_send_queues_transport_and_bootstrap(client):
+    reset_database_state()
+    settings = get_settings()
+    original_flags = settings.feature_flags
+    settings.feature_flags = (
+        f"{settings.feature_flags},ff_matrix_chat_backend_v1,ff_matrix_room_provisioning_v1,ff_matrix_sync_ingest_v1"
+    )
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    github = FakeGitHubGateway()
+    runtime = FakeRuntimeManager(settings)
+    navigation = FakeNavigationStore()
+    containers = FakeContainerOrchestrator()
+    matrix_service = FakeMatrixService()
+    matrix_provisioning = FakeMatrixProvisioningService()
+    app = create_app(
+        settings=settings,
+        github=github,
+        runtime_manager=runtime,
+        navigation=navigation,
+        containers=containers,
+        matrix_service=matrix_service,
+        matrix_provisioning=matrix_provisioning,
+    )
+
+    with TestClient(app) as matrix_client:
+        token, _ = _login(matrix_client)
+        headers = {"Authorization": f"Bearer {token}"}
+        orbit = _create_orbit(matrix_client, headers)
+        orbit_payload = matrix_client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+        assert orbit_payload.status_code == 200
+        general_channel_id = orbit_payload.json()["channels"][0]["id"]
+
+        send_response = matrix_client.post(
+            f"/api/orbits/{orbit['id']}/channels/{general_channel_id}/messages",
+            json={"body": "Matrix-backed hello"},
+            headers=headers,
+        )
+        assert send_response.status_code == 200
+        sent_message = send_response.json()["message"]
+        assert sent_message["transport_state"] == "pending_remote"
+
+        with OrmSession(engine) as db:
+            saved_message = db.get(Message, sent_message["id"])
+            assert saved_message is not None
+            assert saved_message.transport_state == "pending_remote"
+            link = db.scalar(select(MatrixMessageLink).where(MatrixMessageLink.message_id == saved_message.id))
+            assert link is not None
+            assert link.send_state == "queued"
+
+        bootstrap = matrix_client.get(
+            f"/api/chat/sync/bootstrap?orbit_id={orbit['id']}",
+            headers=headers,
+        )
+        assert bootstrap.status_code == 200
+        bootstrap_payload = bootstrap.json()
+        assert bootstrap_payload["enabled"] is True
+        assert bootstrap_payload["provider"] == "matrix"
+        assert bootstrap_payload["room_bindings"][0]["channel_id"] == general_channel_id
+
+        retry = matrix_client.post(
+            f"/api/orbits/{orbit['id']}/messages/{sent_message['id']}/retry-transport",
+            headers=headers,
+        )
+        assert retry.status_code == 200
+        assert retry.json()["message"]["transport_state"] == "pending_remote"
+
+    Base.metadata.drop_all(bind=engine)
+    settings.feature_flags = original_flags
 
 
 def test_workflow_prompts_are_projected_once_and_routed_to_origin_conversation(client):

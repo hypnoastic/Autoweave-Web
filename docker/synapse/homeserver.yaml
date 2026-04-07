@@ -1,0 +1,47 @@
+# Configuration file for Synapse.
+#
+# This is a YAML file: see [1] for a quick introduction. Note in particular
+# that *indentation is important*: all the elements of a list or dictionary
+# should have the same indentation.
+#
+# [1] https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html
+#
+# For more information on how to configure Synapse, including a complete accounting of
+# each option, go to docs/usage/configuration/config_documentation.md or
+# https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
+server_name: "autoweave.local"
+pid_file: /homeserver.pid
+listeners:
+  - bind_addresses:
+    - 0.0.0.0
+    port: 8008
+    resources:
+    - compress: false
+      names:
+      - client
+      - federation
+    tls: false
+    type: http
+    x_forwarded: true
+database:
+  name: sqlite3
+  args:
+    database: /homeserver.db
+log_config: "/data/autoweave.local.log.config"
+media_store_path: /media_store
+registration_shared_secret: "qH,eU=+T23ebt2^t_.b^.El#*+S*=P,xL-lNF.A0^+U2tb-=jk"
+report_stats: false
+macaroon_secret_key: "lNUyxjpC4oUHW0;iYZ~,V5VQlZINxTy,5ZGTzReiGJv*M@Z^kL"
+form_secret: "Tk_ij=XgGVx@:URU,oSsF#Y8c1Jr.6qtv8InknU7:3Borq4D21"
+signing_key_path: "/data/autoweave.local.signing.key"
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+
+# vim:ft=yaml
+public_baseurl: "http://localhost:8008/"
+
+enable_registration: false
+
+allow_public_rooms_without_auth: false
+allow_public_rooms_over_federation: false

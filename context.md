@@ -12,6 +12,7 @@
 - keep the `autoweave` package as the orchestration/runtime engine
 - consume `autoweave` through a built and installed wheel
 - keep raw product truth in product tables
+- keep product conversations and messages canonical in the web DB even when Matrix is enabled
 - project derived execution context into AutoWeave memory instead of dumping raw history
 - use Docker-managed local runtime storage for workspaces and demos
 - keep product raw truth on local Docker Postgres
@@ -22,6 +23,7 @@
 - keep chat calm and human-facing; keep execution detail in the workflow surface
 - keep DMs inside chat only, not as a separate orbit-level top nav area
 - use modal settings and slide-over panels consistently across dashboard and orbit views
+- use Matrix only as a transport and sync substrate behind feature flags, not as the chat source of truth
 
 ## Runtime Model
 
@@ -49,6 +51,56 @@
 - MCP Playwright browser control is currently unreliable in this workspace; the active browser-validation path is the Playwright CLI session harness
 - fresh browser sessions currently hit CORS when the frontend is served from `127.0.0.1:3000` and calls the backend on `127.0.0.1:8000`
 - the initial orbit shell is now bootstrap-hydrated, but the full orbit payload is still heavier than it should be and remains a follow-up performance target
+- local Docker validation now forces backend + matrix-bridge onto the compose Postgres service through `DOCKER_DATABASE_URL` and `DOCKER_RUNTIME_POSTGRES_URL` so the stack no longer inherits the remote Neon `DATABASE_URL` from `.env`
+- Synapse is healthy and reachable from inside Docker, but host-side `curl http://127.0.0.1:8008/_matrix/client/versions` remains unreliable in this environment even after correcting the bind address
+
+## Matrix Chat Transport State
+
+- Matrix transport is now implemented behind feature flags:
+  - `ff_matrix_chat_backend_v1`
+  - `ff_matrix_room_provisioning_v1`
+  - `ff_matrix_sync_ingest_v1`
+  - optional later flags:
+    - `ff_matrix_dm_bridge_v1`
+    - `ff_matrix_typing_presence_v1`
+- product DB remains canonical for:
+  - conversations
+  - raw messages
+  - notifications
+  - approvals / clarifications
+  - unread state
+- Matrix linkage is additive only:
+  - `MatrixUserMapping`
+  - `MatrixRoomBinding`
+  - `MatrixMessageLink`
+  - `MatrixSyncState`
+  - `MatrixMembershipState`
+  - `product_messages.transport_state`
+  - `product_messages.transport_error`
+- current implementation uses:
+  - backend `MatrixProvisioningService`
+  - backend `MatrixService`
+  - backend `MatrixSyncBridge`
+  - dedicated `matrix-bridge` Docker service
+  - frontend hidden `matrix-js-sdk` adapter for sync/timeline hints only
+- rollout is forward-only:
+  - existing product history is not migrated into Matrix
+  - newly sent flagged messages create product rows first, then queue Matrix transport
+- approvals and clarifications remain product-defined typed cards in chat and are not replaced by Matrix-native UI concepts
+
+## Matrix Validation State
+
+- automated validation completed:
+  - `cd Autoweave Web && ./.venv/bin/python -m pytest backend/tests -q` -> `47 passed`
+  - `cd Autoweave Web/frontend && npm test -- --run` -> `29 passed`
+  - `cd Autoweave Web/frontend && npm run build` -> success
+  - `cd Autoweave Web && AUTOWEAVE_WEB_STACK_SMOKE=1 ./.venv/bin/python -m pytest tests/test_stack_smoke.py -q` -> `2 passed`
+- live Docker validation completed:
+  - backend healthy on `http://127.0.0.1:8000/api/health`
+  - Synapse healthy in compose and reachable from inside the container
+  - matrix bridge starts successfully against local Postgres + Synapse
+- known rough edge:
+  - backend startup can log a duplicate-type `create_all` race on local Postgres during container recreation before settling healthy
 
 ## Phase 0B Foundation State
 

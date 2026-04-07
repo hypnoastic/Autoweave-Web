@@ -60,6 +60,7 @@ describe("OrbitChatPane", () => {
         messageBody=""
         onMessageBodyChange={() => {}}
         onSendMessage={() => {}}
+        onRetryMessage={() => {}}
         onSelectConversation={() => {}}
         onOpenCreateChannel={() => {}}
         onOpenStartDm={() => {}}
@@ -118,6 +119,7 @@ describe("OrbitChatPane", () => {
         messageBody=""
         onMessageBodyChange={() => {}}
         onSendMessage={() => {}}
+        onRetryMessage={() => {}}
         onSelectConversation={() => {}}
         onOpenCreateChannel={() => {}}
         onOpenStartDm={() => {}}
@@ -133,5 +135,61 @@ describe("OrbitChatPane", () => {
     );
 
     expect(screen.getByText("Loading conversation")).toBeInTheDocument();
+  });
+
+  it("shows retry affordances for Matrix transport failures", () => {
+    const onRetryMessage = vi.fn();
+
+    render(
+      <OrbitChatPane
+        session={{
+          token: "session",
+          user: {
+            id: "user_1",
+            github_login: "octocat",
+            display_name: "Octo Cat",
+          },
+        }}
+        channels={[{ id: "channel_1", slug: "general", name: "general" }]}
+        directMessages={[]}
+        selectedConversation={{ kind: "channel", id: "channel_1" }}
+        messages={[
+          {
+            id: "msg_1",
+            author_kind: "user",
+            author_name: "Octo Cat",
+            body: "Needs retry",
+            metadata: {},
+            created_at: new Date().toISOString(),
+            channel_id: "channel_1",
+            dm_thread_id: null,
+            transport_state: "failed_remote",
+            transport_error: "Matrix unavailable",
+          },
+        ]}
+        humanLoopItems={[]}
+        conversationTitle="general"
+        conversationSearch=""
+        onConversationSearchChange={() => {}}
+        messageBody=""
+        onMessageBodyChange={() => {}}
+        onSendMessage={() => {}}
+        onRetryMessage={onRetryMessage}
+        onSelectConversation={() => {}}
+        onOpenCreateChannel={() => {}}
+        onOpenStartDm={() => {}}
+        pendingAgent={false}
+        selectedRunId=""
+        openHumanRequests={{}}
+        openApprovalRequests={{}}
+        workflowAnswers={{}}
+        onWorkflowAnswerChange={() => {}}
+        onAnswerHumanRequest={() => {}}
+        onResolveApproval={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry send" }));
+    expect(onRetryMessage).toHaveBeenCalledWith("msg_1");
   });
 });

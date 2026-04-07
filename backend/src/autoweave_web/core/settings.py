@@ -60,7 +60,19 @@ class Settings(BaseSettings):
     demo_image: str = "python:3.12-slim"
 
     default_repo_private: bool = True
-    feature_flags: str = "ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2,ff_artifact_center_v1,ff_search_command_v1"
+    feature_flags: str = (
+        "ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2,"
+        "ff_artifact_center_v1,ff_search_command_v1"
+    )
+
+    matrix_homeserver_public_url: str = "http://localhost:8008"
+    matrix_homeserver_internal_url: str = "http://synapse:8008"
+    matrix_server_name: str = "autoweave.local"
+    matrix_registration_shared_secret: str = ""
+    matrix_password_salt: str = "autoweave-matrix-local"
+    matrix_sync_timeout_ms: int = 15000
+    matrix_sync_enabled: bool = False
+    matrix_bridge_localpart: str = "autoweave-bridge"
 
     @property
     def github_oauth_callback_url(self) -> str:
@@ -131,6 +143,10 @@ class Settings(BaseSettings):
 
     def feature_enabled(self, flag_name: str) -> bool:
         return flag_name in self.enabled_feature_flags
+
+    @property
+    def matrix_bridge_user_id(self) -> str:
+        return f"@{self.matrix_bridge_localpart}:{self.matrix_server_name}"
 
     @property
     def is_sqlite(self) -> bool:

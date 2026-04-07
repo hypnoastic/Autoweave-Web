@@ -128,7 +128,97 @@ class Message(Base):
     author_name: Mapped[str] = mapped_column(String(255))
     body: Mapped[str] = mapped_column(Text)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    transport_state: Mapped[str] = mapped_column(String(64), default="local_only")
+    transport_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MatrixUserMapping(Base):
+    __tablename__ = "product_matrix_user_mappings"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_product_matrix_user_mapping_user"),
+        UniqueConstraint("matrix_user_id", name="uq_product_matrix_user_mapping_matrix_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("mxuser"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    matrix_user_id: Mapped[str] = mapped_column(String(255), index=True)
+    matrix_localpart: Mapped[str] = mapped_column(String(255), index=True)
+    latest_device_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MatrixRoomBinding(Base):
+    __tablename__ = "product_matrix_room_bindings"
+    __table_args__ = (
+        UniqueConstraint("channel_id", name="uq_product_matrix_room_binding_channel"),
+        UniqueConstraint("dm_thread_id", name="uq_product_matrix_room_binding_dm"),
+        UniqueConstraint("matrix_room_id", name="uq_product_matrix_room_binding_room"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("mxroom"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    channel_id: Mapped[str | None] = mapped_column(ForeignKey("product_channels.id"), nullable=True, index=True)
+    dm_thread_id: Mapped[str | None] = mapped_column(ForeignKey("product_dm_threads.id"), nullable=True, index=True)
+    matrix_room_id: Mapped[str] = mapped_column(String(255), index=True)
+    room_kind: Mapped[str] = mapped_column(String(64), default="channel")
+    provision_state: Mapped[str] = mapped_column(String(64), default="ready")
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MatrixMessageLink(Base):
+    __tablename__ = "product_matrix_message_links"
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_product_matrix_message_link_message"),
+        UniqueConstraint("matrix_event_id", name="uq_product_matrix_message_link_event"),
+        UniqueConstraint("matrix_txn_id", name="uq_product_matrix_message_link_txn"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("mxmsg"))
+    message_id: Mapped[str] = mapped_column(ForeignKey("product_messages.id"), index=True)
+    room_binding_id: Mapped[str] = mapped_column(ForeignKey("product_matrix_room_bindings.id"), index=True)
+    matrix_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    matrix_txn_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    direction: Mapped[str] = mapped_column(String(64), default="outbound")
+    send_state: Mapped[str] = mapped_column(String(64), default="queued")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MatrixSyncState(Base):
+    __tablename__ = "product_matrix_sync_states"
+    __table_args__ = (UniqueConstraint("worker_name", name="uq_product_matrix_sync_worker"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("mxsync"))
+    worker_name: Mapped[str] = mapped_column(String(255), index=True)
+    next_batch: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MatrixMembershipState(Base):
+    __tablename__ = "product_matrix_membership_states"
+    __table_args__ = (
+        UniqueConstraint("room_binding_id", "user_id", name="uq_product_matrix_membership_user"),
+        UniqueConstraint("room_binding_id", "matrix_user_id", name="uq_product_matrix_membership_matrix_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("mxmember"))
+    room_binding_id: Mapped[str] = mapped_column(ForeignKey("product_matrix_room_bindings.id"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    matrix_user_id: Mapped[str] = mapped_column(String(255), index=True)
+    membership: Mapped[str] = mapped_column(String(64), default="join")
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class WorkItem(Base):

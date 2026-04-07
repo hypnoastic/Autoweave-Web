@@ -13,6 +13,21 @@ export type Session = {
   user: UserSummary;
 };
 
+export type ChatSyncBootstrap = {
+  enabled: boolean;
+  provider: string;
+  base_url?: string;
+  access_token?: string;
+  user_id?: string;
+  device_id?: string | null;
+  room_bindings: Array<{
+    room_id: string;
+    room_kind: string;
+    channel_id?: string | null;
+    dm_thread_id?: string | null;
+  }>;
+};
+
 export type Orbit = {
   id: string;
   slug: string;
@@ -64,6 +79,8 @@ export type ConversationMessage = {
   channel_id?: string | null;
   dm_thread_id?: string | null;
   pending?: boolean;
+  transport_state?: string | null;
+  transport_error?: string | null;
 };
 
 export type HumanLoopItem = {

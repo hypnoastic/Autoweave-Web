@@ -26,6 +26,9 @@
 - [x] route workflow clarification/approval prompts into originating chat conversations
 - [x] deduplicate repeated open workflow prompts to stop repeated ask loops
 - [x] route human answers and approval receipts back to the same originating channel/DM
+- [x] add Matrix transport linkage tables and transport-state fields additively
+- [x] add Matrix provisioning, send, and sync bridge services
+- [x] add Matrix-backed bootstrap endpoint and retry transport API
 
 ## Frontend
 
@@ -101,3 +104,14 @@
 - [x] documentation refresh
 - [x] full backend test suite after redesign
 - [x] frontend production build after redesign
+
+## Matrix Transport Follow-up
+
+- [x] add local Synapse service and dedicated matrix-bridge service to Docker Compose
+- [x] keep product chat canonical while queuing Matrix transport behind feature flags
+- [x] preserve typed approval/clarification cards while Matrix transport is enabled
+- [x] surface failed remote sends as retryable chat states
+- [ ] enable DM bridge by default after channel flow is proven
+- [ ] add scoped typing indicators once low-noise behavior is proven
+- [ ] remove local backend startup `create_all` race during container recreation
+- [ ] explain or eliminate the remaining host-side Synapse probe inconsistency on `127.0.0.1:8008`

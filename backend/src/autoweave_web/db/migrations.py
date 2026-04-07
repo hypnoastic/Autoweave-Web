@@ -6,6 +6,13 @@ from sqlalchemy.engine import Engine
 
 _ADDITIVE_COLUMNS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
+        "product_messages",
+        (
+            ("transport_state", "VARCHAR(64) DEFAULT 'local_only'"),
+            ("transport_error", "TEXT"),
+        ),
+    ),
+    (
         "product_work_items",
         (
             ("source_channel_id", "VARCHAR(64)"),

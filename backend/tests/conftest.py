@@ -21,6 +21,7 @@ os.environ.setdefault("RUNTIME_VOLUME_MOUNT_PATH", "/tmp/autoweave-web-tests")
 from autoweave_web.api.app import create_app
 from autoweave_web.core.settings import get_settings
 from autoweave_web.db.session import Base, get_engine, reset_database_state
+from autoweave_web.models.entities import MatrixRoomBinding
 
 
 class FakeGitHubGateway:
@@ -289,6 +290,61 @@ class FakeRuntimeManager:
             }
         )
         return {"workflow_run_id": workflow_run_id, "request_id": request_id, "approved": approved}
+
+
+class FakeMatrixService:
+    pass
+
+
+class FakeMatrixProvisioningService:
+    def __init__(self) -> None:
+        self.room_counter = 0
+        self.bootstrap_calls: list[dict[str, Any]] = []
+
+    def bootstrap_payload_for_orbit(self, db, *, orbit, user):
+        self.bootstrap_calls.append({"orbit_id": orbit.id, "user_id": user.id})
+        bindings = db.query(MatrixRoomBinding).filter(MatrixRoomBinding.orbit_id == orbit.id).all()
+        return {
+            "provider": "matrix",
+            "base_url": "http://localhost:8008",
+            "access_token": "matrix-access-token",
+            "user_id": f"@{user.github_login}:autoweave.local",
+            "device_id": "DEVICE1",
+            "room_bindings": [
+                {
+                    "room_id": binding.matrix_room_id,
+                    "channel_id": binding.channel_id,
+                    "dm_thread_id": binding.dm_thread_id,
+                    "room_kind": binding.room_kind,
+                }
+                for binding in bindings
+            ],
+        }
+
+    def ensure_room_binding(self, db, *, orbit, actor_user, channel=None, thread=None):
+        binding = (
+            db.query(MatrixRoomBinding)
+            .filter(
+                MatrixRoomBinding.orbit_id == orbit.id,
+                MatrixRoomBinding.channel_id == (channel.id if channel else None),
+                MatrixRoomBinding.dm_thread_id == (thread.id if thread else None),
+            )
+            .one_or_none()
+        )
+        if binding is not None:
+            return binding
+        self.room_counter += 1
+        binding = MatrixRoomBinding(
+            orbit_id=orbit.id,
+            channel_id=channel.id if channel else None,
+            dm_thread_id=thread.id if thread else None,
+            matrix_room_id=f"!room{self.room_counter}:autoweave.local",
+            room_kind="channel" if channel else "dm",
+            provision_state="ready",
+        )
+        db.add(binding)
+        db.flush()
+        return binding
 
 
 @pytest.fixture()

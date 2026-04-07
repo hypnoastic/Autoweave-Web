@@ -32,6 +32,7 @@ from autoweave_web.models.entities import (
     OrbitInvite,
     OrbitMembership,
     OrbitRepositoryBinding,
+    MatrixRoomBinding,
     RepoGrant,
     PullRequestSnapshot,
     RepositoryConnection,
@@ -58,6 +59,7 @@ from autoweave_web.schemas.api import (
     OrbitRepositoryConnectRequest,
     OrbitPayload,
     SessionPayload,
+    TimestampedPayload,
     UserPreferencesPayload,
     UserPreferencesUpdateRequest,
     WorkflowApprovalRequest,
@@ -73,6 +75,10 @@ from autoweave_web.services.product_state import (
     artifacts_for_orbit,
     bind_repository_to_orbit,
     create_message_notifications,
+    ensure_matrix_user_mapping,
+    matrix_message_link_for_message,
+    matrix_room_binding_for_conversation,
+    upsert_matrix_message_link,
     ensure_primary_repo_binding,
     ensure_repo_grant,
     ensure_run_repo_scope,
@@ -96,6 +102,12 @@ from autoweave_web.services.product_state import (
     upsert_repository_connection,
     set_primary_repository_binding,
 )
+from autoweave_web.services.matrix import (
+    MatrixProvisioningService,
+    MatrixService,
+    MatrixTransportError,
+    matrix_txn_id_for_message,
+)
 from autoweave_web.services.policy import (
     ORBIT_ROLE_CONTRIBUTOR,
     ORBIT_ROLE_MANAGER,
@@ -116,6 +128,8 @@ def create_app(
     runtime_manager: RuntimeManager | None = None,
     navigation: NavigationStore | None = None,
     containers: ContainerOrchestrator | None = None,
+    matrix_service: MatrixService | None = None,
+    matrix_provisioning: MatrixProvisioningService | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     init_database()
@@ -140,6 +154,8 @@ def create_app(
     runtime_manager = runtime_manager or RuntimeManager(settings)
     navigation = navigation or NavigationStore(settings.redis_url, ttl_seconds=settings.navigation_ttl_seconds)
     containers = containers or ContainerOrchestrator(settings)
+    matrix_service = matrix_service or MatrixService(settings)
+    matrix_provisioning = matrix_provisioning or MatrixProvisioningService(settings, matrix_service)
 
     app.state.settings = settings
     app.state.github = github
@@ -147,6 +163,8 @@ def create_app(
     app.state.runtime_manager = runtime_manager
     app.state.navigation = navigation
     app.state.containers = containers
+    app.state.matrix_service = matrix_service
+    app.state.matrix_provisioning = matrix_provisioning
 
     def current_user(
         authorization: str | None = Header(default=None),
@@ -241,8 +259,55 @@ def create_app(
             "author_name": message.author_name,
             "body": message.body,
             "metadata": message.metadata_json,
+            "transport_state": message.transport_state,
+            "transport_error": message.transport_error,
             "created_at": message.created_at.isoformat(),
         }
+
+    def _matrix_channel_bridge_enabled() -> bool:
+        return flag_enabled(settings, "ff_matrix_chat_backend_v1") and flag_enabled(settings, "ff_matrix_room_provisioning_v1")
+
+    def _matrix_dm_bridge_enabled() -> bool:
+        return _matrix_channel_bridge_enabled() and flag_enabled(settings, "ff_matrix_dm_bridge_v1")
+
+    def _queue_message_for_matrix(
+        *,
+        db: Session,
+        orbit: Orbit,
+        actor_user: User,
+        message: Message,
+        channel: Channel | None = None,
+        thread: DmThread | None = None,
+    ) -> MatrixRoomBinding | None:
+        if channel is not None and not _matrix_channel_bridge_enabled():
+            return None
+        if thread is not None and not _matrix_dm_bridge_enabled():
+            return None
+        try:
+            binding = matrix_provisioning.ensure_room_binding(
+                db,
+                orbit=orbit,
+                actor_user=actor_user,
+                channel=channel,
+                thread=thread,
+            )
+            txn_id = matrix_txn_id_for_message(message.id)
+            upsert_matrix_message_link(
+                db,
+                message_id=message.id,
+                room_binding_id=binding.id,
+                direction="outbound",
+                send_state="queued",
+                matrix_txn_id=txn_id,
+            )
+            message.transport_state = "pending_remote"
+            message.transport_error = None
+            return binding
+        except MatrixTransportError as exc:
+            message.transport_state = "failed_remote"
+            message.transport_error = str(exc)
+            logger.warning("Matrix queueing failed for message %s: %s", message.id, exc)
+            return None
 
     def _format_state_label(value: str | None) -> str:
         normalized = str(value or "").strip().replace("_", " ")
@@ -1512,6 +1577,19 @@ def create_app(
     def me(user: User = Depends(current_user)) -> dict[str, Any]:
         return _serialize_user(user)
 
+    @app.get("/api/chat/sync/bootstrap")
+    def chat_sync_bootstrap(
+        orbit_id: str = Query(...),
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        if not _matrix_channel_bridge_enabled():
+            return {"provider": "product", "enabled": False, "room_bindings": []}
+        orbit = _orbit_for_member(db, orbit_id, user)
+        payload = matrix_provisioning.bootstrap_payload_for_orbit(db, orbit=orbit, user=user)
+        db.commit()
+        return {"enabled": True, **payload}
+
     @app.get("/api/preferences", response_model=UserPreferencesPayload)
     def get_preferences(user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserPreferencesPayload:
         return UserPreferencesPayload(**_serialize_preferences(_user_preferences(db, user)))
@@ -2169,6 +2247,7 @@ def create_app(
             channel_id=channel.id,
             channel_name=channel.name,
         )
+        _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=user_message, channel=channel)
         ergo_body, should_start_work = _ergo_reply_for(payload.body)
         reply = None
         work_item_payload = None
@@ -2184,6 +2263,8 @@ def create_app(
                 body=ergo_body,
             )
             db.add(reply)
+            db.flush()
+            _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=reply, channel=channel)
         if should_start_work:
             if repository_ids and not permission_snapshot.can_trigger_run_for_repos(repository_ids):
                 permission_reply = Message(
@@ -2195,6 +2276,8 @@ def create_app(
                     metadata_json={"kind": "permission_notice", "repository_ids": repository_ids},
                 )
                 db.add(permission_reply)
+                db.flush()
+                _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=permission_reply, channel=channel)
                 reply = permission_reply
             else:
                 work_item_payload = _start_work_item(
@@ -2232,6 +2315,33 @@ def create_app(
         orbit = _orbit_for_member(db, orbit_id, user)
         general = _orbit_channel(db, orbit.id)
         return post_channel_message(orbit.id, general.id, payload, user, db)
+
+    @app.post("/api/orbits/{orbit_id}/messages/{message_id}/retry-transport")
+    def retry_message_transport(
+        orbit_id: str,
+        message_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        message = db.get(Message, message_id)
+        if message is None or message.orbit_id != orbit.id:
+            raise HTTPException(status_code=404, detail="Message not found")
+        if message.user_id not in {None, user.id}:
+            raise HTTPException(status_code=403, detail="Only the original author can retry this message transport.")
+        link = matrix_message_link_for_message(db, message_id=message.id)
+        if link is None:
+            channel = db.get(Channel, message.channel_id) if message.channel_id else None
+            thread = db.get(DmThread, message.dm_thread_id) if message.dm_thread_id else None
+            _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=message, channel=channel, thread=thread)
+        else:
+            link.send_state = "retry_requested"
+            link.last_error = None
+            link.updated_at = utc_now()
+            message.transport_state = "pending_remote"
+            message.transport_error = None
+        db.commit()
+        return {"message": _serialize_message(message)}
 
     @app.post("/api/orbits/{orbit_id}/prs-issues/refresh")
     def refresh_prs_and_issues(orbit_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -2574,6 +2684,7 @@ def create_app(
             body=payload.body,
             dm_thread_id=thread.id,
         )
+        _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=message, thread=thread)
         ergo_body, should_start_work = (None, False)
         if thread.title == "ERGO":
             ergo_body, should_start_work = _ergo_reply_for(payload.body)
@@ -2588,6 +2699,8 @@ def create_app(
                 body=ergo_body,
             )
             db.add(reply)
+            db.flush()
+            _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=reply, thread=thread)
         if should_start_work:
             permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
             primary_repo = primary_repository_for_orbit(db, orbit)
@@ -2602,6 +2715,8 @@ def create_app(
                     metadata_json={"kind": "permission_notice", "repository_ids": repository_ids},
                 )
                 db.add(permission_reply)
+                db.flush()
+                _queue_message_for_matrix(db=db, orbit=orbit, actor_user=user, message=permission_reply, thread=thread)
                 reply = permission_reply
             else:
                 work_item_payload = _start_work_item(

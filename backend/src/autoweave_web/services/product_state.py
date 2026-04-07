@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import re
 from typing import Any
 
@@ -11,12 +12,20 @@ from sqlalchemy.orm import Session
 from autoweave_web.models.entities import (
     AuditEvent,
     Artifact,
+    Channel,
     Codespace,
     ConversationState,
     Demo,
     DmParticipant,
+    DmThread,
     IntegrationInstallation,
     IssueSnapshot,
+    MatrixMembershipState,
+    MatrixMessageLink,
+    MatrixRoomBinding,
+    MatrixSyncState,
+    MatrixUserMapping,
+    Message,
     NotificationPreference,
     Notification,
     Orbit,
@@ -314,6 +323,192 @@ def ensure_notification_preference(db: Session, *, user_id: str) -> Notification
         db.add(preference)
         db.flush()
     return preference
+
+
+def ensure_matrix_user_mapping(
+    db: Session,
+    *,
+    user_id: str,
+    matrix_user_id: str,
+    matrix_localpart: str,
+    latest_device_id: str | None = None,
+    status: str = "active",
+) -> MatrixUserMapping:
+    mapping = db.scalar(select(MatrixUserMapping).where(MatrixUserMapping.user_id == user_id))
+    if mapping is None:
+        mapping = MatrixUserMapping(
+            user_id=user_id,
+            matrix_user_id=matrix_user_id,
+            matrix_localpart=matrix_localpart,
+            latest_device_id=latest_device_id,
+            status=status,
+        )
+        db.add(mapping)
+        db.flush()
+        return mapping
+    mapping.matrix_user_id = matrix_user_id
+    mapping.matrix_localpart = matrix_localpart
+    mapping.latest_device_id = latest_device_id or mapping.latest_device_id
+    mapping.status = status
+    mapping.updated_at = utc_now()
+    return mapping
+
+
+def matrix_user_mapping_for_user(db: Session, *, user_id: str) -> MatrixUserMapping | None:
+    return db.scalar(select(MatrixUserMapping).where(MatrixUserMapping.user_id == user_id))
+
+
+def matrix_user_mapping_for_matrix_user(db: Session, *, matrix_user_id: str) -> MatrixUserMapping | None:
+    return db.scalar(select(MatrixUserMapping).where(MatrixUserMapping.matrix_user_id == matrix_user_id))
+
+
+def matrix_room_binding_for_conversation(
+    db: Session,
+    *,
+    orbit_id: str,
+    channel_id: str | None = None,
+    dm_thread_id: str | None = None,
+) -> MatrixRoomBinding | None:
+    statement = select(MatrixRoomBinding).where(MatrixRoomBinding.orbit_id == orbit_id)
+    if channel_id:
+        statement = statement.where(MatrixRoomBinding.channel_id == channel_id)
+    if dm_thread_id:
+        statement = statement.where(MatrixRoomBinding.dm_thread_id == dm_thread_id)
+    return db.scalar(statement)
+
+
+def matrix_room_binding_for_room(db: Session, *, matrix_room_id: str) -> MatrixRoomBinding | None:
+    return db.scalar(select(MatrixRoomBinding).where(MatrixRoomBinding.matrix_room_id == matrix_room_id))
+
+
+def upsert_matrix_room_binding(
+    db: Session,
+    *,
+    orbit_id: str,
+    matrix_room_id: str,
+    room_kind: str,
+    channel_id: str | None = None,
+    dm_thread_id: str | None = None,
+    provision_state: str = "ready",
+) -> MatrixRoomBinding:
+    binding = matrix_room_binding_for_conversation(
+        db,
+        orbit_id=orbit_id,
+        channel_id=channel_id,
+        dm_thread_id=dm_thread_id,
+    )
+    if binding is None:
+        binding = MatrixRoomBinding(
+            orbit_id=orbit_id,
+            channel_id=channel_id,
+            dm_thread_id=dm_thread_id,
+            matrix_room_id=matrix_room_id,
+            room_kind=room_kind,
+            provision_state=provision_state,
+        )
+        db.add(binding)
+        db.flush()
+        return binding
+    binding.matrix_room_id = matrix_room_id
+    binding.room_kind = room_kind
+    binding.provision_state = provision_state
+    binding.updated_at = utc_now()
+    return binding
+
+
+def upsert_matrix_membership_state(
+    db: Session,
+    *,
+    room_binding_id: str,
+    matrix_user_id: str,
+    user_id: str | None,
+    membership: str,
+) -> MatrixMembershipState:
+    membership_state = db.scalar(
+        select(MatrixMembershipState).where(
+            MatrixMembershipState.room_binding_id == room_binding_id,
+            MatrixMembershipState.matrix_user_id == matrix_user_id,
+        )
+    )
+    if membership_state is None:
+        membership_state = MatrixMembershipState(
+            room_binding_id=room_binding_id,
+            user_id=user_id,
+            matrix_user_id=matrix_user_id,
+            membership=membership,
+            last_synced_at=utc_now(),
+        )
+        db.add(membership_state)
+        db.flush()
+        return membership_state
+    membership_state.user_id = user_id or membership_state.user_id
+    membership_state.membership = membership
+    membership_state.last_synced_at = utc_now()
+    membership_state.updated_at = utc_now()
+    return membership_state
+
+
+def matrix_message_link_for_message(db: Session, *, message_id: str) -> MatrixMessageLink | None:
+    return db.scalar(select(MatrixMessageLink).where(MatrixMessageLink.message_id == message_id))
+
+
+def matrix_message_link_for_event(db: Session, *, matrix_event_id: str) -> MatrixMessageLink | None:
+    return db.scalar(select(MatrixMessageLink).where(MatrixMessageLink.matrix_event_id == matrix_event_id))
+
+
+def matrix_message_link_for_txn(db: Session, *, matrix_txn_id: str) -> MatrixMessageLink | None:
+    return db.scalar(select(MatrixMessageLink).where(MatrixMessageLink.matrix_txn_id == matrix_txn_id))
+
+
+def upsert_matrix_message_link(
+    db: Session,
+    *,
+    message_id: str,
+    room_binding_id: str,
+    direction: str,
+    send_state: str,
+    matrix_txn_id: str | None = None,
+    matrix_event_id: str | None = None,
+    last_error: str | None = None,
+    confirmed_at: datetime | None = None,
+) -> MatrixMessageLink:
+    link = matrix_message_link_for_message(db, message_id=message_id)
+    if link is None and matrix_event_id:
+        link = matrix_message_link_for_event(db, matrix_event_id=matrix_event_id)
+    if link is None and matrix_txn_id:
+        link = matrix_message_link_for_txn(db, matrix_txn_id=matrix_txn_id)
+    if link is None:
+        link = MatrixMessageLink(
+            message_id=message_id,
+            room_binding_id=room_binding_id,
+            matrix_txn_id=matrix_txn_id,
+            matrix_event_id=matrix_event_id,
+            direction=direction,
+            send_state=send_state,
+            last_error=last_error,
+            confirmed_at=confirmed_at,
+        )
+        db.add(link)
+        db.flush()
+        return link
+    link.room_binding_id = room_binding_id
+    link.matrix_txn_id = matrix_txn_id or link.matrix_txn_id
+    link.matrix_event_id = matrix_event_id or link.matrix_event_id
+    link.direction = direction
+    link.send_state = send_state
+    link.last_error = last_error
+    link.confirmed_at = confirmed_at or link.confirmed_at
+    link.updated_at = utc_now()
+    return link
+
+
+def ensure_matrix_sync_state(db: Session, *, worker_name: str) -> MatrixSyncState:
+    state = db.scalar(select(MatrixSyncState).where(MatrixSyncState.worker_name == worker_name))
+    if state is None:
+        state = MatrixSyncState(worker_name=worker_name)
+        db.add(state)
+        db.flush()
+    return state
 
 
 def conversation_state_for_user(

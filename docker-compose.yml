@@ -1,6 +1,27 @@
 name: autoweave-web
 
 services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    environment:
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-autoweave.local}
+      MATRIX_HOMESERVER_PUBLIC_URL: ${MATRIX_HOMESERVER_PUBLIC_URL:-http://localhost:8008}
+      MATRIX_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-autoweave-matrix-dev-secret}
+    entrypoint:
+      - /bin/sh
+      - /data/synapse-entrypoint.sh
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./docker/synapse:/data
+      - ./docker/synapse-entrypoint.sh:/data/synapse-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8008/_matrix/client/versions"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -102,7 +123,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       BACKEND_BASE_URL: http://localhost:8000
       FRONTEND_BASE_URL: http://localhost:3000
@@ -116,7 +137,7 @@ services:
       RUNTIME_CONTROL_PLANE: /srv/autoweave/runtime/control-plane
       RUNTIME_VOLUME_MOUNT_PATH: /srv/autoweave
       RUNTIME_VOLUME_NAME: ${RUNTIME_VOLUME_NAME:-autoweave_web_runtime}
-      RUNTIME_POSTGRES_URL: ${RUNTIME_POSTGRES_URL:-}
+      RUNTIME_POSTGRES_URL: ${DOCKER_RUNTIME_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/autoweave_web}
       RUNTIME_POSTGRES_SCHEMA: ${RUNTIME_POSTGRES_SCHEMA:-autoweave_runtime}
       RUNTIME_REDIS_URL: ${RUNTIME_REDIS_URL:-redis://redis:6379/0}
       RUNTIME_NEO4J_URL: ${RUNTIME_NEO4J_URL:-}
@@ -129,6 +150,15 @@ services:
       RUNTIME_VERTEX_LOCATION: ${RUNTIME_VERTEX_LOCATION:-global}
       RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE: ${RUNTIME_VERTEX_SERVICE_ACCOUNT_FILE:-/srv/autoweave/runtime/control-plane/config/secrets/vertex_service_account.json}
       RUNTIME_EXECUTION_MODE: ${RUNTIME_EXECUTION_MODE:-queue}
+      MATRIX_HOMESERVER_PUBLIC_URL: ${MATRIX_HOMESERVER_PUBLIC_URL:-http://localhost:8008}
+      MATRIX_HOMESERVER_INTERNAL_URL: ${MATRIX_HOMESERVER_INTERNAL_URL:-http://synapse:8008}
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-autoweave.local}
+      MATRIX_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-autoweave-matrix-dev-secret}
+      MATRIX_PASSWORD_SALT: ${MATRIX_PASSWORD_SALT:-autoweave-matrix-local}
+      MATRIX_SYNC_TIMEOUT_MS: ${MATRIX_SYNC_TIMEOUT_MS:-15000}
+      MATRIX_SYNC_ENABLED: ${MATRIX_SYNC_ENABLED:-true}
+      MATRIX_BRIDGE_LOCALPART: ${MATRIX_BRIDGE_LOCALPART:-autoweave-bridge}
+      FEATURE_FLAGS: ${FEATURE_FLAGS:-ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2,ff_artifact_center_v1,ff_search_command_v1,ff_matrix_chat_backend_v1,ff_matrix_room_provisioning_v1,ff_matrix_sync_ingest_v1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,6 +222,37 @@ services:
       - ./config/secrets:/srv/autoweave/runtime/control-plane/config/secrets:ro
     extra_hosts:
       - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+  matrix-bridge:
+    build:
+      context: ..
+      dockerfile: Autoweave Web/docker/backend.Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/autoweave_web}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      FRONTEND_BASE_URL: http://localhost:3000
+      MATRIX_HOMESERVER_PUBLIC_URL: ${MATRIX_HOMESERVER_PUBLIC_URL:-http://localhost:8008}
+      MATRIX_HOMESERVER_INTERNAL_URL: ${MATRIX_HOMESERVER_INTERNAL_URL:-http://synapse:8008}
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-autoweave.local}
+      MATRIX_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-autoweave-matrix-dev-secret}
+      MATRIX_PASSWORD_SALT: ${MATRIX_PASSWORD_SALT:-autoweave-matrix-local}
+      MATRIX_SYNC_TIMEOUT_MS: ${MATRIX_SYNC_TIMEOUT_MS:-15000}
+      MATRIX_SYNC_ENABLED: ${MATRIX_SYNC_ENABLED:-true}
+      MATRIX_BRIDGE_LOCALPART: ${MATRIX_BRIDGE_LOCALPART:-autoweave-bridge}
+      FEATURE_FLAGS: ${FEATURE_FLAGS:-ff_repo_installations_v1,ff_multi_repo_scope_v1,ff_human_loop_cards_v1,ff_inbox_v2,ff_artifact_center_v1,ff_search_command_v1,ff_matrix_chat_backend_v1,ff_matrix_room_provisioning_v1,ff_matrix_sync_ingest_v1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    command:
+      - python
+      - -m
+      - autoweave_web.matrix_bridge
     restart: unless-stopped
 
   frontend:

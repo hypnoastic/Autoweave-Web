@@ -2,6 +2,7 @@
 
 import type {
   AvailableRepository,
+  ChatSyncBootstrap,
   ChannelSummary,
   CodespaceSummary,
   ConversationMessage,
@@ -164,8 +165,20 @@ export async function createChannel(token: string, orbitId: string, payload: Rec
   return request<ChannelSummary>(`/api/orbits/${orbitId}/channels`, { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
+export async function fetchChatSyncBootstrap(token: string, orbitId: string) {
+  return request<ChatSyncBootstrap>(`/api/chat/sync/bootstrap?orbit_id=${encodeURIComponent(orbitId)}`, {}, token);
+}
+
 export async function sendChannelMessage(token: string, orbitId: string, channelId: string, body: string) {
   return request<ConversationSendResult>(`/api/orbits/${orbitId}/channels/${channelId}/messages`, { method: "POST", body: JSON.stringify({ body }) }, token);
+}
+
+export async function retryMessageTransport(token: string, orbitId: string, messageId: string) {
+  return request<{ message: ConversationMessage }>(
+    `/api/orbits/${orbitId}/messages/${messageId}/retry-transport`,
+    { method: "POST" },
+    token,
+  );
 }
 
 export async function sendOrbitMessage(token: string, orbitId: string, body: string) {
