@@ -36,9 +36,7 @@ import {
   InlineNotice,
   ListRow,
   Panel,
-  PageHeader,
   ScrollPanel,
-  SectionTitle,
   ShellPage,
   ShellPageSkeleton,
   StatusPill,
@@ -194,41 +192,84 @@ function DashboardScreenBody({
   error: string | null;
   onCreateOrbitClick: () => void;
 }) {
+  const activePriorityCount = payload.priority_items.length;
+  const runningWorkspaceCount = payload.codespaces.filter((item) => item.status === "running").length;
+
   return (
-    <ShellPage>
-      <PageHeader
-        eyebrow={`Hello, ${payload.me.display_name}`}
-        title="Everything important, nothing noisy."
-        detail="Priority surfaces only what needs attention. Workspaces stay visible. Search and notifications stay close without taking over the canvas."
-        actions={
-          <ActionButton onClick={onCreateOrbitClick}>
-            <Plus className="h-4 w-4" />
-            New Orbit
-          </ActionButton>
-        }
-      />
-
-      {error ? (
-        <InlineNotice
-          className="mt-4"
-          tone="danger"
-          title="Dashboard action blocked"
-          detail={error}
-        />
-      ) : null}
-
-      <div className="mt-5 grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-        <Panel className="flex min-h-0 flex-col overflow-hidden">
-          <div className="border-b border-line px-5 py-4">
-            <SectionTitle eyebrow="Priority" title="Signals worth looking at" detail="Approvals, ready reviews, completed work, and live demos appear here only when they matter." dense />
+    <ShellPage className="gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-quiet">Hello, {payload.me.display_name}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-quiet">
+            <span>{activePriorityCount} priority signals</span>
+            <span className="h-1 w-1 rounded-full bg-faint/60" />
+            <span>{payload.codespaces.length} workspaces</span>
+            <span className="h-1 w-1 rounded-full bg-faint/60" />
+            <span>{payload.recent_orbits.length} recent orbits</span>
           </div>
-          <ScrollPanel className="flex-1 px-4 py-4">
-            <div className="space-y-2.5">
+        </div>
+        <ActionButton onClick={onCreateOrbitClick}>
+          <Plus className="h-4 w-4" />
+          New Orbit
+        </ActionButton>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <SurfaceCard className="bg-panelStrong p-3.5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Priority</p>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">{activePriorityCount}</p>
+              <p className="text-xs text-quiet">Active approvals, reviews, and completion signals.</p>
+            </div>
+            <StatusPill tone={activePriorityCount ? "accent" : "muted"}>
+              {activePriorityCount ? "live" : "quiet"}
+            </StatusPill>
+          </div>
+        </SurfaceCard>
+        <SurfaceCard className="bg-panelStrong p-3.5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Workspaces</p>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">{payload.codespaces.length}</p>
+              <p className="text-xs text-quiet">{runningWorkspaceCount} currently running and ready to reopen.</p>
+            </div>
+            <StatusPill tone={runningWorkspaceCount ? "success" : "muted"}>
+              {runningWorkspaceCount ? "running" : "idle"}
+            </StatusPill>
+          </div>
+        </SurfaceCard>
+        <SurfaceCard className="bg-panelStrong p-3.5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Recent orbits</p>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">{payload.recent_orbits.length}</p>
+              <p className="text-xs text-quiet">Fast return paths stay in the rail and here in summary only.</p>
+            </div>
+            <StatusPill tone="muted">focus</StatusPill>
+          </div>
+        </SurfaceCard>
+      </div>
+
+      {error ? <InlineNotice tone="danger" title="Dashboard action blocked" detail={error} /> : null}
+
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+        <Panel className="flex min-h-0 flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Priority queue</h2>
+              <p className="mt-1 text-xs text-quiet">Only the highest-signal approvals, reviews, demos, and completions.</p>
+            </div>
+            <StatusPill tone={activePriorityCount ? "accent" : "muted"}>
+              {activePriorityCount}
+            </StatusPill>
+          </div>
+          <ScrollPanel className="flex-1 px-3 py-3">
+            <div className="space-y-2">
               {payload.priority_items.length ? (
                 payload.priority_items.map((item, index) => (
                   <ListRow
                     key={index}
-                    eyebrow="Priority signal"
                     title={String(item.title ?? "Work item")}
                     detail={String(item.summary ?? item.agent ?? "ERGO")}
                     trailing={
@@ -255,18 +296,24 @@ function DashboardScreenBody({
                   />
                 ))
               ) : (
-                <EmptyState detail="Create an orbit, ask ERGO to build something, and meaningful signals will surface here." />
+                <EmptyState detail="Meaningful execution signals will appear here once work starts moving." />
               )}
             </div>
           </ScrollPanel>
         </Panel>
 
         <Panel className="flex min-h-0 flex-col overflow-hidden">
-          <div className="border-b border-line px-5 py-4">
-            <SectionTitle eyebrow="Workspaces" title="Recent branch contexts" detail="Open a workspace, see whether it is running, and get back to active development quickly." dense />
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Recent workspaces</h2>
+              <p className="mt-1 text-xs text-quiet">Return to active branches quickly without opening a full orbit first.</p>
+            </div>
+            <StatusPill tone={runningWorkspaceCount ? "success" : "muted"}>
+              {runningWorkspaceCount ? `${runningWorkspaceCount} running` : "idle"}
+            </StatusPill>
           </div>
-          <ScrollPanel className="flex-1 px-4 py-4">
-            <div className="space-y-2.5">
+          <ScrollPanel className="flex-1 px-3 py-3">
+            <div className="space-y-2">
               {payload.codespaces.length ? (
                 payload.codespaces.map((item) => (
                   <ListRow

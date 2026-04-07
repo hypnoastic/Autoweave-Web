@@ -161,6 +161,11 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - more consistent panel/card surfaces
   - stronger modal backdrops and panel solidity
   - readable dark-mode text selection and clearer surface contrast in light mode
+- dashboard body refinements now replace the old in-canvas hero copy with a compact operational overview:
+  - greeting plus small signal strip
+  - three concise summary tiles
+  - denser priority and recent-workspace columns
+  - stable internal page scrolling instead of a long stacked page feel
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation

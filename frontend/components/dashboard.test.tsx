@@ -83,7 +83,8 @@ describe("DashboardScreen", () => {
 
     renderDashboard();
 
-    expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
+    expect(await screen.findByText("Hello, Octo Cat")).toBeInTheDocument();
+    expect(screen.getByText("Priority queue")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AutoWeave home" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search" })).toBeInTheDocument();
@@ -130,7 +131,7 @@ describe("DashboardScreen", () => {
 
     renderDashboard();
 
-    expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
+    expect(await screen.findByText("Hello, Octo Cat")).toBeInTheDocument();
 
     fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     expect(await screen.findByRole("search", { name: "Search orbits" })).toBeInTheDocument();
