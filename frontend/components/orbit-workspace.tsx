@@ -220,6 +220,34 @@ function OrbitSectionBar({
   );
 }
 
+function SettingsGroup({
+  eyebrow,
+  title,
+  detail,
+  action,
+  children,
+}: {
+  eyebrow?: string;
+  title: string;
+  detail?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-[16px] border border-lineStrong bg-panelStrong/95">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="min-w-0">
+          {eyebrow ? <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{eyebrow}</p> : null}
+          <p className="mt-1 text-sm font-semibold tracking-[-0.02em] text-ink">{title}</p>
+          {detail ? <p className="mt-1 text-xs leading-5 text-quiet">{detail}</p> : null}
+        </div>
+        {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
+      </div>
+      <div className="px-4 py-3">{children}</div>
+    </section>
+  );
+}
+
 function isLegacyWorkflowPromptMessage(message: ConversationMessage) {
   const metadata = message.metadata ?? {};
   if (metadata.workflow_prompt || metadata.workflow_prompt_type || metadata.workflow_prompt_phase) {
@@ -2270,132 +2298,140 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           onClose={() => setShowOrbitSettings(false)}
           title="Orbit settings"
           description="Repo info, invite flow, and orbit-local operational settings."
-          footer={
-            <div className="flex items-center justify-end gap-3">
-              <GhostButton onClick={() => setShowOrbitSettings(false)}>Close</GhostButton>
-            </div>
-          }
+          panelClassName="max-w-[760px] border-lineStrong bg-panelStrong shadow-[0_26px_72px_rgba(0,0,0,0.28)]"
+          bodyClassName="px-4 py-4 sm:px-5 sm:py-4"
         >
-          <div className="space-y-5">
-            <SurfaceCard className="bg-panelStrong">
-              <div className="flex items-start justify-between gap-4">
-                <SectionTitle
-                  eyebrow="Repositories"
-                  title={payload.repositories[0]?.full_name || payload.orbit.repo_full_name || "Repository pending"}
-                  detail={payload.repositories.length > 1 ? `${payload.repositories.length} connected repositories` : "Primary repository drives legacy flows"}
-                  dense
-                />
-                {payload.permissions?.can_bind_repo ? (
-                  <GhostButton onClick={() => void onOpenRepositoryPicker()}>
-                    <Plus className="h-4 w-4" />
+          <div className="space-y-3">
+            <SettingsGroup
+              eyebrow="Repositories"
+              title={payload.repositories[0]?.full_name || payload.orbit.repo_full_name || "Repository pending"}
+              detail={payload.repositories.length > 1 ? `${payload.repositories.length} connected repositories` : "Primary repository drives legacy flows"}
+              action={
+                payload.permissions?.can_bind_repo ? (
+                  <GhostButton className="h-8 px-3 text-xs" onClick={() => void onOpenRepositoryPicker()}>
+                    <Plus className="h-3.5 w-3.5" />
                     Connect repository
                   </GhostButton>
-                ) : null}
-              </div>
-              <div className="mt-4 space-y-3">
-                {payload.repositories.length ? (
-                  payload.repositories.map((repository) => {
+                ) : null
+              }
+            >
+              {payload.repositories.length ? (
+                <div className="space-y-2">
+                  {payload.repositories.map((repository) => {
                     const repoGrant = payload.permissions?.repo_grants?.[repository.id];
                     return (
-                      <ListRow
-                        key={repository.id}
-                        eyebrow="Connected repository"
-                        title={repository.full_name}
-                        detail={`${repository.default_branch} branch${repoGrant ? ` · ${repoGrant} access` : ""}`}
-                        trailing={
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            {repository.is_primary ? <StatusPill tone="accent">Primary</StatusPill> : null}
-                            <StatusPill tone={repository.health_state === "healthy" ? "success" : "muted"}>{repository.health_state || "healthy"}</StatusPill>
+                      <div key={repository.id} className="rounded-[14px] border border-line bg-panel px-3 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-ink">{repository.full_name}</p>
+                            <p className="mt-1 text-xs text-quiet">
+                              {repository.default_branch} branch{repoGrant ? ` · ${repoGrant} access` : ""}
+                            </p>
                           </div>
-                        }
-                        supporting={
-                          <>
-                            {repository.url ? (
-                              <a
-                                href={repository.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-2 text-sm font-medium text-ink"
-                              >
-                                Open GitHub repository
-                                <ExternalLink className="h-4 w-4" />
-                              </a>
-                            ) : null}
-                            {!repository.is_primary && payload.permissions?.can_bind_repo ? (
-                              <GhostButton onClick={() => void onMakeRepositoryPrimary(repository.id)}>Make primary</GhostButton>
-                            ) : null}
-                          </>
-                        }
-                      />
+                          <div className="flex flex-wrap items-center gap-2">
+                            {repository.is_primary ? <StatusPill tone="accent">Primary</StatusPill> : null}
+                            <StatusPill tone={repository.health_state === "healthy" ? "success" : "muted"}>
+                              {repository.health_state || "healthy"}
+                            </StatusPill>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {repository.url ? (
+                            <a
+                              href={repository.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 text-sm font-medium text-ink"
+                            >
+                              Open GitHub repository
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                          {!repository.is_primary && payload.permissions?.can_bind_repo ? (
+                            <GhostButton className="h-8 px-3 text-xs" onClick={() => void onMakeRepositoryPrimary(repository.id)}>
+                              Make primary
+                            </GhostButton>
+                          ) : null}
+                        </div>
+                      </div>
                     );
-                  })
-                ) : (
-                  <p className="text-sm text-quiet">No connected repositories yet.</p>
-                )}
-              </div>
-            </SurfaceCard>
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-quiet">No connected repositories yet.</p>
+              )}
+            </SettingsGroup>
 
-            <SurfaceCard className="bg-panelStrong">
-              <SectionTitle eyebrow="Invites" title="Invite collaborators" detail="Members are added to the repo and introduced in chat when they join." dense />
+            <SettingsGroup
+              eyebrow="Invites"
+              title="Invite collaborators"
+              detail="Members are added to the repo and introduced in chat when they join."
+            >
               {payload.permissions?.can_manage_members ? (
-                <div className="mt-4 flex items-center gap-3">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <TextInput
                     value={inviteEmail}
                     onChange={(event) => setInviteEmail(event.target.value)}
                     placeholder="teammate@example.com"
                   />
-                  <ActionButton onClick={() => void onInvite()} disabled={!inviteEmail.trim()}>
+                  <ActionButton className="h-10 px-4" onClick={() => void onInvite()} disabled={!inviteEmail.trim()}>
                     <MailPlus className="h-4 w-4" />
                     Invite
                   </ActionButton>
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-quiet">Only orbit managers and owners can send invitations.</p>
+                <p className="text-sm text-quiet">Only orbit managers and owners can send invitations.</p>
               )}
-            </SurfaceCard>
+            </SettingsGroup>
 
-            <SurfaceCard className="bg-panelStrong">
-              <SectionTitle
-                eyebrow="Members"
-                title="Workspace roles"
-                detail="Orbit membership and repo scope stay separate. Owners can adjust workspace roles here."
-                dense
-              />
-              <div className="mt-4 space-y-3">
+            <SettingsGroup
+              eyebrow="Members"
+              title="Workspace roles"
+              detail="Orbit membership and repo scope stay separate. Owners can adjust workspace roles here."
+            >
+              <div className="space-y-2">
                 {payload.members.map((member) => (
-                  <ListRow
-                    key={member.user_id}
-                    eyebrow="Member"
-                    title={member.display_name || member.login || member.github_login || member.user_id}
-                    detail={[member.github_login || member.login, member.is_self ? "You" : null].filter(Boolean).join(" · ")}
-                    supporting={
-                      <>
-                        {[
-                          { value: "owner", label: "Owner" },
-                          { value: "manager", label: "Manager" },
-                          { value: "contributor", label: "Contributor" },
-                          { value: "viewer", label: "Viewer" },
-                        ].map((option) => (
-                          <SelectionChip
-                            key={`${member.user_id}-${option.value}`}
-                            active={member.role === option.value}
-                            onClick={() => void onUpdateMemberRole(member.user_id, option.value)}
-                            disabled={
-                              !payload.permissions?.can_manage_roles
-                              || updatingMemberRole === member.user_id
-                              || member.role === option.value
-                              || (member.is_self && option.value !== "owner")
-                            }
-                          >
-                            {option.label}
-                          </SelectionChip>
-                        ))}
-                      </>
-                    }
-                  />
+                  <div key={member.user_id} className="rounded-[14px] border border-line bg-panel px-3 py-3">
+                    <div className="flex flex-wrap items-start gap-3">
+                      <AvatarMark
+                        label={member.display_name || member.login || member.github_login || member.user_id}
+                        className="h-8 w-8 rounded-[10px]"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink">
+                          {member.display_name || member.login || member.github_login || member.user_id}
+                        </p>
+                        <p className="mt-1 text-xs text-quiet">
+                          {[member.github_login || member.login, member.is_self ? "You" : null].filter(Boolean).join(" · ")}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {[
+                            { value: "owner", label: "Owner" },
+                            { value: "manager", label: "Manager" },
+                            { value: "contributor", label: "Contributor" },
+                            { value: "viewer", label: "Viewer" },
+                          ].map((option) => (
+                            <SelectionChip
+                              key={`${member.user_id}-${option.value}`}
+                              active={member.role === option.value}
+                              onClick={() => void onUpdateMemberRole(member.user_id, option.value)}
+                              disabled={
+                                !payload.permissions?.can_manage_roles
+                                || updatingMemberRole === member.user_id
+                                || member.role === option.value
+                                || (member.is_self && option.value !== "owner")
+                              }
+                            >
+                              {option.label}
+                            </SelectionChip>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </SurfaceCard>
+            </SettingsGroup>
           </div>
         </CenteredModal>
 
