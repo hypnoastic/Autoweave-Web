@@ -154,7 +154,11 @@ function DashboardSidebarContent({
               sidebarCollapsed ? "justify-center px-0" : "justify-start px-2.5 text-[#a6a9b0]",
             )}
           >
-            <AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} className="h-[18px] w-[18px] rounded-[6px]" />
+            <AvatarMark
+              label={orbit.name}
+              src={isImageLogo(orbit.logo) ? orbit.logo : null}
+              className={cx("h-[20px] w-[20px] rounded-[8px]", sidebarCollapsed && "translate-x-px")}
+            />
             <span
               className={cx(
                 "min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-[#a6a9b0] transition-[max-width,opacity] duration-200 ease-productive motion-reduce:transition-none group-hover:text-ink",

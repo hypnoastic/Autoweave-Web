@@ -191,7 +191,7 @@ function ShellSidebarItem({
         item.active ? "bg-shellMuted text-ink" : "bg-transparent text-[#a6a9b0]",
       )}
     >
-      <span className="flex h-[17px] w-[17px] shrink-0 items-center justify-center">
+      <span className={cx("flex h-[17px] w-[17px] shrink-0 items-center justify-center", collapsed && "translate-x-px")}>
         <Icon className="h-[17px] w-[17px]" />
       </span>
       <span
@@ -316,10 +316,10 @@ function AppShellFrame({ children }: { children: ReactNode }) {
     <AppShellContext.Provider value={contextValue}>
       <div className="flex min-h-dvh flex-col overflow-hidden bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
-          className="z-30 flex shrink-0 items-center bg-shell px-1.5"
+          className="z-30 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(280px,420px)_minmax(0,1fr)] items-center gap-2 bg-shell px-1.5"
           style={{ height: TOPBAR_HEIGHT }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          <div className="flex min-w-0 items-center gap-0.5">
             <IconButton
               className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
@@ -355,7 +355,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
             </nav>
           </div>
           {config.search ? (
-            <div className="mx-3 hidden min-w-0 flex-1 justify-center md:flex">
+            <div className="hidden min-w-0 justify-center md:flex">
               <button
                 type="button"
                 onClick={openSearch}
@@ -368,9 +368,9 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               </button>
             </div>
           ) : (
-            <div className="hidden flex-1 md:block" />
+            <div className="hidden md:block" />
           )}
-          <div className="flex shrink-0 items-center gap-0.5" ref={profileRef}>
+          <div className="relative flex min-w-0 items-center justify-end gap-0.5" ref={profileRef}>
             {config.notifications ? (
               <IconButton
                 className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
@@ -393,7 +393,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               title="Open profile menu"
               onClick={() => setProfileMenuOpen((current) => !current)}
               className={cx(
-                "flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-[10px] px-1 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
+                "flex h-8 w-8 min-w-0 shrink-0 items-center justify-center rounded-[10px] px-0 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
                 profileMenuOpen ? "bg-shellMuted text-ink" : "text-[#aeb2b8]",
               )}
             >
@@ -401,11 +401,11 @@ function AppShellFrame({ children }: { children: ReactNode }) {
                 <AvatarMark
                   label={session.user.display_name || session.user.github_login}
                   src={session.user.avatar_url}
-                  className="h-6 w-6 rounded-[9px] brightness-90 saturate-[0.72]"
+                  className="h-[22px] w-[22px] rounded-[8px] brightness-[0.82] saturate-[0.62]"
                 />
               ) : (
-                <span className="flex h-6 w-6 items-center justify-center rounded-[9px] bg-shellMuted text-[#b4b8be]">
-                  <User2 className="h-[14px] w-[14px]" />
+                <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[8px] bg-shellMuted text-[#b4b8be]">
+                  <User2 className="h-[13px] w-[13px]" />
                 </span>
               )}
             </button>

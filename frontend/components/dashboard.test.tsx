@@ -139,4 +139,32 @@ describe("DashboardScreen", () => {
     expect(await screen.findByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Search orbits" })).not.toBeInTheDocument();
   });
+
+  it("opens the profile menu from the persistent shell", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchDashboard.mockResolvedValue({
+      me: { display_name: "Octo Cat", github_login: "octocat" },
+      recent_orbits: [],
+      priority_items: [],
+      notifications: [],
+      codespaces: [],
+    });
+    api.fetchOrbits.mockResolvedValue([]);
+
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open profile menu" }));
+
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /global settings/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /sign out/i })).toBeInTheDocument();
+  });
 });
