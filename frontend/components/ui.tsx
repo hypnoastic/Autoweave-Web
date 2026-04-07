@@ -37,7 +37,7 @@ export function Panel({
   className,
   children,
 }: PropsWithChildren<{ className?: string }>) {
-  return <div className={clsx("rounded-pane border border-line bg-panel shadow-panel backdrop-blur", className)}>{children}</div>;
+  return <div className={clsx("rounded-pane border border-line bg-panelStrong shadow-panel", className)}>{children}</div>;
 }
 
 export function SurfaceCard({
@@ -46,7 +46,7 @@ export function SurfaceCard({
   ...rest
 }: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {
   return (
-    <div className={clsx("rounded-pane border border-line bg-panelMuted p-4", className)} {...rest}>
+    <div className={clsx("rounded-pane border border-line bg-panel p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]", className)} {...rest}>
       {children}
     </div>
   );
@@ -139,7 +139,7 @@ export function GhostButton({
     <button
       type={buttonType}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-chip border border-line bg-panelStrong px-4 py-2.5 text-sm font-medium text-ink transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-productive hover:border-lineStrong hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-chip border border-line bg-panel px-4 py-2.5 text-sm font-medium text-ink transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-productive hover:border-lineStrong hover:bg-panelMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...rest}
@@ -178,7 +178,7 @@ export function TextInput({
   return (
     <input
       className={clsx(
-        "w-full rounded-chip border border-line bg-panelStrong px-3.5 py-2.5 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panel focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
+        "w-full rounded-chip border border-line bg-panel px-3.5 py-2.5 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panelStrong focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
       )}
       {...rest}
@@ -193,7 +193,7 @@ export function TextArea({
   return (
     <textarea
       className={clsx(
-        "min-h-24 w-full resize-none rounded-chip border border-line bg-panelStrong px-3.5 py-3 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panel focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
+        "min-h-24 w-full resize-none rounded-chip border border-line bg-panel px-3.5 py-3 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out placeholder:text-faint focus:border-lineStrong focus:bg-panelStrong focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
         className,
       )}
       {...rest}
@@ -668,7 +668,7 @@ export function OverlayBackdrop({
       style={offsetLeft == null ? undefined : ({ left: offsetLeft } satisfies CSSProperties)}
       className={clsx(
         "aw-motion-fade fixed inset-0 z-30 transition-[opacity] duration-200 ease-productive-out motion-reduce:transition-none",
-        subtle ? "bg-overlay/40" : "bg-overlay/80 backdrop-blur-[2px]",
+        subtle ? "bg-overlay/50 backdrop-blur-sm" : "bg-overlay/90 backdrop-blur-md",
       )}
     />
   );
@@ -704,7 +704,7 @@ export function LeftSlidePanel({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="aw-motion-slide-left fixed bottom-0 top-0 z-40 border-r border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
+        className="aw-motion-slide-left fixed bottom-0 top-0 z-40 border-r border-line bg-panelStrong shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
         style={{
           left: offset,
           width,
@@ -744,7 +744,7 @@ export function RightDetailPanel({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="aw-motion-slide-right fixed bottom-0 right-0 top-0 z-40 w-full max-w-[420px] border-l border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
+        className="aw-motion-slide-right fixed bottom-0 right-0 top-0 z-40 w-full max-w-[420px] border-l border-line bg-panelStrong shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none"
       >
         <SurfaceHeader title={title} detail={description} titleId={titleId} action={<GhostButton onClick={onClose}>Close</GhostButton>} />
         <div className="scroll-region h-[calc(100dvh-73px)] px-5 py-5">{children}</div>
@@ -787,7 +787,7 @@ export function CenteredModal({
           aria-labelledby={titleId}
           tabIndex={-1}
           className={clsx(
-            "aw-motion-pop flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panel shadow-soft transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none",
+            "aw-motion-pop flex max-h-[88dvh] w-full max-w-[680px] flex-col overflow-hidden rounded-card border border-line bg-panelStrong shadow-soft backdrop-blur-2xl transition-[transform,opacity] duration-200 ease-productive motion-reduce:transition-none",
             panelClassName,
           )}
         >
@@ -812,7 +812,7 @@ export function PopoverMenu({
     <div
       role="menu"
       className={clsx(
-        "aw-motion-pop absolute right-0 top-full z-40 mt-2 min-w-[220px] rounded-pane border border-line bg-panel p-2 shadow-soft transition-[opacity,transform] duration-200 ease-productive motion-reduce:transition-none",
+        "aw-motion-pop absolute right-0 top-full z-40 mt-2 min-w-[220px] rounded-pane border border-line bg-panelStrong p-2 shadow-soft backdrop-blur-xl transition-[opacity,transform] duration-200 ease-productive motion-reduce:transition-none",
         className,
       )}
     >

@@ -4,28 +4,28 @@
 
 :root {
   color-scheme: light;
-  --aw-bg: #f4f4f2;
-  --aw-panel: rgba(255, 255, 255, 0.92);
+  --aw-bg: #efeee8;
+  --aw-panel: rgba(252, 252, 249, 0.9);
   --aw-panel-strong: #ffffff;
-  --aw-panel-muted: #f7f7f5;
-  --aw-border: rgba(17, 17, 17, 0.1);
-  --aw-border-strong: rgba(17, 17, 17, 0.16);
-  --aw-text: #141414;
-  --aw-text-soft: #5f5f5a;
-  --aw-text-faint: #83837d;
+  --aw-panel-muted: #f3f1eb;
+  --aw-border: rgba(17, 17, 17, 0.08);
+  --aw-border-strong: rgba(17, 17, 17, 0.14);
+  --aw-text: #161616;
+  --aw-text-soft: #5a5a55;
+  --aw-text-faint: #7b7b74;
   --aw-accent: #171717;
   --aw-accent-contrast: #ffffff;
   --aw-focus-ring: rgba(20, 20, 20, 0.22);
   --aw-state-success: #25674d;
   --aw-state-danger: #a33d31;
   --aw-state-warning: #9a6b1e;
-  --aw-overlay: rgba(18, 18, 18, 0.24);
-  --aw-shadow: 0 1px 0 rgba(17, 17, 17, 0.04), 0 20px 48px rgba(17, 17, 17, 0.08);
-  --aw-shadow-soft: 0 10px 24px rgba(17, 17, 17, 0.08);
-  --aw-shell: #0d0e10;
-  --aw-shell-elevated: #14161a;
-  --aw-shell-muted: #1d2026;
-  --aw-shell-seam: rgba(17, 17, 17, 0.1);
+  --aw-overlay: rgba(18, 18, 18, 0.38);
+  --aw-shadow: 0 1px 0 rgba(17, 17, 17, 0.03), 0 18px 40px rgba(17, 17, 17, 0.07);
+  --aw-shadow-soft: 0 16px 40px rgba(17, 17, 17, 0.1);
+  --aw-shell: #0a0b0d;
+  --aw-shell-elevated: #111317;
+  --aw-shell-muted: #191c21;
+  --aw-shell-seam: rgba(17, 17, 17, 0.12);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
   --aw-radius-lg: 18px;
@@ -48,28 +48,28 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --aw-bg: #131416;
-  --aw-panel: rgba(28, 29, 32, 0.94);
-  --aw-panel-strong: #202225;
-  --aw-panel-muted: #191b1e;
-  --aw-border: rgba(255, 255, 255, 0.08);
-  --aw-border-strong: rgba(255, 255, 255, 0.14);
-  --aw-text: #f2f2ef;
-  --aw-text-soft: #babbb4;
-  --aw-text-faint: #8e9089;
+  --aw-bg: #111315;
+  --aw-panel: rgba(24, 26, 29, 0.96);
+  --aw-panel-strong: #1a1d21;
+  --aw-panel-muted: #15181c;
+  --aw-border: rgba(255, 255, 255, 0.07);
+  --aw-border-strong: rgba(255, 255, 255, 0.12);
+  --aw-text: #f3f2ed;
+  --aw-text-soft: #b9bbb3;
+  --aw-text-faint: #8a8d86;
   --aw-accent: #f2f2ef;
   --aw-accent-contrast: #171717;
   --aw-focus-ring: rgba(242, 242, 239, 0.22);
   --aw-state-success: #6fc49c;
   --aw-state-danger: #ff8f82;
   --aw-state-warning: #f0c56a;
-  --aw-overlay: rgba(5, 5, 6, 0.44);
-  --aw-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 24px 56px rgba(0, 0, 0, 0.34);
-  --aw-shadow-soft: 0 12px 32px rgba(0, 0, 0, 0.22);
-  --aw-shell: #0b0c0e;
-  --aw-shell-elevated: #121417;
-  --aw-shell-muted: #1a1d22;
-  --aw-shell-seam: rgba(255, 255, 255, 0.05);
+  --aw-overlay: rgba(3, 4, 5, 0.58);
+  --aw-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 18px 44px rgba(0, 0, 0, 0.34);
+  --aw-shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.3);
+  --aw-shell: #090a0c;
+  --aw-shell-elevated: #101216;
+  --aw-shell-muted: #181b20;
+  --aw-shell-seam: rgba(255, 255, 255, 0.06);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
 }
@@ -78,19 +78,8 @@ html,
 body {
   height: 100%;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.78), transparent 26%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 18%),
-    var(--aw-bg);
+  background: var(--aw-bg);
   color: var(--aw-text);
-}
-
-html[data-theme="dark"],
-html[data-theme="dark"] body {
-  background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.05), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 16%),
-    var(--aw-bg);
 }
 
 body {
@@ -133,7 +122,7 @@ button {
 
 html[data-theme="dark"] *::selection {
   background: rgba(242, 242, 239, 0.28);
-  color: #141414;
+  color: var(--aw-text);
 }
 
 ::-webkit-scrollbar {

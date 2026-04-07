@@ -203,7 +203,13 @@
   - the same collapsed sidebar stays mounted during dashboard -> orbit navigation
   - orbit navigation appears inside the same sidebar container instead of a separate orbit-only rail, and the orbit identity block no longer occupies permanent sidebar space
   - initial dashboard and orbit reads now render as in-window skeleton states inside the persistent shell instead of the old `Loading dashboard…` / `Loading orbit…` pill
-  - the shell frame now sits tighter to the top edge and reads as one connected top-bar + sidebar surface instead of drifting the content window downward
+- the shell frame now sits tighter to the top edge and reads as one connected top-bar + sidebar surface instead of drifting the content window downward
+- light/dark theme tokens are now calmer and more disciplined across the authenticated product:
+  - shell remains the darkest layer
+  - main canvas is flatter and more neutral
+  - local panels/cards now share a tighter surface hierarchy instead of mixing unrelated grays
+  - modals use a stronger backdrop blur and more solid panel surface
+  - dark-mode text selection keeps readable contrast instead of inverting into near-black-on-dark
   - the orbit sidebar no longer renders the old triage saved-view block; triage remains in the inbox/search flows instead of cluttering the sidebar
   - the app shell no longer sits inside a global inset outer card; the shared shell now fills the viewport instead of wrapping the whole product in one rounded container
   - dashboard and orbit no longer sit inside a second bordered inner app frame; the shell now hands page content directly to the canvas and only local product panels retain borders
