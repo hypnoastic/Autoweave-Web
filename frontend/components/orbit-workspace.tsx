@@ -387,13 +387,13 @@ function BoardCard({
 }) {
   return (
     <button
-      className="w-full rounded-pane border border-line bg-panelStrong px-4 py-4 text-left transition hover:bg-panelMuted"
+      className="w-full rounded-pane border border-line bg-panelStrong px-3.5 py-3 text-left transition hover:bg-panelMuted"
       onClick={onClick}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-ink">{title}</p>
-          <p className="mt-1 text-xs text-quiet">{detail}</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{detail}</p>
         </div>
         <StatusPill tone={tone}>{label}</StatusPill>
       </div>
@@ -462,6 +462,15 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const pendingAgent =
     (localAgentPending && sameConversation(localPendingConversation, selectedConversation)) || workflowPendingInConversation;
   const workflowLanes = useMemo(() => workflowColumns(selectedRun), [selectedRun]);
+  const workflowMetrics = useMemo(() => {
+    const tasks = selectedRun?.tasks ?? [];
+    return {
+      total: tasks.length,
+      blocked: tasks.filter((task) => ["blocked", "failed"].includes(task.state)).length,
+      waiting: tasks.filter((task) => ["waiting_for_human", "waiting_for_approval"].includes(task.state)).length,
+      completed: tasks.filter((task) => task.state === "completed").length,
+    };
+  }, [selectedRun]);
   const selectedCodespace =
     payload?.codespaces.find((item) => item.id === activeCodespaceId) ?? payload?.codespaces[0] ?? null;
   const openHumanRequests = useMemo(
@@ -1834,6 +1843,22 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                   }
                 />
                 <ScrollPanel className="flex-1 px-3 py-3">
+                  <div className="mb-3 grid gap-2 lg:grid-cols-4">
+                    {[
+                      { label: "Total tasks", value: workflowMetrics.total, tone: "muted" as const },
+                      { label: "Blocked", value: workflowMetrics.blocked, tone: workflowMetrics.blocked ? "danger" as const : "muted" as const },
+                      { label: "Waiting", value: workflowMetrics.waiting, tone: workflowMetrics.waiting ? "accent" as const : "muted" as const },
+                      { label: "Completed", value: workflowMetrics.completed, tone: workflowMetrics.completed ? "success" as const : "muted" as const },
+                    ].map((metric) => (
+                      <SurfaceCard key={metric.label} className="bg-panelStrong p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{metric.label}</p>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <p className="text-xl font-semibold tracking-[-0.03em] text-ink">{metric.value}</p>
+                          <StatusPill tone={metric.tone}>{metric.value}</StatusPill>
+                        </div>
+                      </SurfaceCard>
+                    ))}
+                  </div>
                   <div className="grid min-h-0 gap-3 xl:grid-cols-3">
                   {workflowLanes.map((lane) => (
                     <div key={lane.key} className="flex min-h-[320px] flex-col rounded-pane border border-line bg-panelStrong p-3.5">

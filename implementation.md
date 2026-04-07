@@ -176,6 +176,10 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - ERGO uses a more recognizable colored identity mark
   - conversation search now returns matching-message results in its own panel instead of filtering the live thread
   - the composer is smaller and now exposes markdown/attachment direction without adding fake backend behavior
+- workflow refinements now make the execution board denser and more legible:
+  - a compact metrics strip summarizes total, blocked, waiting, and completed tasks
+  - lane cards are tighter and less padded
+  - the board keeps the same detail-panel behavior while reading more like a tactical work surface
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation
