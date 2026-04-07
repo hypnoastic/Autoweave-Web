@@ -154,7 +154,7 @@ The backend and worker mount the shared runtime volume and talk to external Post
 - product data and runtime data remain separated
 - Matrix chat transport integration is now implemented behind feature flags while keeping product DB canonical for conversations, messages, notifications, and human-loop cards
 - UI shell redesign implemented for dashboard and orbit surfaces
-- shell follow-up refinements now keep the orbit search visually centered in the top bar, open shell search as an anchored dropdown instead of a modal, open the profile menu correctly from the live shell, and keep collapsed rail icons/recent orbit marks aligned in the slimmer sidebar
+- shell follow-up refinements now keep the orbit search visually centered in the top bar, turn the top-bar search field into the active typed search input with a downward-expanding result surface, open the profile menu correctly from the live shell, and keep collapsed rail icons/recent orbit marks aligned in the slimmer sidebar
 - workflow-origin prompts now project from runtime snapshots into the originating chat surface (channel or DM)
 - repeated open clarification prompts are deduplicated so manager ask loops do not spam chat
 - human-request answers and approval decisions now post resolved receipts back into the originating conversation

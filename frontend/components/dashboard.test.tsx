@@ -86,7 +86,7 @@ describe("DashboardScreen", () => {
     expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AutoWeave home" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open profile menu" })).toBeInTheDocument();
     expect(screen.getByText("Orbit Alpha")).toBeInTheDocument();
@@ -132,7 +132,7 @@ describe("DashboardScreen", () => {
 
     expect(await screen.findByText("Everything important, nothing noisy.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     expect(await screen.findByRole("search", { name: "Search orbits" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by orbit name or repository")).toBeInTheDocument();
 

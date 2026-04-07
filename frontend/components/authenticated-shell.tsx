@@ -54,6 +54,12 @@ type ShellPanelConfig = {
   bodyClassName?: string;
 };
 
+type ShellSearchConfig = ShellPanelConfig & {
+  query?: string;
+  onQueryChange?: (value: string) => void;
+  placeholder?: string;
+};
+
 export type AppShellNavItem = {
   key: string;
   label: string;
@@ -74,7 +80,7 @@ export type AppShellConfig = {
   };
   items: AppShellNavItem[];
   secondaryContent?: ReactNode;
-  search?: ShellPanelConfig;
+  search?: ShellSearchConfig;
   notifications?: ShellPanelConfig;
 };
 
@@ -218,6 +224,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const searchRef = useOutsideClose<HTMLDivElement>(searchOpen, () => setSearchOpen(false));
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const profileRef = useOutsideClose<HTMLDivElement>(profileMenuOpen, () => setProfileMenuOpen(false));
 
   const toggleSidebar = useCallback(() => {
@@ -269,6 +276,17 @@ function AppShellFrame({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [config.search]);
 
+  useEffect(() => {
+    if (!searchOpen || !config.search) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [config.search, searchOpen]);
+
   const contextValue = useMemo<AppShellContextValue>(
     () => ({
       config,
@@ -288,6 +306,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
   const breadcrumb = config.breadcrumb.length ? config.breadcrumb : [config.mode === "orbit" ? "Orbit" : "Dashboard"];
   const orbitSettingsItem = config.mode === "orbit" ? config.items.find((item) => item.key === "settings") ?? null : null;
   const sidebarItems = orbitSettingsItem ? config.items.filter((item) => item.key !== orbitSettingsItem.key) : config.items;
+  const searchConfig = config.search ?? null;
 
   async function onChangeTheme(nextMode: ThemeMode) {
     setMode(nextMode);
@@ -322,7 +341,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
         >
           <div className="flex min-w-0 items-center gap-0.5">
             <IconButton
-              className="h-8 w-8 shrink-0 rounded-[10px] text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
+              className="h-8 w-8 shrink-0 justify-start rounded-[10px] pl-[11px] pr-0 text-[#bcc0c6] hover:bg-shellMuted hover:text-ink"
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -355,32 +374,52 @@ function AppShellFrame({ children }: { children: ReactNode }) {
               </ol>
             </nav>
           </div>
-          {config.search ? (
+          {searchConfig ? (
             <div className="hidden min-w-0 justify-center md:flex">
               <div className="relative w-full max-w-[360px]" ref={searchRef}>
-                <button
-                  type="button"
-                  onClick={() => (searchOpen ? closeSearch() : openSearch())}
-                  aria-label="Search"
-                  aria-expanded={searchOpen}
-                  aria-haspopup="dialog"
-                  className="flex h-8 w-full items-center gap-2 rounded-[10px] border border-shellLine bg-shellElevated px-3 text-left text-sm text-[#a8adb4] transition-[background-color,border-color,color] duration-200 ease-productive hover:border-shellLineStrong hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0"
+                <div
+                  className={cx(
+                    "overflow-hidden rounded-[10px] border border-shellLine bg-shellElevated transition-[border-color,background-color,box-shadow] duration-200 ease-productive",
+                    searchOpen && "border-shellLineStrong bg-shellMuted shadow-soft",
+                  )}
                 >
-                  <Search className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{config.search.title}</span>
-                  <span className="ml-auto text-[11px] uppercase tracking-[0.14em] text-faint">⌘K</span>
-                </button>
+                  <div className="flex h-8 w-full items-center gap-2 px-3">
+                    <Search className="h-4 w-4 shrink-0 text-[#a8adb4]" />
+                    <input
+                      ref={searchInputRef}
+                      aria-label="Search"
+                      value={searchOpen ? searchConfig.query ?? "" : ""}
+                      onFocus={openSearch}
+                      onChange={(event) => searchConfig.onQueryChange?.(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          closeSearch();
+                        }
+                      }}
+                      placeholder={searchOpen ? searchConfig.placeholder || searchConfig.title : searchConfig.title}
+                      className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-ink outline-none placeholder:text-[#a8adb4]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => (searchOpen ? closeSearch() : openSearch())}
+                      aria-label={searchOpen ? "Close search" : "Open search"}
+                      className="ml-auto flex h-5 shrink-0 items-center text-[11px] uppercase tracking-[0.14em] text-faint transition-colors duration-200 ease-productive hover:text-ink"
+                    >
+                      {searchOpen ? "Esc" : "⌘K"}
+                    </button>
+                  </div>
+                </div>
                 {searchOpen ? (
                   <div
                     role="search"
-                    aria-label={config.search.title}
-                    className="aw-motion-pop absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-[14px] border border-shellLine bg-shellElevated shadow-soft backdrop-blur-xl"
+                    aria-label={searchConfig.title}
+                    className="aw-motion-pop absolute left-0 right-0 top-full z-40 mt-1.5 origin-top overflow-hidden rounded-[14px] border border-shellLine bg-shellElevated shadow-soft backdrop-blur-xl"
                   >
                     <div className="border-b border-shellLine px-3 py-2.5 text-xs text-quiet">
-                      {config.search.description || "Search the current product surface without leaving the shell."}
+                      {searchConfig.description || "Search the current product surface without leaving the shell."}
                     </div>
                     <div className="max-h-[min(70dvh,520px)] overflow-auto px-3 py-3">
-                      {config.search.content || <PageLoader label="Loading search…" fullscreen={false} />}
+                      {searchConfig.content || <PageLoader label="Loading search…" fullscreen={false} />}
                     </div>
                   </div>
                 ) : null}

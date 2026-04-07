@@ -162,7 +162,7 @@ describe("OrbitWorkspace", () => {
 
     renderOrbit();
 
-    expect(await screen.findByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(1, "session-token", "orbit_1", { bootstrap: true });
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(2, "session-token", "orbit_1");
@@ -299,7 +299,7 @@ describe("OrbitWorkspace", () => {
 
     renderOrbit();
 
-    expect(await screen.findByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Search" })).toBeInTheDocument();
 
     await act(async () => {
       resolvePreferences?.({ theme_preference: "system" });
@@ -1277,7 +1277,7 @@ describe("OrbitWorkspace", () => {
     expect(await screen.findByText("octocat/orbit-one · Release notes draft is ready.")).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+      fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     });
     const searchInput = screen.getByPlaceholderText("Search this orbit or run a quick action");
     await act(async () => {
@@ -1485,7 +1485,7 @@ describe("OrbitWorkspace", () => {
     expect(await screen.findByRole("dialog", { name: "Inbox" })).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+      fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     });
 
     expect(await screen.findByRole("search", { name: "Search this orbit" })).toBeInTheDocument();

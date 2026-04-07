@@ -122,7 +122,7 @@
 |---|---|---|---|---|
 | T00 | checkpoint existing Matrix transport groundwork so UI commits stay isolated | P0 | [x] | backend/frontend test smoke before checkpoint, local commit only |
 | T01 | fix live browser blockers: Matrix bootstrap failure and shell hydration mismatch | P0 | [x] | `/api/chat/sync/bootstrap` live `200`, orbit browser console clear of prior errors |
-| T02 | refine shell geometry, collapse alignment, top-bar search dropdown, sidebar clutter, and profile menu behavior | P0 | [x] | light/dark screenshots, expanded/collapsed shell checks, profile menu opens in live shell, shell search opens as anchored dropdown |
+| T02 | refine shell geometry, collapse alignment, anchored recent-orbit marks, typed top-bar search dropdown, sidebar clutter, and profile menu behavior | P0 | [x] | light/dark screenshots, expanded/collapsed shell checks, profile menu opens in live shell, shell search opens as anchored dropdown with inline typing |
 | T03 | standardize theme tokens, surfaces, active states, and modal layering | P0 | [ ] in progress | page-by-page theme audit in browser |
 | T04 | redesign dashboard body, remove redundant headings, fix internal scrolling | P1 | [ ] | dashboard browser QA in light and dark |
 | T05 | clean orbit common framing and remove redundant in-page headers | P1 | [ ] | orbit page browser QA across sections |

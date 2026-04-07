@@ -1305,31 +1305,26 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       search: {
         title: "Search this orbit",
         description: "Jump between conversations, work, artifacts, and triage without leaving the shell.",
+        query: leftSearch,
+        onQueryChange: setLeftSearch,
+        placeholder: "Search this orbit or run a quick action",
         content: (
-          <div className="space-y-4">
-            <TextInput
-              value={leftSearch}
-              onChange={(event) => setLeftSearch(event.target.value)}
-              placeholder="Search this orbit or run a quick action"
-              autoFocus
-            />
-            <div className="max-h-[420px] space-y-2 overflow-auto">
-              {loadingCommandResults ? (
-                <EmptyState text="Searching this orbit…" />
-              ) : shellSearchItems.length ? (
-                shellSearchItems.map((item) => (
-                  <ListRow
-                    key={item.key}
-                    title={item.label}
-                    detail={item.detail}
-                    leading={<Search className="h-4 w-4" />}
-                    onClick={item.action}
-                  />
-                ))
-              ) : (
-                <EmptyState text="No commands or search results matched that query." />
-              )}
-            </div>
+          <div className="max-h-[420px] space-y-2 overflow-auto">
+            {loadingCommandResults ? (
+              <EmptyState text="Searching this orbit…" />
+            ) : shellSearchItems.length ? (
+              shellSearchItems.map((item) => (
+                <ListRow
+                  key={item.key}
+                  title={item.label}
+                  detail={item.detail}
+                  leading={<Search className="h-4 w-4" />}
+                  onClick={item.action}
+                />
+              ))
+            ) : (
+              <EmptyState text="No commands or search results matched that query." />
+            )}
           </div>
         ),
       },

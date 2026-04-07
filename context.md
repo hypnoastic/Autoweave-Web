@@ -214,6 +214,7 @@
   - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand
   - the centered top-bar search now stays visually between the breadcrumb block and the right-side utilities in orbit mode instead of drifting right with the breadcrumb width
   - shell search now opens as an anchored dropdown directly below the top-bar search field instead of taking over the screen as a centered modal
+  - the top-bar search field is now the active typed input itself; focusing it expands the result surface downward instead of spawning a second inner search bar
   - the profile affordance is smaller/darker and now correctly opens its menu in the live shell
   - recent orbit marks in the sidebar now use the same rounded-square language as the profile avatar and stay visible in the collapsed rail, and the collapsed rail icons are inset with a fixed anchor instead of drifting left
   - top-bar navigation now uses router-backed back/forward behavior instead of raw `window.history` calls

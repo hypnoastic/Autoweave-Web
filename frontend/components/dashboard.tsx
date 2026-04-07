@@ -71,40 +71,28 @@ function isImageLogo(value?: string | null) {
 }
 
 function DashboardSearchSurface({
-  search,
-  onSearchChange,
   orbits,
   onSelectOrbit,
 }: {
-  search: string;
-  onSearchChange: (value: string) => void;
   orbits: Orbit[];
   onSelectOrbit: (orbitId: string) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <TextInput
-        value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
-        placeholder="Search by orbit name or repository"
-        autoFocus
-      />
-      <div className="max-h-[420px] space-y-2 overflow-auto">
-        {orbits.length ? (
-          orbits.map((orbit) => (
-            <ListRow
-              key={orbit.id}
-              title={orbit.name}
-              detail={orbit.repo_full_name || "Repository pending"}
-              leading={<AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} />}
-              onClick={() => onSelectOrbit(orbit.id)}
-            />
-          ))
-        ) : (
-          <EmptyState title="No matching orbits" detail="Try a different orbit name or repository filter." />
-        )}
+    <div className="max-h-[420px] space-y-2 overflow-auto">
+      {orbits.length ? (
+        orbits.map((orbit) => (
+          <ListRow
+            key={orbit.id}
+            title={orbit.name}
+            detail={orbit.repo_full_name || "Repository pending"}
+            leading={<AvatarMark label={orbit.name} src={isImageLogo(orbit.logo) ? orbit.logo : null} />}
+            onClick={() => onSelectOrbit(orbit.id)}
+          />
+        ))
+      ) : (
+        <EmptyState title="No matching orbits" detail="Try a different orbit name or repository filter." />
+      )}
       </div>
-    </div>
   );
 }
 
@@ -151,13 +139,13 @@ function DashboardSidebarContent({
             onClick={() => onSelectOrbit(orbit.id)}
             className={cx(
               "group flex min-h-[36px] w-full items-center gap-2 overflow-hidden rounded-[10px] py-1.5 text-left transition-[background-color,color,transform] duration-200 ease-productive hover:bg-shellMuted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none",
-              sidebarCollapsed ? "justify-center px-0" : "justify-start px-2.5 text-[#a6a9b0]",
+              sidebarCollapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5 text-[#a6a9b0]",
             )}
           >
             <AvatarMark
               label={orbit.name}
               src={isImageLogo(orbit.logo) ? orbit.logo : null}
-              className={cx("h-[20px] w-[20px] rounded-[8px]", sidebarCollapsed && "translate-x-px")}
+              className="h-[20px] w-[20px] rounded-[8px]"
             />
             <span
               className={cx(
@@ -186,7 +174,7 @@ function DashboardSidebarContentSkeleton() {
           key={index}
           className={cx(
             "flex min-h-[36px] w-full items-center gap-2 rounded-[10px] py-1.5",
-            sidebarCollapsed ? "justify-center px-0" : "justify-start px-2.5",
+            sidebarCollapsed ? "justify-start px-0 pl-[11px]" : "justify-start px-2.5",
           )}
         >
           <div className="h-[18px] w-[18px] rounded-[6px] bg-shellMuted" />
@@ -403,10 +391,11 @@ export function DashboardScreen() {
     search: {
       title: "Search orbits",
       description: "Jump to a recent orbit or scan the current product surface quickly.",
+      query: search,
+      onQueryChange: setSearch,
+      placeholder: "Search by orbit name or repository",
       content: (
         <DashboardSearchSurface
-          search={search}
-          onSearchChange={setSearch}
           orbits={filteredOrbits}
           onSelectOrbit={(orbitId) => router.push(`/app/orbits/${orbitId}`)}
         />
