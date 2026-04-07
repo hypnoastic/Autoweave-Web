@@ -176,6 +176,8 @@ The backend and worker mount the shared runtime volume and talk to external Post
   - ERGO uses a more recognizable colored identity mark
   - conversation search now returns matching-message results in its own panel instead of filtering the live thread
   - the composer is smaller and now exposes markdown/attachment direction without adding fake backend behavior
+  - the authenticated shell now stays locked to the viewport height, which prevents long page content from stretching the whole app taller than the screen
+  - on narrower widths, the chat conversation list is height-capped so the timeline owns the remaining space and the composer stays visible inside the page
 - workflow refinements now make the execution board denser and more legible:
   - a compact metrics strip summarizes total, blocked, waiting, and completed tasks
   - lane cards are tighter and less padded

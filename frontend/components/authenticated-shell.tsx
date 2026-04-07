@@ -336,7 +336,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
 
   return (
     <AppShellContext.Provider value={contextValue}>
-      <div className="flex min-h-dvh flex-col overflow-hidden bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
+      <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-shell text-ink" data-shell-root="true" data-shell-collapsed={sidebarCollapsed ? "true" : "false"}>
         <header
           className={cx(
             "z-30 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(280px,420px)_minmax(0,1fr)] items-center gap-2 bg-shell",

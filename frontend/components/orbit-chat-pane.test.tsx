@@ -192,4 +192,50 @@ describe("OrbitChatPane", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry send" }));
     expect(onRetryMessage).toHaveBeenCalledWith("msg_1");
   });
+
+  it("keeps the composer inside a bounded mobile chat pane", () => {
+    const { container } = render(
+      <OrbitChatPane
+        session={{
+          token: "session",
+          user: {
+            id: "user_1",
+            github_login: "octocat",
+            display_name: "Octo Cat",
+          },
+        }}
+        channels={[{ id: "channel_1", slug: "general", name: "general" }]}
+        directMessages={[{ id: "dm_1", title: "ERGO" }]}
+        selectedConversation={{ kind: "channel", id: "channel_1" }}
+        messages={[]}
+        humanLoopItems={[]}
+        conversationTitle="general"
+        conversationSearch=""
+        onConversationSearchChange={() => {}}
+        messageBody=""
+        onMessageBodyChange={() => {}}
+        onSendMessage={() => {}}
+        onRetryMessage={() => {}}
+        onSelectConversation={() => {}}
+        onOpenCreateChannel={() => {}}
+        onOpenStartDm={() => {}}
+        pendingAgent={false}
+        selectedRunId=""
+        openHumanRequests={{}}
+        openApprovalRequests={{}}
+        workflowAnswers={{}}
+        onWorkflowAnswerChange={() => {}}
+        onAnswerHumanRequest={() => {}}
+        onResolveApproval={() => {}}
+      />,
+    );
+
+    const pane = container.firstElementChild;
+    const aside = container.querySelector("aside");
+    const composer = screen.getByPlaceholderText("@ERGO clean up the task board and keep chat calm").closest("div.border-t");
+
+    expect(pane).toHaveClass("h-full", "min-h-0", "overflow-hidden");
+    expect(aside).toHaveClass("max-h-[min(34dvh,280px)]", "shrink-0");
+    expect(composer).toHaveClass("shrink-0");
+  });
 });

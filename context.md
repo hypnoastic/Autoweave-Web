@@ -218,6 +218,8 @@
   - orbit chat no longer sits inside a large outer card, workflow now scrolls inside the content pane instead of stretching the page, and codespaces open into a full-canvas editor mode that returns to the workspace list through the persistent top-bar back control
   - orbit now keeps a persistent Dashboard entry at the top of the same main sidebar, so dashboard and orbit navigation read as one system
   - the collapsed rail is thinner and uses fixed icon slots, which stops icons from jumping sideways during collapse/expand
+  - authenticated shell now locks to the viewport height instead of growing with page content, which keeps the mobile chat pane bounded and the composer visible inside the page
+  - mobile chat now caps the conversation list height so the thread retains its own internal scroll area below it
   - the centered top-bar search now stays visually between the breadcrumb block and the right-side utilities in orbit mode instead of drifting right with the breadcrumb width
   - shell search now opens as an anchored dropdown directly below the top-bar search field instead of taking over the screen as a centered modal
   - the top-bar search field is now the active typed input itself; focusing it expands the result surface downward from that same field instead of spawning a second inner search bar

@@ -182,7 +182,7 @@ export function OrbitChatPane({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-      <aside className="flex min-h-0 w-full flex-col border-b border-line bg-panelMuted/35 lg:w-[268px] lg:min-w-[268px] lg:border-b-0 lg:border-r">
+      <aside className="flex min-h-0 max-h-[min(34dvh,280px)] w-full shrink-0 flex-col border-b border-line bg-panelMuted/35 lg:max-h-none lg:w-[268px] lg:min-w-[268px] lg:border-b-0 lg:border-r">
         <div className="border-b border-line px-4 py-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Chat</p>
           <p className="mt-2 text-sm font-semibold text-ink">Channels and DMs</p>
@@ -260,7 +260,7 @@ export function OrbitChatPane({
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="shrink-0 flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {selectedConversation?.kind === "channel" ? <Hash className="h-4 w-4 text-[#5b79f7] dark:text-[#9fb3ff]" /> : <Users className="h-4 w-4 text-quiet" />}
@@ -301,7 +301,7 @@ export function OrbitChatPane({
           </div>
         </div>
 
-        <div ref={timelineRef} onScroll={onTimelineScroll} className="scroll-region flex-1 px-4 py-4 sm:px-5 sm:py-5">
+        <div ref={timelineRef} onScroll={onTimelineScroll} className="scroll-region min-h-0 flex-1 px-4 py-4 sm:px-5 sm:py-5">
           <div className="space-y-3">
             {conversationLoading && !timeline.length ? (
               <EmptyState title="Loading conversation" detail="Pulling the latest messages while keeping the shell stable." />
@@ -464,7 +464,7 @@ export function OrbitChatPane({
           </div>
         </div>
 
-        <div className="border-t border-line px-4 py-3 sm:px-5">
+        <div className="shrink-0 border-t border-line bg-canvas px-4 py-3 sm:px-5">
           <div className="rounded-pane border border-line bg-panelStrong p-3">
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-quiet">
               <span className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-1">

@@ -169,4 +169,29 @@ describe("DashboardScreen", () => {
     expect(screen.getByRole("menuitem", { name: /global settings/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /sign out/i })).toBeInTheDocument();
   });
+
+  it("locks the authenticated shell to the viewport height", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchDashboard.mockResolvedValue({
+      me: { display_name: "Octo Cat", github_login: "octocat" },
+      recent_orbits: [],
+      priority_items: [],
+      notifications: [],
+      codespaces: [],
+    });
+    api.fetchOrbits.mockResolvedValue([]);
+
+    const { container } = renderDashboard();
+    await screen.findByText("Hello, Octo Cat");
+
+    expect(container.querySelector("[data-shell-root='true']")).toHaveClass("h-dvh", "min-h-dvh", "overflow-hidden");
+  });
 });
