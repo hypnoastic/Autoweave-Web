@@ -52,7 +52,7 @@
 - the initial orbit shell is now bootstrap-hydrated, but the full orbit payload is still heavier than it should be and remains a follow-up performance target
 - local Docker validation now forces backend + matrix-bridge onto the compose Postgres service through `DOCKER_DATABASE_URL` and `DOCKER_RUNTIME_POSTGRES_URL` so the stack no longer inherits the remote Neon `DATABASE_URL` from `.env`
 - Synapse is healthy and reachable from inside Docker, but host-side `curl http://127.0.0.1:8008/_matrix/client/versions` remains unreliable in this environment even after correcting the bind address
-- the current major UX pass is being executed in local commits only; nothing from this pass should be pushed until the page-by-page browser audit is complete
+- the current major UX pass has completed local page-by-page browser audit and is now ready for push
 
 ## Matrix Chat Transport State
 

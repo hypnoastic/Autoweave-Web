@@ -272,7 +272,7 @@ The backend and worker mount the shared runtime volume and talk to external Post
 
 ## UX Refinement Pass (2026-04-07)
 
-The current major UX pass is intentionally local-only and starts from a browser-audited baseline instead of trusting the current inner-page layouts.
+The current major UX pass started from a browser-audited baseline instead of trusting the prior inner-page layouts, and the resulting slices are now ready to push.
 
 Completed preconditions:
 

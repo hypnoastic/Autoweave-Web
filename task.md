@@ -55,7 +55,7 @@
 - [x] split PR and issue surfaces
 - [x] redesign codespace shell with in-app back navigation
 - [x] separate global settings and orbit settings modals
-- [ ] run full browser validation on the rebuilt Docker stack (deferred in this pass by request)
+- [x] run full browser validation on the rebuilt Docker stack
 - [x] tighten `.dockerignore` / build context so Docker rebuilds stay local-dev friendly
 
 ## Phase 0 Stabilization

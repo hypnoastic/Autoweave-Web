@@ -134,6 +134,9 @@ def test_matrix_bridge_ingests_inbound_events_once_and_tracks_sync_cursor() -> N
     _reset_db()
     settings = get_settings()
     settings.matrix_sync_enabled = True
+    settings.feature_flags = ",".join(
+        filter(None, [settings.feature_flags, "ff_matrix_sync_ingest_v1"])
+    )
     matrix = FakeMatrixService()
     provisioning = FakeProvisioning()
     seeded = _seed_channel_message()
