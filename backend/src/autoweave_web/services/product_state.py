@@ -103,6 +103,34 @@ def ensure_installation_for_user(
     return installation
 
 
+def active_github_app_installation_for_user(
+    db: Session,
+    user: User,
+) -> IntegrationInstallation | None:
+    return db.scalar(
+        select(IntegrationInstallation)
+        .where(
+            IntegrationInstallation.provider == "github",
+            IntegrationInstallation.installation_kind == "github_app_installation",
+            IntegrationInstallation.status == "active",
+            IntegrationInstallation.owner_user_id == user.id,
+        )
+        .order_by(IntegrationInstallation.updated_at.desc())
+    )
+
+
+def fallback_github_app_installation(db: Session) -> IntegrationInstallation | None:
+    return db.scalar(
+        select(IntegrationInstallation)
+        .where(
+            IntegrationInstallation.provider == "github",
+            IntegrationInstallation.installation_kind == "github_app_installation",
+            IntegrationInstallation.status == "active",
+        )
+        .order_by(IntegrationInstallation.updated_at.desc())
+    )
+
+
 def upsert_repository_connection(
     db: Session,
     *,

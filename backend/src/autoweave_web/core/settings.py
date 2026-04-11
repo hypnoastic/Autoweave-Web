@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     github_api_base_url: str = "https://api.github.com"
     github_oauth_authorize_url: str = "https://github.com/login/oauth/authorize"
     github_oauth_access_url: str = "https://github.com/login/oauth/access_token"
+    github_app_id: str = ""
+    github_app_slug: str = ""
+    github_app_private_key: str = ""
+    github_app_private_key_file: str = ""
 
     mail_from: str = "hello@autoweave.local"
     smtp_host: str = "mailpit"
@@ -77,6 +81,18 @@ class Settings(BaseSettings):
     @property
     def github_oauth_callback_url(self) -> str:
         return f"{self.frontend_base_url}/auth/callback"
+
+    @property
+    def github_app_setup_url(self) -> str:
+        return f"{self.frontend_base_url}/auth/github-app/install"
+
+    @property
+    def github_app_is_configured(self) -> bool:
+        return bool(
+            self.github_app_id.strip()
+            and self.github_app_slug.strip()
+            and (self.github_app_private_key.strip() or self.github_app_private_key_file.strip())
+        )
 
     @property
     def runtime_postgres_dsn(self) -> str:

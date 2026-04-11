@@ -7,7 +7,7 @@ import {
   Files,
   Filter,
   GitPullRequest,
-  House,
+  Inbox as InboxIcon,
   MailPlus,
   MessageSquare,
   Plus,
@@ -54,6 +54,7 @@ import {
   createChannel,
   createCodespace,
   createDmThread,
+  fetchGitHubAppStatus,
   fetchChatSyncBootstrap,
   fetchAvailableRepositories,
   fetchChannelMessages,
@@ -81,6 +82,7 @@ import type {
   ConversationMessage,
   ConversationSendResult,
   DmThreadSummary,
+  GitHubAppStatus,
   HumanLoopItem,
   NotificationItem,
   OrbitPayload,
@@ -481,14 +483,16 @@ function EmptyState({
   text,
   title,
   detail,
+  action,
   className,
 }: {
   text?: string;
   title?: string;
   detail?: string;
+  action?: ReactNode;
   className?: string;
 }) {
-  return <SharedEmptyState title={title} detail={detail ?? text ?? ""} className={className} />;
+  return <SharedEmptyState title={title} detail={detail ?? text ?? ""} action={action} className={className} />;
 }
 
 export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
@@ -513,6 +517,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [dmDraft, setDmDraft] = useState<DmDraft>(DM_DRAFT);
   const [inviteEmail, setInviteEmail] = useState("");
   const [availableRepositories, setAvailableRepositories] = useState<AvailableRepository[]>([]);
+  const [githubAppStatus, setGitHubAppStatus] = useState<GitHubAppStatus | null>(null);
   const [repositorySearch, setRepositorySearch] = useState("");
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [workflowAnswers, setWorkflowAnswers] = useState<Record<string, string>>({});
@@ -1314,9 +1319,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         },
       },
       {
-        key: "cmd-inbox",
-        label: "Open inbox",
-        detail: "See mentions, approvals, and run outcomes",
+        key: "cmd-activity",
+        label: "Open orbit activity",
+        detail: "See mentions, approvals, and run outcomes for this orbit",
         action: () => {
           closeSearch();
           setActiveSavedView("all");
@@ -1418,9 +1423,9 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
           : undefined,
       items: [
         {
-          key: "dashboard",
-          label: "Dashboard",
-          icon: House,
+          key: "inbox",
+          label: "Inbox",
+          icon: InboxIcon,
           active: false,
           onSelect: () => router.push("/app"),
         },
@@ -1466,7 +1471,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
         ),
       },
       notifications: {
-        title: "Inbox",
+        title: "Orbit activity",
         description: "Saved triage views keep approvals, reviews, failures, and deliverables visible without noisy agent presence.",
         content: (
           <div className="space-y-4">
@@ -1847,8 +1852,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     setLoadingAvailableRepositories(true);
     setRepositorySearch("");
     try {
-      const repositories = await fetchAvailableRepositories(session.token, orbitId);
+      const [repositories, nextGitHubAppStatus] = await Promise.all([
+        fetchAvailableRepositories(session.token, orbitId),
+        fetchGitHubAppStatus(session.token),
+      ]);
       setAvailableRepositories(repositories);
+      setGitHubAppStatus(nextGitHubAppStatus);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to load repositories.");
     } finally {
@@ -2679,6 +2688,25 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               placeholder="Search repositories"
             />
             <div className="max-h-[360px] space-y-3 overflow-auto">
+              {githubAppStatus?.configured && !githubAppStatus.active_installation ? (
+                <EmptyState
+                  title="Install the GitHub App for installation-scoped repo access"
+                  detail="AutoWeave can keep repository access on the GitHub App installation instead of relying on a user token."
+                  action={
+                    githubAppStatus.install_url ? (
+                      <ActionButton onClick={() => (window.location.href = githubAppStatus.install_url || "")}>
+                        Install GitHub App
+                      </ActionButton>
+                    ) : undefined
+                  }
+                />
+              ) : null}
+              {githubAppStatus?.active_installation ? (
+                <InlineNotice
+                  title="GitHub App installation active"
+                  detail={`Connected through ${githubAppStatus.active_installation.display_name}.`}
+                />
+              ) : null}
               {loadingAvailableRepositories ? (
                 <EmptyState text="Loading available repositories…" />
               ) : repositoryOptions.length ? (

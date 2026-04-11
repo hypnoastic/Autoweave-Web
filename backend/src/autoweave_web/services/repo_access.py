@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 
 from autoweave_web.models.entities import IntegrationInstallation, RepositoryConnection, User
 from autoweave_web.services.github import GitHubGateway
-from autoweave_web.services.product_state import ensure_installation_for_user
+from autoweave_web.services.product_state import (
+    active_github_app_installation_for_user,
+    ensure_installation_for_user,
+    fallback_github_app_installation,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,12 @@ class RepositoryAccessService:
         actor_user: User,
         installation: IntegrationInstallation | None,
     ) -> RepositoryAccessContext:
+        if installation is not None and installation.installation_kind == "github_app_installation":
+            installation_id = installation.metadata_json.get("installation_id")
+            if installation_id is None:
+                raise RuntimeError("The configured GitHub App installation is missing an installation id.")
+            token = self.github.create_installation_access_token(installation_id)
+            return RepositoryAccessContext(installation=installation, token=token, mode="github_app_installation")
         if installation is not None and installation.installation_kind == "user_token_dev":
             owner = db.get(User, installation.owner_user_id) if installation.owner_user_id else actor_user
             if owner is None or not owner.access_token:
@@ -38,6 +48,12 @@ class RepositoryAccessService:
         raise RuntimeError("No repository access token is available for this action.")
 
     def context_for_user(self, db: Session, *, user: User) -> RepositoryAccessContext:
+        installation = active_github_app_installation_for_user(db, user) or fallback_github_app_installation(db)
+        if installation is None:
+            installation = ensure_installation_for_user(db, user)
+        return self._context_for_installation(db, actor_user=user, installation=installation)
+
+    def account_context_for_user(self, db: Session, *, user: User) -> RepositoryAccessContext:
         installation = ensure_installation_for_user(db, user)
         return self._context_for_installation(db, actor_user=user, installation=installation)
 
@@ -60,11 +76,13 @@ class RepositoryAccessService:
         description: str,
         private: bool,
     ) -> tuple[RepositoryAccessContext, dict[str, Any]]:
-        context = self.context_for_user(db, user=user)
+        context = self.account_context_for_user(db, user=user)
         return context, self.github.create_repository(context.token, name=name, description=description, private=private)
 
     def list_accessible_repositories(self, db: Session, *, user: User) -> tuple[RepositoryAccessContext, list[dict[str, Any]]]:
         context = self.context_for_user(db, user=user)
+        if context.mode == "github_app_installation":
+            return context, self.github.list_installation_repositories(context.token)
         return context, self.github.list_repositories(context.token)
 
     def get_repository(

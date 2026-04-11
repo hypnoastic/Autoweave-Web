@@ -365,7 +365,7 @@ export function ShellPage({
 export function ShellPageSkeleton({
   mode = "dashboard",
 }: {
-  mode?: "dashboard" | "orbit";
+  mode?: "dashboard" | "inbox" | "orbit";
 }) {
   return (
     <ShellPage>
@@ -402,6 +402,47 @@ export function ShellPageSkeleton({
                 <SkeletonBlock className="h-24" />
               </div>
             </Panel>
+          </div>
+        ) : mode === "inbox" ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <Panel className="overflow-hidden">
+              <div className="space-y-3 border-b border-line px-5 py-5">
+                <SkeletonBlock className="h-3 w-20 rounded-full" />
+                <SkeletonBlock className="h-9 w-[min(460px,72%)]" />
+                <SkeletonBlock className="h-14 w-full rounded-[18px]" />
+                <div className="flex gap-2">
+                  <SkeletonBlock className="h-8 w-20 rounded-full" />
+                  <SkeletonBlock className="h-8 w-20 rounded-full" />
+                  <SkeletonBlock className="h-8 w-20 rounded-full" />
+                </div>
+              </div>
+            </Panel>
+            <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.18fr)]">
+              <Panel className="flex min-h-[360px] flex-col overflow-hidden">
+                <div className="border-b border-line px-5 py-4">
+                  <SkeletonBlock className="h-6 w-44" />
+                  <SkeletonBlock className="mt-2 h-4 w-[70%] rounded-full" />
+                </div>
+                <div className="space-y-3 px-4 py-4">
+                  <SkeletonBlock className="h-20" />
+                  <SkeletonBlock className="h-20" />
+                  <SkeletonBlock className="h-20" />
+                  <SkeletonBlock className="h-20" />
+                </div>
+              </Panel>
+              <Panel className="flex min-h-[360px] flex-col overflow-hidden">
+                <div className="border-b border-line px-5 py-4">
+                  <SkeletonBlock className="h-6 w-52" />
+                  <SkeletonBlock className="mt-2 h-4 w-[62%] rounded-full" />
+                </div>
+                <div className="flex-1 space-y-4 px-5 py-5">
+                  <SkeletonBlock className="h-20" />
+                  <SkeletonBlock className="h-14" />
+                  <SkeletonBlock className="h-24" />
+                  <SkeletonBlock className="h-24" />
+                </div>
+              </Panel>
+            </div>
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">

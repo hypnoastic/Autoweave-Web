@@ -1,0 +1,306 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import { AuthenticatedAppShell } from "@/components/authenticated-shell";
+import { InboxScreen } from "@/components/inbox-screen";
+import { ThemeProvider } from "@/components/theme-provider";
+
+const api = vi.hoisted(() => ({
+  createDmThread: vi.fn(),
+  createOrbit: vi.fn(),
+  fetchDmThread: vi.fn(),
+  fetchInbox: vi.fn(),
+  fetchPreferences: vi.fn(),
+  readSession: vi.fn(),
+  sendDmMessage: vi.fn(),
+  updateNavigation: vi.fn(),
+  updatePreferences: vi.fn(),
+  writeSession: vi.fn(),
+}));
+const mockRouter = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
+}));
+
+let mockPathname = "/app";
+
+vi.mock("@/lib/api", () => api);
+vi.mock("next/navigation", () => ({
+  useRouter: () => mockRouter,
+  usePathname: () => mockPathname,
+}));
+
+function inboxPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    me: {
+      id: "user_1",
+      github_login: "octocat",
+      display_name: "Octo Cat",
+    },
+    summary: {
+      needs_attention: 3,
+      review_queue: 1,
+      active_sources: 1,
+      recent_chats: 2,
+      recent_orbits: 1,
+    },
+    briefing: {
+      id: "briefing-ergo",
+      kind: "briefing",
+      title: "ERGO briefing",
+      preview: "Orbit One is the active ERGO scope for new Inbox questions.",
+      source_label: "Orbit One",
+      status_label: "Pinned",
+      attention: "high",
+      unread: false,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "chat", conversation_kind: "dm", conversation_id: "dm_ergo" },
+      detail: {
+        summary: "Orbit One is the active ERGO scope for new Inbox questions. 3 inbox signals are still unread.",
+        key_context: [
+          { label: "Unread", value: "3" },
+          { label: "Review queue", value: "1" },
+        ],
+        related_entities: [{ label: "Default scope", value: "Orbit One" }],
+        next_actions: [{ label: "Open active orbit", navigation: { orbit_id: "orbit_1", section: "chat" } }],
+        metadata: [{ label: "Mode", value: "Operational briefing" }],
+        conversation_excerpt: [{ author: "ERGO", body: "I have current context on Orbit One.", created_at: new Date().toISOString() }],
+      },
+    },
+    items: [
+      {
+        id: "briefing-ergo",
+        kind: "briefing",
+        title: "ERGO briefing",
+        preview: "Orbit One is the active ERGO scope for new Inbox questions.",
+        source_label: "Orbit One",
+        status_label: "Pinned",
+        attention: "high",
+        unread: false,
+        created_at: new Date().toISOString(),
+        orbit_id: "orbit_1",
+        orbit_name: "Orbit One",
+        navigation: { orbit_id: "orbit_1", section: "chat" },
+        detail: {
+          summary: "Orbit One is the active ERGO scope for new Inbox questions. 3 inbox signals are still unread.",
+          key_context: [{ label: "Unread", value: "3" }],
+          related_entities: [{ label: "Default scope", value: "Orbit One" }],
+          next_actions: [{ label: "Open active orbit", navigation: { orbit_id: "orbit_1", section: "chat" } }],
+          metadata: [],
+          conversation_excerpt: [],
+        },
+      },
+      {
+        id: "notif_1",
+        kind: "mention",
+        title: "Mentioned in workflow review",
+        preview: "You were mentioned in the release review thread.",
+        source_label: "Orbit One · Pull request · Mention",
+        status_label: "Unread",
+        attention: "high",
+        unread: true,
+        created_at: new Date().toISOString(),
+        orbit_id: "orbit_1",
+        orbit_name: "Orbit One",
+        navigation: { orbit_id: "orbit_1", section: "chat" },
+        detail: {
+          summary: "You were mentioned in a review conversation.",
+          key_context: [{ label: "Type", value: "Mention" }],
+          related_entities: [{ label: "Orbit", value: "Orbit One" }],
+          next_actions: [{ label: "Open chat", navigation: { orbit_id: "orbit_1", section: "chat" } }],
+          metadata: [],
+          conversation_excerpt: [],
+        },
+      },
+      {
+        id: "artifact_1",
+        kind: "source",
+        title: "Release notes draft",
+        preview: "The latest release notes artifact is ready.",
+        source_label: "Orbit One · octocat/orbit-one · Report",
+        status_label: "Ready",
+        attention: "normal",
+        unread: false,
+        created_at: new Date().toISOString(),
+        orbit_id: "orbit_1",
+        orbit_name: "Orbit One",
+        navigation: { orbit_id: "orbit_1", section: "demos" },
+        detail: {
+          summary: "Release notes draft is available as a recent source artifact.",
+          key_context: [{ label: "Kind", value: "Report" }],
+          related_entities: [{ label: "Orbit", value: "Orbit One" }],
+          next_actions: [{ label: "Open artifact surface", navigation: { orbit_id: "orbit_1", section: "demos" } }],
+          metadata: [],
+          conversation_excerpt: [],
+        },
+      },
+    ],
+    scopes: [
+      {
+        orbit_id: "orbit_1",
+        orbit_name: "Orbit One",
+        orbit_slug: "orbit-one",
+        repository_full_name: "octocat/orbit-one",
+        ergo_thread_id: "dm_ergo",
+        is_active: true,
+      },
+    ],
+    active_scope: {
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      orbit_slug: "orbit-one",
+      repository_full_name: "octocat/orbit-one",
+      ergo_thread_id: "dm_ergo",
+      is_active: true,
+    },
+    notifications: [],
+    ...overrides,
+  };
+}
+
+function dmPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    thread: {
+      id: "dm_ergo",
+      title: "ERGO",
+      kind: "agent",
+    },
+    messages: [
+      {
+        id: "msg_1",
+        author_kind: "agent",
+        author_name: "ERGO",
+        body: "I have current context on Orbit One.",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        dm_thread_id: "dm_ergo",
+      },
+    ],
+    human_loop_items: [],
+    ...overrides,
+  };
+}
+
+function renderInbox() {
+  mockPathname = "/app";
+  return render(
+    <ThemeProvider>
+      <AuthenticatedAppShell>
+        <InboxScreen />
+      </AuthenticatedAppShell>
+    </ThemeProvider>,
+  );
+}
+
+describe("InboxScreen", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPathname = "/app";
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchDmThread.mockResolvedValue(dmPayload());
+    api.updateNavigation.mockResolvedValue({});
+  });
+
+  it("renders the decluttered ERGO inbox and keeps chat active when an item is selected", async () => {
+    api.fetchInbox.mockResolvedValue(inboxPayload());
+
+    renderInbox();
+
+    expect(await screen.findByText("I have current context on Orbit One.")).toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText("Message ERGO about this orbit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Orbit One").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Mentioned in workflow review/i })[0]);
+
+    expect((await screen.findAllByText("You were mentioned in a review conversation.")).length).toBeGreaterThan(0);
+    expect(screen.getAllByPlaceholderText("Message ERGO about this orbit").length).toBeGreaterThan(0);
+  });
+
+  it("filters source items into the Sources tab", async () => {
+    api.fetchInbox.mockResolvedValue(inboxPayload());
+
+    renderInbox();
+
+    await screen.findByText("I have current context on Orbit One.");
+    fireEvent.click(screen.getAllByRole("button", { name: "Sources" })[0]);
+
+    expect(screen.getAllByRole("button", { name: /Release notes draft/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Mentioned in workflow review/i })).not.toBeInTheDocument();
+  });
+
+  it("routes composer sends through the selected orbit ERGO DM thread and refreshes the inbox", async () => {
+    api.fetchInbox
+      .mockResolvedValueOnce(
+        inboxPayload({
+          scopes: [
+            {
+              orbit_id: "orbit_1",
+              orbit_name: "Orbit One",
+              orbit_slug: "orbit-one",
+              repository_full_name: "octocat/orbit-one",
+              ergo_thread_id: null,
+              is_active: true,
+            },
+          ],
+          active_scope: {
+            orbit_id: "orbit_1",
+            orbit_name: "Orbit One",
+            orbit_slug: "orbit-one",
+            repository_full_name: "octocat/orbit-one",
+            ergo_thread_id: null,
+            is_active: true,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(inboxPayload());
+    api.createDmThread.mockResolvedValue({ id: "dm_ergo_new" });
+    api.sendDmMessage.mockResolvedValue({
+      message: {
+        id: "msg_human",
+        author_kind: "human",
+        author_name: "Octo Cat",
+        body: "Give me the latest release summary",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        dm_thread_id: "dm_ergo_new",
+      },
+      ergo: {
+        id: "msg_ergo",
+        author_kind: "agent",
+        author_name: "ERGO",
+        body: "Release summary is ready.",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        dm_thread_id: "dm_ergo_new",
+      },
+    });
+
+    renderInbox();
+
+    expect(await screen.findAllByPlaceholderText("Message ERGO about this orbit")).not.toHaveLength(0);
+    fireEvent.change(screen.getAllByPlaceholderText("Message ERGO about this orbit")[0], {
+      target: { value: "Give me the latest release summary" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send to ERGO" }));
+
+    await waitFor(() =>
+      expect(api.createDmThread).toHaveBeenCalledWith("session-token", "orbit_1", {
+        target_kind: "agent",
+        target_login: "ERGO",
+      }),
+    );
+    expect(api.sendDmMessage).toHaveBeenCalledWith("session-token", "orbit_1", "dm_ergo_new", "Give me the latest release summary");
+    await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+});

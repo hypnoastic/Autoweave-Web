@@ -13,6 +13,9 @@ os.environ.setdefault("BACKEND_BASE_URL", "http://localhost:8000")
 os.environ.setdefault("FRONTEND_BASE_URL", "http://localhost:3000")
 os.environ.setdefault("GITHUB_CLIENT_ID", "github-client")
 os.environ.setdefault("GITHUB_CLIENT_SECRET", "github-secret")
+os.environ.setdefault("GITHUB_APP_ID", "12345")
+os.environ.setdefault("GITHUB_APP_SLUG", "ergon-ai-dev")
+os.environ.setdefault("GITHUB_APP_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\\nFAKE\\n-----END PRIVATE KEY-----")
 os.environ.setdefault("RUNTIME_EXECUTION_MODE", "inline")
 os.environ.setdefault("RUNTIME_ROOT", "/tmp/autoweave-web-tests/runtime")
 os.environ.setdefault("RUNTIME_CONTROL_PLANE", "/tmp/autoweave-web-tests/runtime/control-plane")
@@ -53,6 +56,19 @@ class FakeGitHubGateway:
                 "default_branch": "main",
                 "pushed_at": "2026-03-31T10:00:00Z",
             },
+        ]
+        self.installation_repository_catalog: list[dict[str, Any]] = [
+            {
+                "id": 701,
+                "name": "installed-platform",
+                "description": "Installed through the GitHub App",
+                "private": True,
+                "owner": {"login": "collabx2315-ops"},
+                "full_name": "collabx2315-ops/installed-platform",
+                "html_url": "https://github.com/collabx2315-ops/installed-platform",
+                "default_branch": "main",
+                "pushed_at": "2026-04-01T10:00:00Z",
+            }
         ]
 
     def get_authenticated_user(self, token: str) -> dict[str, Any]:
@@ -148,6 +164,26 @@ class FakeGitHubGateway:
 
     def add_collaborator(self, token: str, repo_full_name: str, github_login: str) -> None:
         self.collaborators.append({"repo_full_name": repo_full_name, "github_login": github_login})
+
+    def get_app_installation(self, installation_id: int | str) -> dict[str, Any]:
+        return {
+            "id": int(installation_id),
+            "account": {"login": "collabx2315-ops", "type": "Organization"},
+            "repository_selection": "selected",
+            "permissions": {
+                "contents": "write",
+                "pull_requests": "write",
+                "issues": "write",
+                "metadata": "read",
+            },
+            "target_type": "Organization",
+        }
+
+    def create_installation_access_token(self, installation_id: int | str) -> str:
+        return f"ghs_installation_{installation_id}"
+
+    def list_installation_repositories(self, token: str, *, per_page: int = 100) -> list[dict[str, Any]]:
+        return self.installation_repository_catalog[:per_page]
 
 
 class FakeNavigationStore:

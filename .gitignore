@@ -20,3 +20,4 @@ config/secrets/*
 !config/secrets/.gitkeep
 backend/.venv/
 frontend/.next/
+frontend/*.tsbuildinfo

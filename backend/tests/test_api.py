@@ -10,7 +10,19 @@ import autoweave_web.api.app as app_module
 from autoweave_web.api.app import create_app
 from autoweave_web.core.settings import get_settings
 from autoweave_web.db.session import Base, get_engine, reset_database_state
-from autoweave_web.models.entities import Channel, ConversationState, MatrixMessageLink, Message, OrbitRepositoryBinding, RepoGrant, RepositoryConnection
+from autoweave_web.models.entities import (
+    Artifact,
+    AuthState,
+    Channel,
+    ConversationState,
+    IntegrationInstallation,
+    MatrixMessageLink,
+    Message,
+    OrbitRepositoryBinding,
+    PullRequestSnapshot,
+    RepoGrant,
+    RepositoryConnection,
+)
 from conftest import (
     FakeContainerOrchestrator,
     FakeGitHubGateway,
@@ -99,6 +111,51 @@ def test_github_token_login_returns_401_for_invalid_github_token():
     assert response.json() == {"detail": "Invalid GitHub token"}
 
     Base.metadata.drop_all(bind=engine)
+
+
+def test_github_app_status_and_claim_flow_create_installation_and_enable_installation_repos(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    status_response = client.get("/api/auth/github-app", headers=headers)
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["configured"] is True
+    assert "ergon-ai-dev/installations/new?state=" in status_payload["install_url"]
+    assert status_payload["active_installation"] is None
+
+    state = status_payload["install_url"].split("state=", 1)[1]
+    with OrmSession(get_engine()) as db:
+        auth_state = db.scalar(select(AuthState).where(AuthState.state == state))
+        assert auth_state is not None
+        assert auth_state.user_id == user["id"]
+
+    claim_response = client.post(
+        "/api/auth/github-app/installations/claim",
+        json={"installation_id": 2995185, "state": state, "setup_action": "install"},
+        headers=headers,
+    )
+    assert claim_response.status_code == 200
+    claim_payload = claim_response.json()
+    assert claim_payload["ok"] is True
+    assert claim_payload["installation"]["installation_id"] == 2995185
+    assert claim_payload["installation"]["account_login"] == "collabx2315-ops"
+
+    with OrmSession(get_engine()) as db:
+        installation = db.scalar(
+            select(IntegrationInstallation).where(
+                IntegrationInstallation.installation_key == "github:app_installation:2995185"
+            )
+        )
+        assert installation is not None
+        assert installation.installation_kind == "github_app_installation"
+        assert installation.owner_user_id == user["id"]
+
+    orbit = _create_orbit(client, headers)
+    available = client.get(f"/api/orbits/{orbit['id']}/available-repositories", headers=headers)
+    assert available.status_code == 200
+    repositories = available.json()
+    assert repositories[0]["full_name"] == "collabx2315-ops/installed-platform"
 
 
 def test_ergo_channel_message_starts_work_and_projects_context(client):
@@ -775,6 +832,75 @@ def test_mentions_and_dm_messages_create_contextual_notifications(client):
     teammate_after_dm_read = client.get(f"/api/orbits/{orbit['id']}", headers=teammate_headers).json()
     dm_notification_after = next(item for item in teammate_after_dm_read["notifications"] if item["kind"] == "dm")
     assert dm_notification_after["status"] == "read"
+
+
+def test_inbox_endpoint_aggregates_briefing_scopes_recent_chat_and_review_items(client):
+    token, _ = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    repository_id = orbit_payload.json()["repositories"][0]["id"]
+
+    ergo_thread = client.post(
+        f"/api/orbits/{orbit['id']}/dms",
+        json={"target_kind": "agent", "target_login": "ERGO"},
+        headers=headers,
+    )
+    assert ergo_thread.status_code == 200
+
+    dm_message = client.post(
+        f"/api/orbits/{orbit['id']}/dms/{ergo_thread.json()['id']}/messages",
+        json={"body": "Summarize the latest release state."},
+        headers=headers,
+    )
+    assert dm_message.status_code == 200
+
+    with OrmSession(get_engine()) as db:
+        db.add(
+            PullRequestSnapshot(
+                orbit_id=orbit["id"],
+                repository_connection_id=repository_id,
+                github_number=42,
+                title="Release review",
+                state="open",
+                priority="high",
+                url="https://github.com/octocat/orbit-control/pull/42",
+                branch_name="release/v1",
+                metadata_json={"review_decision": "changes_requested"},
+            )
+        )
+        db.add(
+            Artifact(
+                orbit_id=orbit["id"],
+                repository_connection_id=repository_id,
+                workflow_run_id="run_release",
+                source_kind="workflow_run_status",
+                source_id="run_release",
+                artifact_kind="report",
+                title="Release notes draft",
+                summary="A concise release source artifact for Inbox.",
+                status="ready",
+                external_url="https://example.com/release-notes",
+                metadata_json={"repository_full_name": "octocat/orbit-control"},
+            )
+        )
+        db.commit()
+
+    inbox = client.get("/api/inbox", headers=headers)
+    assert inbox.status_code == 200
+    payload = inbox.json()
+
+    assert payload["briefing"]["id"] == "briefing-ergo"
+    assert payload["active_scope"]["orbit_id"] == orbit["id"]
+    assert payload["summary"]["review_queue"] == 1
+    assert any(item["kind"] == "pr" and item["title"] == "Release review" for item in payload["items"])
+    assert any(item["kind"] == "source" and item["title"] == "Release notes draft" for item in payload["items"])
+    assert any(
+        entry["body"] == "Summarize the latest release state."
+        for entry in payload["briefing"]["detail"]["conversation_excerpt"]
+    )
 
 
 def test_orbit_payload_includes_repo_aware_artifacts_and_codespaces(client):

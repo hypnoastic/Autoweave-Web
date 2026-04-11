@@ -31,6 +31,17 @@ class SessionToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class AuthState(Base):
+    __tablename__ = "product_auth_states"
+
+    state: Mapped[str] = mapped_column(String(255), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(64), index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class UserPreference(Base):
     __tablename__ = "product_user_preferences"
     __table_args__ = (UniqueConstraint("user_id", name="uq_product_user_preference"),)
@@ -354,7 +365,7 @@ class NavigationState(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("nav"))
     user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
     orbit_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbits.id"), nullable=True, index=True)
-    section: Mapped[str] = mapped_column(String(64), default="dashboard")
+    section: Mapped[str] = mapped_column(String(64), default="inbox")
     last_opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

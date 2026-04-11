@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   createChannel: vi.fn(),
   createCodespace: vi.fn(),
   createDmThread: vi.fn(),
+  fetchGitHubAppStatus: vi.fn(),
   fetchChatSyncBootstrap: vi.fn(),
   fetchAvailableRepositories: vi.fn(),
   fetchChannelMessages: vi.fn(),
@@ -64,6 +65,7 @@ describe("OrbitWorkspace", () => {
     window.localStorage.removeItem?.("autoweave-shell-sidebar-collapsed");
     mockPathname = "/app/orbits/orbit_1";
     api.fetchChatSyncBootstrap.mockResolvedValue({ enabled: false, provider: "product", room_bindings: [] });
+    api.fetchGitHubAppStatus.mockResolvedValue({ configured: false, install_url: null, active_installation: null });
     api.retryMessageTransport.mockResolvedValue({
       message: {
         id: "msg_retry",
@@ -163,7 +165,7 @@ describe("OrbitWorkspace", () => {
     renderOrbit();
 
     expect(await screen.findByRole("textbox", { name: "Search" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inbox" })).toBeInTheDocument();
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(1, "session-token", "orbit_1", { bootstrap: true });
     expect(api.fetchOrbit).toHaveBeenNthCalledWith(2, "session-token", "orbit_1");
 
@@ -936,6 +938,12 @@ describe("OrbitWorkspace", () => {
         status: "available",
       },
     ]);
+    api.fetchGitHubAppStatus.mockResolvedValue({
+      configured: true,
+      app_slug: "ergon-ai-dev",
+      install_url: "https://github.com/apps/ergon-ai-dev/installations/new?state=setup-state",
+      active_installation: null,
+    });
     api.connectOrbitRepository.mockResolvedValue({ ok: true });
 
     renderOrbit();
@@ -950,12 +958,14 @@ describe("OrbitWorkspace", () => {
       fireEvent.click(screen.getByRole("button", { name: /connect repository/i }));
     });
 
+    expect(await screen.findByRole("button", { name: "Install GitHub App" })).toBeInTheDocument();
     expect(await screen.findByText("octocat/platform-ops")).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     });
 
+    expect(api.fetchGitHubAppStatus).toHaveBeenCalledWith("session-token");
     await waitFor(() =>
       expect(api.connectOrbitRepository).toHaveBeenCalledWith("session-token", "orbit_1", {
         repo_full_name: "octocat/platform-ops",
@@ -1482,14 +1492,14 @@ describe("OrbitWorkspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /open notifications/i }));
     });
-    expect(await screen.findByRole("dialog", { name: "Inbox" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Orbit activity" })).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     });
 
     expect(await screen.findByRole("search", { name: "Search this orbit" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Orbit activity" })).not.toBeInTheDocument();
   });
 
   it("filters triage saved views and updates member roles from orbit settings", async () => {

@@ -18,12 +18,14 @@ from sqlalchemy.orm import Session
 from autoweave_web.core.settings import Settings, get_settings
 from autoweave_web.db.session import get_db, init_database, utc_now
 from autoweave_web.models.entities import (
+    AuthState,
     Artifact,
     Channel,
     Codespace,
     Demo,
     DmParticipant,
     DmThread,
+    IntegrationInstallation,
     IssueSnapshot,
     Message,
     NavigationState,
@@ -50,7 +52,9 @@ from autoweave_web.schemas.api import (
     DemoPublishRequest,
     DmThreadCreateRequest,
     DmMessageCreateRequest,
+    GitHubAppInstallationClaimRequest,
     GitHubTokenLoginRequest,
+    InboxPayload,
     InviteRequest,
     MessageCreateRequest,
     NavigationStateRequest,
@@ -194,6 +198,80 @@ def create_app(
             "email": user.email,
             "avatar_url": user.avatar_url,
         }
+
+    def _cleanup_expired_auth_states(db: Session) -> None:
+        expired_states = db.scalars(select(AuthState).where(AuthState.expires_at <= utc_now())).all()
+        for item in expired_states:
+            db.delete(item)
+        if expired_states:
+            db.flush()
+
+    def _create_auth_state(
+        db: Session,
+        *,
+        user: User,
+        purpose: str,
+        metadata_json: dict[str, Any] | None = None,
+        ttl_seconds: int = 60 * 10,
+    ) -> str:
+        _cleanup_expired_auth_states(db)
+        state = secrets.token_urlsafe(24)
+        db.add(
+            AuthState(
+                state=state,
+                user_id=user.id,
+                purpose=purpose,
+                metadata_json=metadata_json or {},
+                expires_at=utc_now() + timedelta(seconds=ttl_seconds),
+            )
+        )
+        db.commit()
+        return state
+
+    def _consume_auth_state(
+        db: Session,
+        *,
+        user: User,
+        state: str,
+        purpose: str,
+    ) -> AuthState:
+        _cleanup_expired_auth_states(db)
+        auth_state = db.scalar(
+            select(AuthState).where(
+                AuthState.state == state,
+                AuthState.user_id == user.id,
+                AuthState.purpose == purpose,
+            )
+        )
+        if auth_state is None:
+            raise HTTPException(status_code=400, detail="GitHub App setup state is missing or expired.")
+        db.delete(auth_state)
+        db.flush()
+        return auth_state
+
+    def _serialize_installation(installation: IntegrationInstallation) -> dict[str, Any]:
+        metadata = installation.metadata_json or {}
+        installation_id = metadata.get("installation_id")
+        return {
+            "id": installation.id,
+            "installation_id": int(installation_id) if installation_id is not None else None,
+            "account_login": metadata.get("account_login"),
+            "account_type": metadata.get("account_type"),
+            "display_name": installation.display_name,
+            "setup_action": metadata.get("setup_action"),
+        }
+
+    def _github_app_installation_for_user(db: Session, user: User) -> IntegrationInstallation | None:
+        return db.scalar(
+            select(IntegrationInstallation)
+            .where(
+                IntegrationInstallation.provider == "github",
+                IntegrationInstallation.installation_kind == "github_app_installation",
+                IntegrationInstallation.status == "active",
+                IntegrationInstallation.owner_user_id == user.id,
+            )
+            .order_by(IntegrationInstallation.updated_at.desc())
+        )
 
     def _serialize_orbit(orbit: Orbit) -> dict[str, Any]:
         return {
@@ -495,6 +573,543 @@ def create_app(
             "source_id": item.source_id,
             "created_at": item.created_at.isoformat(),
             "metadata": item.metadata_json,
+        }
+
+    def _inbox_navigation(
+        *,
+        orbit_id: str | None = None,
+        section: str = "inbox",
+        conversation_kind: str | None = None,
+        conversation_id: str | None = None,
+        detail_kind: str | None = None,
+        detail_id: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "orbit_id": orbit_id,
+            "section": section,
+            "conversation_kind": conversation_kind,
+            "conversation_id": conversation_id,
+            "detail_kind": detail_kind,
+            "detail_id": detail_id,
+        }
+
+    def _inbox_action(
+        label: str,
+        *,
+        navigation_target: dict[str, Any] | None = None,
+        href: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "label": label,
+            "navigation": navigation_target,
+            "href": href,
+        }
+
+    def _inbox_detail(
+        *,
+        summary: str,
+        key_context: list[dict[str, str]] | None = None,
+        related_entities: list[dict[str, str]] | None = None,
+        next_actions: list[dict[str, Any]] | None = None,
+        metadata: list[dict[str, str]] | None = None,
+        conversation_excerpt: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "summary": summary,
+            "key_context": key_context or [],
+            "related_entities": related_entities or [],
+            "next_actions": next_actions or [],
+            "metadata": metadata or [],
+            "conversation_excerpt": conversation_excerpt or [],
+        }
+
+    def _inbox_item(
+        *,
+        item_id: str,
+        kind: str,
+        title: str,
+        preview: str,
+        source_label: str,
+        status_label: str,
+        attention: str,
+        unread: bool,
+        created_at: str,
+        orbit_id: str | None,
+        orbit_name: str | None,
+        navigation_target: dict[str, Any] | None,
+        detail: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "id": item_id,
+            "kind": kind,
+            "title": title,
+            "preview": preview,
+            "source_label": source_label,
+            "status_label": status_label,
+            "attention": attention,
+            "unread": unread,
+            "created_at": created_at,
+            "orbit_id": orbit_id,
+            "orbit_name": orbit_name,
+            "navigation": navigation_target,
+            "detail": detail,
+        }
+
+    def _build_inbox_payload(user: User, db: Session) -> dict[str, Any]:
+        orbit_ids = [membership.orbit_id for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()]
+        orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
+        orbit_by_id = {orbit.id: orbit for orbit in orbits}
+        navigation_state = navigation.get_state(user.id) or {}
+        active_orbit = orbit_by_id.get(str(navigation_state.get("orbit_id") or "")) if navigation_state.get("orbit_id") else None
+        if active_orbit is None and orbits:
+            active_orbit = orbits[0]
+
+        scopes: list[dict[str, Any]] = []
+        for orbit in orbits[:8]:
+            ergo_thread = db.scalar(select(DmThread).where(DmThread.orbit_id == orbit.id, DmThread.title == "ERGO"))
+            scopes.append(
+                {
+                    "orbit_id": orbit.id,
+                    "orbit_name": orbit.name,
+                    "orbit_slug": orbit.slug,
+                    "repository_full_name": orbit.repo_full_name,
+                    "ergo_thread_id": ergo_thread.id if ergo_thread is not None else None,
+                    "is_active": active_orbit is not None and active_orbit.id == orbit.id,
+                }
+            )
+        active_scope = next((scope for scope in scopes if scope["is_active"]), scopes[0] if scopes else None)
+
+        notifications = notifications_for_user(db, user_id=user.id)[:18]
+        review_prs = [
+            item
+            for item in db.scalars(
+                select(PullRequestSnapshot)
+                .where(PullRequestSnapshot.orbit_id.in_(orbit_ids))
+                .order_by(PullRequestSnapshot.updated_at.desc())
+            ).all()
+            if _normalize_pull_request_status(item) in {"awaiting_review", "changes_requested"}
+        ][:6] if orbit_ids else []
+        active_issues = [
+            item
+            for item in db.scalars(
+                select(IssueSnapshot)
+                .where(IssueSnapshot.orbit_id.in_(orbit_ids))
+                .order_by(IssueSnapshot.updated_at.desc())
+            ).all()
+            if _normalize_issue_status(item) in {"blocked", "in_progress", "todo"}
+        ][:6] if orbit_ids else []
+        recent_artifacts = db.scalars(
+            select(Artifact).where(Artifact.orbit_id.in_(orbit_ids)).order_by(Artifact.updated_at.desc())
+        ).all()[:6] if orbit_ids else []
+
+        recent_messages = db.scalars(
+            select(Message).where(Message.orbit_id.in_(orbit_ids)).order_by(Message.created_at.desc())
+        ).all()[:48] if orbit_ids else []
+        recent_conversations: list[dict[str, Any]] = []
+        seen_conversations: set[str] = set()
+        for message in recent_messages:
+            if _is_legacy_workflow_prompt_message(message):
+                continue
+            if message.channel_id:
+                conversation_key = f"channel:{message.channel_id}"
+            elif message.dm_thread_id:
+                conversation_key = f"dm:{message.dm_thread_id}"
+            else:
+                continue
+            if conversation_key in seen_conversations:
+                continue
+            seen_conversations.add(conversation_key)
+            recent_conversations.append(
+                {
+                    "message": message,
+                    "channel": db.get(Channel, message.channel_id) if message.channel_id else None,
+                    "thread": db.get(DmThread, message.dm_thread_id) if message.dm_thread_id else None,
+                }
+            )
+            if len(recent_conversations) >= 8:
+                break
+
+        attention_counts = {
+            "needs_attention": len([item for item in notifications if item.status == "unread"]),
+            "review_queue": len(review_prs),
+            "active_sources": len(recent_artifacts),
+            "recent_chats": len(recent_conversations),
+        }
+        briefing_lines: list[str] = []
+        if active_orbit is not None:
+            briefing_lines.append(f"{active_orbit.name} is the active ERGO scope for new Inbox questions.")
+        if attention_counts["needs_attention"]:
+            briefing_lines.append(f"{attention_counts['needs_attention']} inbox signals are still unread across your workspace.")
+        if attention_counts["review_queue"]:
+            briefing_lines.append(f"{attention_counts['review_queue']} pull requests still need review attention.")
+        if attention_counts["active_sources"]:
+            briefing_lines.append(f"{attention_counts['active_sources']} recent artifacts or demos are ready to inspect.")
+        if not briefing_lines:
+            briefing_lines.append("Your workspace is quiet. Use Inbox to ask ERGO for a summary or start from the latest orbit context.")
+
+        briefing_excerpt: list[dict[str, str]] = []
+        if active_scope and active_scope.get("ergo_thread_id"):
+            ergo_messages = db.scalars(
+                select(Message)
+                .where(
+                    Message.orbit_id == active_scope["orbit_id"],
+                    Message.dm_thread_id == active_scope["ergo_thread_id"],
+                )
+                .order_by(Message.created_at.desc())
+            ).all()[:4]
+            for message in reversed(ergo_messages):
+                briefing_excerpt.append(
+                    {
+                        "author": message.author_name,
+                        "body": message.body,
+                        "created_at": message.created_at.isoformat(),
+                    }
+                )
+
+        items: list[dict[str, Any]] = [
+            _inbox_item(
+                item_id="briefing-ergo",
+                kind="briefing",
+                title="ERGO briefing",
+                preview=briefing_lines[0],
+                source_label=active_orbit.name if active_orbit is not None else "Workspace",
+                status_label="Pinned",
+                attention="high" if attention_counts["needs_attention"] else "normal",
+                unread=False,
+                created_at=utc_now().isoformat(),
+                orbit_id=active_scope["orbit_id"] if active_scope else None,
+                orbit_name=active_scope["orbit_name"] if active_scope else None,
+                navigation_target=_inbox_navigation(
+                    orbit_id=active_scope["orbit_id"] if active_scope else None,
+                    section="chat",
+                    conversation_kind="dm",
+                    conversation_id=active_scope["ergo_thread_id"] if active_scope else None,
+                ),
+                detail=_inbox_detail(
+                    summary=" ".join(briefing_lines),
+                    key_context=[
+                        {"label": "Unread", "value": str(attention_counts["needs_attention"])},
+                        {"label": "Review queue", "value": str(attention_counts["review_queue"])},
+                        {"label": "Sources", "value": str(attention_counts["active_sources"])},
+                        {"label": "Chats", "value": str(attention_counts["recent_chats"])},
+                    ],
+                    related_entities=[
+                        {"label": "Default scope", "value": active_scope["orbit_name"] if active_scope else "No orbit selected"},
+                        {"label": "Repository", "value": active_scope["repository_full_name"] if active_scope and active_scope.get("repository_full_name") else "Awaiting source binding"},
+                    ],
+                    next_actions=[
+                        _inbox_action(
+                            "Open active orbit",
+                            navigation_target=_inbox_navigation(
+                                orbit_id=active_scope["orbit_id"] if active_scope else None,
+                                section="chat",
+                            ),
+                        ),
+                        _inbox_action(
+                            "Open review queue",
+                            navigation_target=_inbox_navigation(
+                                orbit_id=active_scope["orbit_id"] if active_scope else None,
+                                section="prs",
+                            ),
+                        ),
+                    ],
+                    metadata=[
+                        {"label": "Mode", "value": "Operational briefing"},
+                        {"label": "Scope", "value": active_scope["orbit_name"] if active_scope else "Global"},
+                    ],
+                    conversation_excerpt=briefing_excerpt,
+                ),
+            )
+        ]
+        seen_item_ids = {"briefing-ergo"}
+
+        def push_item(item: dict[str, Any]) -> None:
+            if item["id"] in seen_item_ids:
+                return
+            seen_item_ids.add(item["id"])
+            items.append(item)
+
+        for notification in notifications:
+            orbit = orbit_by_id.get(notification.orbit_id) if notification.orbit_id else None
+            repository_name = str(notification.metadata_json.get("repository_full_name") or "").strip() if isinstance(notification.metadata_json, dict) else ""
+            target_section = "chat"
+            if notification.kind in {"artifact"}:
+                target_section = "demos"
+            elif notification.kind.startswith("run_"):
+                target_section = "workflow"
+            source_label_parts = [orbit.name if orbit is not None else None, repository_name or None, _format_state_label(notification.kind)]
+            detail_summary = f"{notification.title} keeps attention on {orbit.name if orbit is not None else 'the workspace'}."
+            push_item(
+                _inbox_item(
+                    item_id=notification.id,
+                    kind=notification.kind,
+                    title=notification.title,
+                    preview=notification.detail,
+                    source_label=" · ".join([part for part in source_label_parts if part]),
+                    status_label="Unread" if notification.status == "unread" else _format_state_label(notification.kind),
+                    attention=(
+                        "high"
+                        if notification.status == "unread" and notification.kind in {"approval", "clarification", "run_failed", "mention", "dm"}
+                        else "normal"
+                    ),
+                    unread=notification.status == "unread",
+                    created_at=notification.created_at.isoformat(),
+                    orbit_id=orbit.id if orbit is not None else None,
+                    orbit_name=orbit.name if orbit is not None else None,
+                    navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section=target_section),
+                    detail=_inbox_detail(
+                        summary=detail_summary,
+                        key_context=[
+                            {"label": "Type", "value": _format_state_label(notification.kind)},
+                            {"label": "State", "value": "Unread" if notification.status == "unread" else "Read"},
+                        ],
+                        related_entities=[
+                            {"label": "Orbit", "value": orbit.name if orbit is not None else "Workspace"},
+                            {"label": "Source", "value": repository_name or notification.source_kind},
+                        ],
+                        next_actions=[
+                            _inbox_action(
+                                f"Open {target_section}",
+                                navigation_target=_inbox_navigation(
+                                    orbit_id=orbit.id if orbit is not None else None,
+                                    section=target_section,
+                                ),
+                            )
+                        ],
+                        metadata=[
+                            {"label": "Created", "value": notification.created_at.isoformat()},
+                            {"label": "Source id", "value": notification.source_id},
+                        ],
+                    ),
+                )
+            )
+
+        for pr in review_prs:
+            orbit = orbit_by_id.get(pr.orbit_id)
+            pr_status = _normalize_pull_request_status(pr)
+            repository_name = _repository_identity(db, pr.repository_connection_id, pr.metadata_json).get("repository_full_name") or "Repository"
+            push_item(
+                _inbox_item(
+                    item_id=f"pr-{pr.id}",
+                    kind="pr",
+                    title=pr.title,
+                    preview=f"PR #{pr.github_number} is {pr_status.replace('_', ' ')} and ready for triage.",
+                    source_label=" · ".join([part for part in [orbit.name if orbit else None, str(repository_name), "Pull request"] if part]),
+                    status_label=_format_state_label(pr_status),
+                    attention="high" if pr_status == "changes_requested" else "normal",
+                    unread=pr_status in {"awaiting_review", "changes_requested"},
+                    created_at=pr.updated_at.isoformat(),
+                    orbit_id=orbit.id if orbit else None,
+                    orbit_name=orbit.name if orbit else None,
+                    navigation_target=_inbox_navigation(
+                        orbit_id=orbit.id if orbit else None,
+                        section="prs",
+                        detail_kind="pr",
+                        detail_id=pr.id,
+                    ),
+                    detail=_inbox_detail(
+                        summary=f"{pr.title} is part of the review queue for {repository_name}.",
+                        key_context=[
+                            {"label": "Number", "value": f"#{pr.github_number}"},
+                            {"label": "State", "value": _format_state_label(pr_status)},
+                            {"label": "Priority", "value": _format_state_label(pr.priority)},
+                        ],
+                        related_entities=[
+                            {"label": "Orbit", "value": orbit.name if orbit else "Workspace"},
+                            {"label": "Repository", "value": str(repository_name)},
+                        ],
+                        next_actions=[
+                            _inbox_action(
+                                "Open PR surface",
+                                navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit else None, section="prs", detail_kind="pr", detail_id=pr.id),
+                            ),
+                            _inbox_action("Open GitHub", href=pr.url),
+                        ],
+                        metadata=[
+                            {"label": "Branch", "value": pr.branch_name or "n/a"},
+                            {"label": "Updated", "value": pr.updated_at.isoformat()},
+                        ],
+                    ),
+                )
+            )
+
+        for issue in active_issues:
+            orbit = orbit_by_id.get(issue.orbit_id)
+            issue_status = _normalize_issue_status(issue)
+            repository_name = _repository_identity(db, issue.repository_connection_id, issue.metadata_json).get("repository_full_name") or "Repository"
+            push_item(
+                _inbox_item(
+                    item_id=f"issue-{issue.id}",
+                    kind="issue",
+                    title=issue.title,
+                    preview=f"Issue #{issue.github_number} is {issue_status.replace('_', ' ')} and still needs a decision.",
+                    source_label=" · ".join([part for part in [orbit.name if orbit else None, str(repository_name), "Issue"] if part]),
+                    status_label=_format_state_label(issue_status),
+                    attention="high" if issue_status == "blocked" else "normal",
+                    unread=issue_status in {"blocked", "todo"},
+                    created_at=issue.updated_at.isoformat(),
+                    orbit_id=orbit.id if orbit else None,
+                    orbit_name=orbit.name if orbit else None,
+                    navigation_target=_inbox_navigation(
+                        orbit_id=orbit.id if orbit else None,
+                        section="issues",
+                        detail_kind="issue",
+                        detail_id=issue.id,
+                    ),
+                    detail=_inbox_detail(
+                        summary=f"{issue.title} is still active in {repository_name}.",
+                        key_context=[
+                            {"label": "Number", "value": f"#{issue.github_number}"},
+                            {"label": "State", "value": _format_state_label(issue_status)},
+                            {"label": "Priority", "value": _format_state_label(issue.priority)},
+                        ],
+                        related_entities=[
+                            {"label": "Orbit", "value": orbit.name if orbit else "Workspace"},
+                            {"label": "Repository", "value": str(repository_name)},
+                        ],
+                        next_actions=[
+                            _inbox_action(
+                                "Open issue surface",
+                                navigation_target=_inbox_navigation(
+                                    orbit_id=orbit.id if orbit else None,
+                                    section="issues",
+                                    detail_kind="issue",
+                                    detail_id=issue.id,
+                                ),
+                            ),
+                            _inbox_action("Open GitHub", href=issue.url),
+                        ],
+                        metadata=[{"label": "Updated", "value": issue.updated_at.isoformat()}],
+                    ),
+                )
+            )
+
+        for artifact in recent_artifacts:
+            orbit = orbit_by_id.get(artifact.orbit_id)
+            serialized = _serialize_artifact(db, artifact)
+            source_label = " · ".join(
+                [
+                    part
+                    for part in [
+                        orbit.name if orbit else None,
+                        serialized.get("repository_full_name"),
+                        _format_state_label(artifact.artifact_kind),
+                    ]
+                    if part
+                ]
+            )
+            push_item(
+                _inbox_item(
+                    item_id=f"artifact-{artifact.id}",
+                    kind="source",
+                    title=artifact.title,
+                    preview=artifact.summary or f"{_format_state_label(artifact.artifact_kind)} artifact is {artifact.status}.",
+                    source_label=source_label,
+                    status_label=_format_state_label(artifact.status),
+                    attention="normal",
+                    unread=False,
+                    created_at=artifact.updated_at.isoformat(),
+                    orbit_id=orbit.id if orbit else None,
+                    orbit_name=orbit.name if orbit else None,
+                    navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit else None, section="demos"),
+                    detail=_inbox_detail(
+                        summary=artifact.summary or f"{artifact.title} is available as a recent source artifact.",
+                        key_context=[
+                            {"label": "Kind", "value": _format_state_label(artifact.artifact_kind)},
+                            {"label": "State", "value": _format_state_label(artifact.status)},
+                        ],
+                        related_entities=[
+                            {"label": "Orbit", "value": orbit.name if orbit else "Workspace"},
+                            {"label": "Repository", "value": str(serialized.get("repository_full_name") or "Awaiting source binding")},
+                        ],
+                        next_actions=[
+                            _inbox_action("Open artifact surface", navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit else None, section="demos")),
+                            _inbox_action("Open artifact", href=artifact.external_url) if artifact.external_url else _inbox_action(
+                                "Open artifact surface",
+                                navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit else None, section="demos"),
+                            ),
+                        ],
+                        metadata=[{"label": "Updated", "value": artifact.updated_at.isoformat()}],
+                    ),
+                )
+            )
+
+        for conversation in recent_conversations:
+            message = conversation["message"]
+            orbit = orbit_by_id.get(message.orbit_id)
+            channel = conversation["channel"]
+            thread = conversation["thread"]
+            is_ergo = thread is not None and thread.title == "ERGO"
+            source_label = " · ".join(
+                [
+                    part
+                    for part in [
+                        orbit.name if orbit else None,
+                        thread.title if thread is not None else (channel.name if channel is not None else None),
+                        "Chat",
+                    ]
+                    if part
+                ]
+            )
+            detail_summary = f"{message.author_name} last said: {message.body}"
+            push_item(
+                _inbox_item(
+                    item_id=f"conversation-{message.id}",
+                    kind="chat" if not is_ergo else "briefing_chat",
+                    title=thread.title if thread is not None else (channel.name if channel is not None else "Conversation"),
+                    preview=message.body,
+                    source_label=source_label,
+                    status_label="Recent",
+                    attention="normal",
+                    unread=False,
+                    created_at=message.created_at.isoformat(),
+                    orbit_id=orbit.id if orbit else None,
+                    orbit_name=orbit.name if orbit else None,
+                    navigation_target=_inbox_navigation(
+                        orbit_id=orbit.id if orbit else None,
+                        section="chat",
+                        conversation_kind="dm" if thread is not None else "channel",
+                        conversation_id=thread.id if thread is not None else channel.id if channel is not None else None,
+                    ),
+                    detail=_inbox_detail(
+                        summary=detail_summary,
+                        key_context=[
+                            {"label": "Author", "value": message.author_name},
+                            {"label": "Surface", "value": "ERGO DM" if is_ergo else "Conversation"},
+                        ],
+                        related_entities=[
+                            {"label": "Orbit", "value": orbit.name if orbit else "Workspace"},
+                            {"label": "Channel", "value": channel.name if channel is not None else (thread.title if thread is not None else "Conversation")},
+                        ],
+                        next_actions=[
+                            _inbox_action(
+                                "Open orbit chat",
+                                navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit else None, section="chat"),
+                            )
+                        ],
+                        metadata=[{"label": "Time", "value": message.created_at.isoformat()}],
+                        conversation_excerpt=[
+                            {
+                                "author": message.author_name,
+                                "body": message.body,
+                                "created_at": message.created_at.isoformat(),
+                            }
+                        ],
+                    ),
+                )
+            )
+
+        return {
+            "me": _serialize_user(user),
+            "summary": {
+                **attention_counts,
+                "recent_orbits": len(orbits),
+            },
+            "briefing": items[0],
+            "items": items,
+            "scopes": scopes,
+            "active_scope": active_scope,
+            "notifications": [_serialize_notification(item) for item in notifications[:8]],
         }
 
     def _serialize_search_result(
@@ -1507,12 +2122,79 @@ def create_app(
         )
         return {"configured": True, "url": url, "state": state}
 
+    @app.get("/api/auth/github-app")
+    def github_app_status(
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        installation = _github_app_installation_for_user(db, user)
+        if not settings.github_app_is_configured:
+            return {"configured": False, "app_slug": settings.github_app_slug or None, "install_url": None, "active_installation": None}
+        state = _create_auth_state(db, user=user, purpose="github_app_install")
+        install_url = f"https://github.com/apps/{settings.github_app_slug.strip()}/installations/new?state={state}"
+        return {
+            "configured": True,
+            "app_slug": settings.github_app_slug.strip(),
+            "install_url": install_url,
+            "active_installation": _serialize_installation(installation) if installation else None,
+        }
+
     @app.get("/api/auth/github/callback")
     def github_callback(code: str | None = Query(default=None), state: str | None = Query(default=None)) -> RedirectResponse:
         target = f"{settings.github_oauth_callback_url}?code={code or ''}"
         if state:
             target = f"{target}&state={state}"
         return RedirectResponse(target, status_code=307)
+
+    @app.post("/api/auth/github-app/installations/claim")
+    def github_app_claim_installation(
+        payload: GitHubAppInstallationClaimRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        if not settings.github_app_is_configured:
+            raise HTTPException(status_code=400, detail="GitHub App is not configured")
+        _consume_auth_state(db, user=user, state=payload.state, purpose="github_app_install")
+        try:
+            installation_payload = github.get_app_installation(payload.installation_id)
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(status_code=502, detail="Unable to read the GitHub App installation") from exc
+        installation_key = f"github:app_installation:{payload.installation_id}"
+        installation = db.scalar(
+            select(IntegrationInstallation).where(IntegrationInstallation.installation_key == installation_key)
+        )
+        account = installation_payload.get("account") or {}
+        account_login = str(account.get("login") or "").strip() or None
+        display_name = account_login or str(installation_payload.get("target_type") or "GitHub installation")
+        metadata_json = {
+            "installation_id": int(payload.installation_id),
+            "account_login": account_login,
+            "account_type": account.get("type"),
+            "repository_selection": installation_payload.get("repository_selection"),
+            "permissions": installation_payload.get("permissions") or {},
+            "app_slug": settings.github_app_slug.strip(),
+            "setup_action": payload.setup_action,
+        }
+        if installation is None:
+            installation = IntegrationInstallation(
+                provider="github",
+                installation_kind="github_app_installation",
+                installation_key=installation_key,
+                owner_user_id=user.id,
+                display_name=f"{display_name} GitHub App access",
+                status="active",
+                metadata_json=metadata_json,
+            )
+            db.add(installation)
+            db.flush()
+        else:
+            installation.owner_user_id = user.id
+            installation.display_name = f"{display_name} GitHub App access"
+            installation.status = "active"
+            installation.metadata_json = metadata_json
+            installation.updated_at = utc_now()
+        db.commit()
+        return {"ok": True, "installation": _serialize_installation(installation)}
 
     @app.post("/api/auth/github-token", response_model=SessionPayload)
     def github_token_login(payload: GitHubTokenLoginRequest, db: Session = Depends(get_db)) -> SessionPayload:
@@ -1641,9 +2323,13 @@ def create_app(
             notifications=notifications,
         )
 
+    @app.get("/api/inbox", response_model=InboxPayload)
+    def inbox(user: User = Depends(current_user), db: Session = Depends(get_db)) -> InboxPayload:
+        return InboxPayload(**_build_inbox_payload(user, db))
+
     @app.get("/api/navigation")
     def get_navigation(user: User = Depends(current_user)) -> dict[str, Any]:
-        return navigation.get_state(user.id) or {"orbit_id": None, "section": "dashboard"}
+        return navigation.get_state(user.id) or {"orbit_id": None, "section": "inbox"}
 
     @app.put("/api/navigation")
     def put_navigation(payload: NavigationStateRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:

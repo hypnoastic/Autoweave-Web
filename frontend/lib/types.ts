@@ -13,6 +13,22 @@ export type Session = {
   user: UserSummary;
 };
 
+export type GitHubAppInstallationSummary = {
+  id: string;
+  installation_id: number;
+  account_login?: string | null;
+  account_type?: string | null;
+  display_name: string;
+  setup_action?: string | null;
+};
+
+export type GitHubAppStatus = {
+  configured: boolean;
+  app_slug?: string | null;
+  install_url?: string | null;
+  active_installation?: GitHubAppInstallationSummary | null;
+};
+
 export type ChatSyncBootstrap = {
   enabled: boolean;
   provider: string;
@@ -341,4 +357,69 @@ export type DashboardPayload = {
   codespaces: CodespaceSummary[];
   notifications: Array<{ kind: string; label: string }>;
   preferences?: UserPreferences | null;
+};
+
+export type InboxNavigationTarget = {
+  orbit_id?: string | null;
+  section: string;
+  conversation_kind?: "channel" | "dm" | null;
+  conversation_id?: string | null;
+  detail_kind?: "pr" | "issue" | null;
+  detail_id?: string | null;
+};
+
+export type InboxAction = {
+  label: string;
+  navigation?: InboxNavigationTarget | null;
+  href?: string | null;
+};
+
+export type InboxDetail = {
+  summary: string;
+  key_context: Array<{ label: string; value: string }>;
+  related_entities: Array<{ label: string; value: string }>;
+  next_actions: InboxAction[];
+  metadata: Array<{ label: string; value: string }>;
+  conversation_excerpt: Array<{ author: string; body: string; created_at: string }>;
+};
+
+export type InboxItem = {
+  id: string;
+  kind: string;
+  title: string;
+  preview: string;
+  source_label: string;
+  status_label: string;
+  attention: "normal" | "high";
+  unread: boolean;
+  created_at: string;
+  orbit_id?: string | null;
+  orbit_name?: string | null;
+  navigation?: InboxNavigationTarget | null;
+  detail: InboxDetail;
+};
+
+export type InboxScope = {
+  orbit_id: string;
+  orbit_name: string;
+  orbit_slug: string;
+  repository_full_name?: string | null;
+  ergo_thread_id?: string | null;
+  is_active: boolean;
+};
+
+export type InboxPayload = {
+  me: UserSummary;
+  summary: {
+    needs_attention: number;
+    review_queue: number;
+    active_sources: number;
+    recent_chats: number;
+    recent_orbits: number;
+  };
+  briefing: InboxItem;
+  items: InboxItem[];
+  scopes: InboxScope[];
+  active_scope?: InboxScope | null;
+  notifications: NotificationItem[];
 };

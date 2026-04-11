@@ -71,7 +71,7 @@ export type AppShellNavItem = {
 };
 
 export type AppShellConfig = {
-  mode: "dashboard" | "orbit";
+  mode: "dashboard" | "inbox" | "orbit";
   breadcrumb: string[];
   backAction?: () => void;
   forwardAction?: () => void;
@@ -100,8 +100,8 @@ type AppShellContextValue = {
 };
 
 const DEFAULT_CONFIG: AppShellConfig = {
-  mode: "dashboard",
-  breadcrumb: ["Dashboard"],
+  mode: "inbox",
+  breadcrumb: ["Inbox"],
   items: [],
 };
 
@@ -305,7 +305,7 @@ function AppShellFrame({ children }: { children: ReactNode }) {
     [closeNotifications, closeSearch, config, notificationsOpen, openNotifications, openSearch, searchOpen, sidebarCollapsed, toggleSidebar],
   );
 
-  const breadcrumb = config.breadcrumb.length ? config.breadcrumb : [config.mode === "orbit" ? "Orbit" : "Dashboard"];
+  const breadcrumb = config.breadcrumb.length ? config.breadcrumb : [config.mode === "orbit" ? "Orbit" : config.mode === "inbox" ? "Inbox" : "Dashboard"];
   const orbitSettingsItem = config.mode === "orbit" ? config.items.find((item) => item.key === "settings") ?? null : null;
   const sidebarItems = orbitSettingsItem ? config.items.filter((item) => item.key !== orbitSettingsItem.key) : config.items;
   const searchConfig = config.search ?? null;

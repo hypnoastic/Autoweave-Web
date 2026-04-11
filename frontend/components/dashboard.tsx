@@ -2,8 +2,7 @@
 
 import {
   ChevronRight,
-  House,
-  LayoutGrid,
+  Inbox as InboxIcon,
   Plus,
   Upload,
 } from "lucide-react";
@@ -411,13 +410,13 @@ export function DashboardScreen() {
 
   const shellConfig = useMemo<AppShellConfig>(() => ({
     mode: "dashboard",
-    breadcrumb: ["Dashboard"],
+    breadcrumb: ["Overview"],
     items: [
       {
-        key: "home",
-        label: "Dashboard",
-        icon: House,
-        active: true,
+        key: "inbox",
+        label: "Inbox",
+        icon: InboxIcon,
+        active: false,
         onSelect: () => router.push("/app"),
       },
       {

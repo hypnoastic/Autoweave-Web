@@ -11,7 +11,9 @@ import type {
   DemoSummary,
   DmThreadPayload,
   DmThreadSummary,
+  GitHubAppStatus,
   HumanLoopItem,
+  InboxPayload,
   Orbit,
   OrbitPayload,
   OrbitSearchResult,
@@ -112,6 +114,24 @@ export async function getGitHubLoginUrl() {
   return request<{ configured: boolean; url: string | null; state?: string }>("/api/auth/github/url");
 }
 
+export async function fetchGitHubAppStatus(token: string) {
+  return request<GitHubAppStatus>("/api/auth/github-app", {}, token);
+}
+
+export async function claimGitHubAppInstallation(
+  token: string,
+  payload: { installation_id: number; state: string; setup_action?: string | null },
+) {
+  return request<{ ok: boolean; installation: GitHubAppStatus["active_installation"] }>(
+    "/api/auth/github-app/installations/claim",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export async function loginWithToken(token: string) {
   return request<Session>("/api/auth/github-token", {
     method: "POST",
@@ -125,6 +145,10 @@ export async function exchangeGitHubCode(code: string) {
 
 export async function fetchDashboard(token: string) {
   return request<DashboardPayload>("/api/dashboard", {}, token);
+}
+
+export async function fetchInbox(token: string) {
+  return request<InboxPayload>("/api/inbox", {}, token);
 }
 
 export async function fetchOrbits(token: string) {

@@ -9,6 +9,12 @@ class GitHubTokenLoginRequest(BaseModel):
     token: str = Field(min_length=10)
 
 
+class GitHubAppInstallationClaimRequest(BaseModel):
+    installation_id: int
+    state: str = Field(min_length=8)
+    setup_action: str | None = None
+
+
 class OrbitCreateRequest(BaseModel):
     name: str
     description: str = ""
@@ -97,6 +103,16 @@ class DashboardPayload(BaseModel):
     priority_items: list[dict]
     codespaces: list[dict]
     notifications: list[dict]
+
+
+class InboxPayload(BaseModel):
+    me: dict
+    summary: dict = Field(default_factory=dict)
+    briefing: dict = Field(default_factory=dict)
+    items: list[dict] = Field(default_factory=list)
+    scopes: list[dict] = Field(default_factory=list)
+    active_scope: dict | None = None
+    notifications: list[dict] = Field(default_factory=list)
 
 
 class OrbitPayload(BaseModel):

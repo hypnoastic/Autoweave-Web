@@ -20,7 +20,7 @@ const mockRouter = vi.hoisted(() => ({
   forward: vi.fn(),
 }));
 
-let mockPathname = "/app";
+let mockPathname = "/app/dashboard";
 
 vi.mock("@/lib/api", () => api);
 vi.mock("next/navigation", () => ({
@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 function renderDashboard() {
-  mockPathname = "/app";
+  mockPathname = "/app/dashboard";
   return render(
     <ThemeProvider>
       <AuthenticatedAppShell>
@@ -43,7 +43,7 @@ describe("DashboardScreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.removeItem?.("autoweave-shell-sidebar-collapsed");
-    mockPathname = "/app";
+    mockPathname = "/app/dashboard";
   });
 
   it("renders the unified dashboard rail and context sidebar", async () => {
@@ -85,7 +85,7 @@ describe("DashboardScreen", () => {
 
     expect(await screen.findByText("Hello, Octo Cat")).toBeInTheDocument();
     expect(screen.getByText("Priority queue")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inbox" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AutoWeave home" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open notifications" })).toBeInTheDocument();
