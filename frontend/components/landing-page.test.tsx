@@ -1,27 +1,31 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 import { LandingPage } from "@/components/landing-page";
 
-vi.mock("@/lib/api", () => ({
-  getGitHubLoginUrl: vi.fn().mockResolvedValue({ configured: false, url: null }),
-  loginWithToken: vi.fn(),
-  writeSession: vi.fn(),
+vi.mock("@/components/ui/webcam-pixel-grid", () => ({
+  WebcamPixelGrid: ({ className }: { className?: string }) => <div data-testid="pixel-grid" className={className} />,
 }));
 
 describe("LandingPage", () => {
-  it("renders the GitHub token login shell", () => {
+  it("renders the orchestration-first hero and public sections", () => {
     render(<LandingPage />);
 
-    expect(screen.getByText("ERGO-powered collaborative engineering")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("ghp_...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start with GitHub" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Operate software delivery with a real control plane." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Built for delivery systems that need visible governance." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "The product is organized around governed execution, not assistant theater." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Structured around rollout shape/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Bring your repos, environments, and rollout constraints/i })).toBeInTheDocument();
+    expect(screen.getByTestId("pixel-grid")).toBeInTheDocument();
   });
 
-  it("enables the token action when a token is entered", () => {
+  it("keeps public auth routes and configurable outbound links visible", () => {
     render(<LandingPage />);
 
-    fireEvent.change(screen.getByPlaceholderText("ghp_..."), { target: { value: "ghp_example_token" } });
-
-    expect(screen.getByRole("button", { name: "Start with GitHub" })).toBeEnabled();
+    expect(screen.getAllByRole("link", { name: "Login" }).every((link) => link.getAttribute("href") === "/login")).toBe(true);
+    expect(screen.getAllByRole("link", { name: "Sign up" }).every((link) => link.getAttribute("href") === "/signup")).toBe(true);
+    expect(screen.getByRole("link", { name: /Create your orbit/i })).toHaveAttribute("href", "/signup");
+    expect(screen.getByRole("link", { name: /founders@autoweave\.dev/i })).toHaveAttribute("href", "mailto:founders@autoweave.dev");
+    expect(screen.getByRole("link", { name: /Open GitHub/i })).toHaveAttribute("href", "https://github.com");
+    expect(screen.getAllByRole("link", { name: /View docs/i }).every((link) => link.getAttribute("href") === "#features")).toBe(true);
   });
 });

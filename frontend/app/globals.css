@@ -28,6 +28,18 @@
   --aw-shell-seam: rgba(17, 17, 17, 0.12);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
+  --aw-landing-shell: #061011;
+  --aw-landing-shell-muted: #0c1718;
+  --aw-landing-glass: rgba(251, 251, 247, 0.62);
+  --aw-landing-glass-line: rgba(12, 20, 20, 0.12);
+  --aw-landing-verdigris: #2a7870;
+  --aw-landing-verdigris-soft: rgba(42, 120, 112, 0.18);
+  --aw-landing-grid-dark: #050708;
+  --aw-landing-grid-light: #f1f1ec;
+  --aw-landing-grid-quiet: #c9d0cc;
+  --aw-landing-grid-faint: #96a19c;
+  --aw-landing-grid-accent: #6dd3c3;
+  --aw-landing-hero-glow: rgba(109, 211, 195, 0.18);
   --aw-radius-lg: 18px;
   --aw-radius-md: 14px;
   --aw-radius-sm: 10px;
@@ -72,6 +84,18 @@ html[data-theme="dark"] {
   --aw-shell-seam: rgba(255, 255, 255, 0.06);
   --aw-shell-line: rgba(255, 255, 255, 0.06);
   --aw-shell-line-strong: rgba(255, 255, 255, 0.12);
+  --aw-landing-shell: #040809;
+  --aw-landing-shell-muted: #091011;
+  --aw-landing-glass: rgba(7, 12, 13, 0.74);
+  --aw-landing-glass-line: rgba(255, 255, 255, 0.09);
+  --aw-landing-verdigris: #6dd3c3;
+  --aw-landing-verdigris-soft: rgba(109, 211, 195, 0.14);
+  --aw-landing-grid-dark: #040506;
+  --aw-landing-grid-light: #f3f3ed;
+  --aw-landing-grid-quiet: #cfd6d2;
+  --aw-landing-grid-faint: #99a49f;
+  --aw-landing-grid-accent: #6dd3c3;
+  --aw-landing-hero-glow: rgba(109, 211, 195, 0.22);
 }
 
 html,
