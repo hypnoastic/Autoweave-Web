@@ -80,6 +80,7 @@ import {
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import { buildChatHref } from "@/lib/chat-links";
+import type { OrbitDetailKind } from "@/lib/orbit-links";
 import type {
   AvailableRepository,
   BoardItem,
@@ -536,13 +537,23 @@ function EmptyState({
   return <SharedEmptyState title={title} detail={detail ?? text ?? ""} action={action} className={className} />;
 }
 
-export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
+export function OrbitWorkspace({
+  orbitId,
+  initialSection,
+  initialDetailKind,
+  initialDetailId,
+}: {
+  orbitId: string;
+  initialSection?: OrbitSection;
+  initialDetailKind?: OrbitDetailKind;
+  initialDetailId?: string;
+}) {
   const router = useRouter();
   const { closeNotifications, closeSearch, openNotifications, openSearch, searchOpen } = useAuthenticatedShell();
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState<Session | null>(readSession());
   const [payload, setPayload] = useState<OrbitPayload | null>(null);
-  const [section, setSection] = useState<OrbitSection>("issues");
+  const [section, setSection] = useState<OrbitSection>(initialSection ?? "issues");
   const [selectedConversation, setSelectedConversation] = useState<ConversationSelection | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
@@ -585,6 +596,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [localPendingSince, setLocalPendingSince] = useState<number | null>(null);
   const previousContentSection = useRef<OrbitSection>("issues");
+  const initialRouteHandledRef = useRef(false);
   const payloadRef = useRef<OrbitPayload | null>(null);
   const reloadRequestRef = useRef(0);
   const conversationRequestRef = useRef(0);
@@ -630,6 +642,42 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   );
 
   useEffect(() => {
+    if (initialRouteHandledRef.current || !payload) {
+      return;
+    }
+    if (initialSection) {
+      setSection(initialSection);
+    }
+    if (!initialDetailKind || !initialDetailId) {
+      initialRouteHandledRef.current = true;
+      return;
+    }
+    if (initialDetailKind === "native_issue") {
+      const item = payload.native_issues.find((entry) => entry.id === initialDetailId);
+      if (item) {
+        setDetailPanel({ kind: "native_issue", item });
+      }
+      initialRouteHandledRef.current = true;
+      return;
+    }
+    if (initialDetailKind === "issue") {
+      const item = payload.issues.find((entry) => entry.id === initialDetailId);
+      if (item) {
+        setDetailPanel({ kind: "issue", item });
+      }
+      initialRouteHandledRef.current = true;
+      return;
+    }
+    if (initialDetailKind === "pr") {
+      const item = payload.prs.find((entry) => entry.id === initialDetailId);
+      if (item) {
+        setDetailPanel({ kind: "pr", item });
+      }
+    }
+    initialRouteHandledRef.current = true;
+  }, [initialDetailId, initialDetailKind, initialSection, payload]);
+
+  useEffect(() => {
     payloadRef.current = payload;
   }, [payload]);
 
@@ -659,7 +707,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     setPayload(nextPayload);
     setError(null);
 
-    const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "issues";
+    const nextSection = initialSection ?? (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "issues";
     if (nextSection && ORBIT_SECTIONS.some((item) => item.key === nextSection)) {
       setSection(nextSection);
       if (nextSection !== "codespaces") {

@@ -18,6 +18,7 @@
 - Preserve additive compatibility with the current inbox/chat plumbing and avoid backend contract churn for this slice.
 
 ## Files Touched In This Slice
+- `frontend/app/app/orbits/[orbitId]/page.tsx`
 - `frontend/app/app/chat/page.tsx`
 - `frontend/components/chat-screen.tsx`
 - `frontend/components/inbox-screen.tsx`
@@ -26,6 +27,7 @@
 - `frontend/components/orbit-workspace.tsx`
 - `frontend/components/orbit-workspace.test.tsx`
 - `frontend/lib/chat-links.ts`
+- `frontend/lib/orbit-links.ts`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -46,6 +48,7 @@
 
 ## Verification Log
 - `npm test -- inbox-screen.test.tsx orbit-workspace.test.tsx planning-screen.test.tsx`
+- `npm test -- inbox-screen.test.tsx orbit-workspace.test.tsx`
 - `npm run build`
 - Rebuilt runtime on `http://localhost:3000` with:
   - `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend backend`
@@ -56,7 +59,7 @@
 
 ## Remaining Planned Slices
 - Add richer native issue lifecycle beyond the current stage/cycle controls: assignment, labels, relations, subtasks, and richer board/list views.
-- Extend issue-to-chat and issue-to-delivery links deeper into saved views, board cards, and richer issue detail return paths.
+- Extend issue-to-chat and issue-to-delivery links deeper into saved views and board cards.
 - Refine orbit overview and board interactions.
 - Add Playwright coverage for the PM-first flows.
 
@@ -64,6 +67,7 @@
 - The dedicated `Chat` route now accepts orbit and issue context from route params instead of reading search params directly inside the client shell.
 - Orbit issue detail and My Work issue queues can now open ERGO with the selected issue framed inside the chat surface.
 - Chat context stays compact: orbit/issue metadata is visible above the thread without turning the whole page back into a chat-first dashboard.
+- The orbit route now supports detail-targeted params so the chat context card can return users to the exact issue or PR detail state instead of only the orbit root.
 
 ## Remaining Known Gaps
 - Native issues do not yet support labels, parent/sub-issue relationships, or richer relation modeling.

@@ -49,6 +49,7 @@ import {
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import type { ChatSourceKind } from "@/lib/chat-links";
+import { buildOrbitWorkHref } from "@/lib/orbit-links";
 import type {
   BoardItem,
   ConversationMessage,
@@ -171,7 +172,7 @@ function buildOrbitChatContext(scope: InboxScope | null): ErgoChatContext | null
     statusLabel: "Orbit",
     tone: "muted",
     meta: scope.repository_full_name ? [scope.repository_full_name] : [],
-    openHref: `/app/orbits/${scope.orbit_id}`,
+    openHref: buildOrbitWorkHref({ orbitId: scope.orbit_id }),
     openLabel: "Open orbit",
   };
 }
@@ -184,7 +185,7 @@ function buildNativeIssueChatContext(item: NativeOrbitIssue, orbit: OrbitPayload
     statusLabel: formatStateLabel(item.status),
     tone: workTone(item.status),
     meta: [item.cycle_name, item.priority ? `Priority ${item.priority}` : null, item.repository_full_name].filter(Boolean) as string[],
-    openHref: `/app/orbits/${orbit.id}`,
+    openHref: buildOrbitWorkHref({ orbitId: orbit.id, section: "issues", detailKind: "native_issue", detailId: item.id }),
     openLabel: "Open orbit",
   };
 }
@@ -202,7 +203,12 @@ function buildBoardItemChatContext(item: BoardItem, orbit: OrbitPayload["orbit"]
     statusLabel: formatStateLabel(status),
     tone: workTone(status),
     meta: [item.priority ? `Priority ${item.priority}` : null, item.cycle_name, item.repository_full_name].filter(Boolean) as string[],
-    openHref: `/app/orbits/${orbit.id}`,
+    openHref: buildOrbitWorkHref({
+      orbitId: orbit.id,
+      section: sourceKind === "pr" ? "prs" : "issues",
+      detailKind: sourceKind,
+      detailId: item.id,
+    }),
     openLabel: "Open orbit",
   };
 }

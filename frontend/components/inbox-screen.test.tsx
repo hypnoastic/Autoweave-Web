@@ -359,5 +359,9 @@ describe("InboxScreen", () => {
     expect(screen.getAllByText("Keep planning inside the orbit shell.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Open orbit/i }).length).toBeGreaterThan(0);
     expect(api.fetchOrbit).toHaveBeenCalledWith("session-token", "orbit_1");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Open orbit/i })[0]);
+
+    expect(mockRouter.push).toHaveBeenCalledWith("/app/orbits/orbit_1?section=issues&detailKind=native_issue&detailId=pm_1");
   });
 });

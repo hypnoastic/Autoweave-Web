@@ -51,12 +51,12 @@ vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
 }));
 
-function renderOrbit() {
+function renderOrbit(props: Partial<Parameters<typeof OrbitWorkspace>[0]> = {}) {
   mockPathname = "/app/orbits/orbit_1";
   return render(
     <ThemeProvider>
       <AuthenticatedAppShell>
-        <OrbitWorkspace orbitId="orbit_1" />
+        <OrbitWorkspace orbitId="orbit_1" {...props} />
       </AuthenticatedAppShell>
     </ThemeProvider>,
   );
@@ -1971,5 +1971,86 @@ describe("OrbitWorkspace", () => {
     await waitFor(() =>
       expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", { status: "in_progress" }),
     );
+  });
+
+  it("opens the requested native issue detail from orbit route params", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat", is_self: true }],
+      channels: [],
+      direct_messages: [],
+      messages: [],
+      human_loop_items: [],
+      notifications: [],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: {},
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Model the issue board",
+          detail: "Keep planning inside the orbit shell.",
+          status: "in_progress",
+          priority: "high",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      cycles: [],
+      codespaces: [],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+    });
+    api.fetchChannelMessages.mockResolvedValue({
+      channel: { id: "channel_1", slug: "general", name: "general" },
+      messages: [],
+      human_loop_items: [],
+    });
+    api.fetchDmThread.mockResolvedValue({
+      thread: { id: "dm_1", title: "ERGO" },
+      messages: [],
+      human_loop_items: [],
+    });
+
+    renderOrbit({ initialSection: "issues", initialDetailKind: "native_issue", initialDetailId: "pm_1" });
+
+    expect(await screen.findByText("Native planning issue with stage and cycle control.")).toBeInTheDocument();
+    expect(screen.getAllByText("Keep planning inside the orbit shell.").length).toBeGreaterThan(0);
   });
 });
