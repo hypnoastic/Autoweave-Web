@@ -44,6 +44,12 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("repository_connection_id", "VARCHAR(64)"),
         ),
     ),
+    (
+        "product_orbit_native_issues",
+        (
+            ("parent_issue_id", "VARCHAR(64)"),
+        ),
+    ),
 )
 
 

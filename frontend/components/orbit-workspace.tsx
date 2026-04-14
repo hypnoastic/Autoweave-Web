@@ -129,12 +129,35 @@ type DetailPanel =
 
 type ChannelDraft = { name: string };
 type DmDraft = { targetUserId: string };
-type OrbitIssueDraft = { title: string; detail: string; priority: string; cycleId: string };
+type OrbitIssueDraft = {
+  title: string;
+  detail: string;
+  priority: string;
+  status: string;
+  cycleId: string;
+  assigneeUserId: string;
+  parentIssueId: string;
+  labelsText: string;
+};
 type OrbitCycleDraft = { name: string; goal: string; startsAt: string; endsAt: string };
+type NativeIssueScopeFilter = "all" | "mine" | "blocked" | "stale" | "review";
+type NativeIssueViewMode = "board" | "list";
+type IssueLinkModalState =
+  | { kind: "parent" | "blocked_by" | "related" | "duplicate"; issue: NativeOrbitIssue }
+  | null;
 
 const CHANNEL_DRAFT: ChannelDraft = { name: "" };
 const DM_DRAFT: DmDraft = { targetUserId: "" };
-const ORBIT_ISSUE_DRAFT: OrbitIssueDraft = { title: "", detail: "", priority: "medium", cycleId: "" };
+const ORBIT_ISSUE_DRAFT: OrbitIssueDraft = {
+  title: "",
+  detail: "",
+  priority: "medium",
+  status: "triage",
+  cycleId: "",
+  assigneeUserId: "",
+  parentIssueId: "",
+  labelsText: "",
+};
 const ORBIT_CYCLE_DRAFT: OrbitCycleDraft = { name: "", goal: "", startsAt: "", endsAt: "" };
 const LOCAL_AGENT_PENDING_TIMEOUT_MS = 120_000;
 const SAVED_VIEWS: Array<{ key: SavedViewKey; label: string }> = [
@@ -242,6 +265,52 @@ function nativeIssueColumns(items: NativeOrbitIssue[]) {
       items: items.filter((item) => ["done", "canceled"].includes(String(item.status || "").toLowerCase())),
     },
   ];
+}
+
+function parseLabelDraft(value: string) {
+  const seen = new Set<string>();
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function nativeIssueMatchesSearch(item: NativeOrbitIssue, search: string) {
+  const term = search.trim().toLowerCase();
+  if (!term) {
+    return true;
+  }
+  const haystack = [
+    item.title,
+    item.detail,
+    item.cycle_name,
+    item.assignee_display_name,
+    ...(item.labels ?? []).map((label) => label.name),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(term);
+}
+
+function relationIdsForIssue(item: NativeOrbitIssue, relationKind: "blocked_by" | "related" | "duplicate") {
+  const relationKey = relationKind === "blocked_by" ? "blocked_by" : relationKind;
+  return (item.relations?.[relationKey] ?? []).map((entry) => entry.id);
+}
+
+function boardItemMeta(item: NativeOrbitIssue) {
+  return [
+    item.cycle_name || "No cycle",
+    `Priority ${formatStateLabel(item.priority)}`,
+    item.assignee_display_name ? item.assignee_display_name : "Unassigned",
+  ].join(" · ");
 }
 
 function OrbitSectionBar({
@@ -570,6 +639,12 @@ export function OrbitWorkspace({
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
   const [dmDraft, setDmDraft] = useState<DmDraft>(DM_DRAFT);
   const [issueDraft, setIssueDraft] = useState<OrbitIssueDraft>(ORBIT_ISSUE_DRAFT);
+  const [nativeIssueSearch, setNativeIssueSearch] = useState("");
+  const [nativeIssueScope, setNativeIssueScope] = useState<NativeIssueScopeFilter>("all");
+  const [nativeIssueViewMode, setNativeIssueViewMode] = useState<NativeIssueViewMode>("board");
+  const [selectedNativeLabel, setSelectedNativeLabel] = useState<string>("all");
+  const [issueLinkModal, setIssueLinkModal] = useState<IssueLinkModalState>(null);
+  const [issueLinkSearch, setIssueLinkSearch] = useState("");
   const [cycleDraft, setCycleDraft] = useState<OrbitCycleDraft>(ORBIT_CYCLE_DRAFT);
   const [inviteEmail, setInviteEmail] = useState("");
   const [availableRepositories, setAvailableRepositories] = useState<AvailableRepository[]>([]);
@@ -631,7 +706,32 @@ export function OrbitWorkspace({
   const selectedArtifact =
     payload?.artifacts?.find((item) => item.id === activeArtifactId) ?? payload?.artifacts?.[0] ?? null;
   const nativeIssues = payload?.native_issues ?? [];
+  const availableIssueLabels = payload?.issue_labels ?? [];
   const orbitCycles = payload?.cycles ?? [];
+  const filteredNativeIssues = useMemo(() => {
+    return nativeIssues.filter((item) => {
+      if (!nativeIssueMatchesSearch(item, nativeIssueSearch)) {
+        return false;
+      }
+      if (selectedNativeLabel !== "all" && !(item.labels ?? []).some((label) => label.slug === selectedNativeLabel)) {
+        return false;
+      }
+      if (nativeIssueScope === "mine" && item.assignee_user_id !== session?.user.id) {
+        return false;
+      }
+      if (nativeIssueScope === "blocked" && !item.is_blocked) {
+        return false;
+      }
+      if (nativeIssueScope === "stale" && !item.stale) {
+        return false;
+      }
+      if (nativeIssueScope === "review" && !["in_review", "ready_to_merge"].includes(item.status)) {
+        return false;
+      }
+      return true;
+    });
+  }, [nativeIssueScope, nativeIssueSearch, nativeIssues, selectedNativeLabel, session?.user.id]);
+  const visibleIssueLabelChips = useMemo(() => availableIssueLabels.slice(0, 8), [availableIssueLabels]);
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
     [selectedRun],
@@ -2038,7 +2138,11 @@ export function OrbitWorkspace({
         title: issueDraft.title.trim(),
         detail: issueDraft.detail.trim() || null,
         priority: issueDraft.priority,
+        status: issueDraft.status,
         cycle_id: issueDraft.cycleId || null,
+        assignee_user_id: issueDraft.assigneeUserId || null,
+        parent_issue_id: issueDraft.parentIssueId || null,
+        labels: parseLabelDraft(issueDraft.labelsText),
       });
       setShowCreateIssue(false);
       setIssueDraft(ORBIT_ISSUE_DRAFT);
@@ -2050,6 +2154,21 @@ export function OrbitWorkspace({
     } finally {
       setCreatingIssue(false);
     }
+  }
+
+  function openCreateSubIssue(parentIssue: NativeOrbitIssue) {
+    setIssueDraft({
+      ...ORBIT_ISSUE_DRAFT,
+      title: "",
+      detail: "",
+      priority: parentIssue.priority,
+      status: "triage",
+      cycleId: parentIssue.cycle_id || "",
+      assigneeUserId: parentIssue.assignee_user_id || "",
+      parentIssueId: parentIssue.id,
+      labelsText: (parentIssue.labels ?? []).map((label) => label.name).join(", "),
+    });
+    setShowCreateIssue(true);
   }
 
   async function onCreateCycle() {
@@ -2098,6 +2217,16 @@ export function OrbitWorkspace({
     } finally {
       setUpdatingNativeIssueId(null);
     }
+  }
+
+  async function onReplaceIssueLinks(
+    item: NativeOrbitIssue,
+    relationKind: "blocked_by" | "related" | "duplicate",
+    nextIds: string[],
+  ) {
+    await onUpdateNativeIssue(item.id, {
+      [`${relationKind}_issue_ids`]: nextIds,
+    });
   }
 
   const taskTimeline = detailPanel?.kind === "task" ? workflowTimeline(selectedRun, detailPanel.task) : [];
@@ -2290,34 +2419,127 @@ export function OrbitWorkspace({
                 />
                 <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-4">
+                    <SurfaceCard className="space-y-3 bg-panelStrong p-3.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <TextInput
+                          className="min-w-[220px] flex-1"
+                          value={nativeIssueSearch}
+                          onChange={(event) => setNativeIssueSearch(event.target.value)}
+                          placeholder="Search native issues"
+                        />
+                        <SelectionChip active={nativeIssueViewMode === "board"} onClick={() => setNativeIssueViewMode("board")}>
+                          Board
+                        </SelectionChip>
+                        <SelectionChip active={nativeIssueViewMode === "list"} onClick={() => setNativeIssueViewMode("list")}>
+                          List
+                        </SelectionChip>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <SelectionChip active={nativeIssueScope === "all"} onClick={() => setNativeIssueScope("all")}>
+                          All
+                        </SelectionChip>
+                        <SelectionChip active={nativeIssueScope === "mine"} onClick={() => setNativeIssueScope("mine")}>
+                          Mine
+                        </SelectionChip>
+                        <SelectionChip active={nativeIssueScope === "blocked"} onClick={() => setNativeIssueScope("blocked")}>
+                          Blocked
+                        </SelectionChip>
+                        <SelectionChip active={nativeIssueScope === "stale"} onClick={() => setNativeIssueScope("stale")}>
+                          Stale
+                        </SelectionChip>
+                        <SelectionChip active={nativeIssueScope === "review"} onClick={() => setNativeIssueScope("review")}>
+                          Review
+                        </SelectionChip>
+                      </div>
+                      {visibleIssueLabelChips.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          <SelectionChip active={selectedNativeLabel === "all"} onClick={() => setSelectedNativeLabel("all")}>
+                            All labels
+                          </SelectionChip>
+                          {visibleIssueLabelChips.map((label) => (
+                            <SelectionChip
+                              key={label.id}
+                              active={selectedNativeLabel === label.slug}
+                              onClick={() => setSelectedNativeLabel((current) => (current === label.slug ? "all" : label.slug))}
+                            >
+                              {label.name}
+                            </SelectionChip>
+                          ))}
+                        </div>
+                      ) : null}
+                    </SurfaceCard>
+
                     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-                      <div className="grid min-h-0 gap-3 xl:grid-cols-5">
-                        {nativeIssueColumns(nativeIssues).map((column) => (
-                          <div key={column.key} className="flex min-h-[188px] flex-col rounded-[16px] border border-line bg-panelStrong p-3">
-                            <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
-                              <p className="text-sm font-medium text-ink">{column.label}</p>
-                              <StatusPill tone="muted">{column.items.length}</StatusPill>
-                            </div>
-                            <div className="mt-3 flex-1 space-y-2">
-                              {column.items.length ? (
-                                column.items.map((item) => (
-                                  <BoardCard
-                                    key={item.id}
-                                    title={`PM-${item.number} · ${item.title}`}
-                                    detail={[item.cycle_name || "No cycle", item.priority ? `Priority ${item.priority}` : null].filter(Boolean).join(" · ")}
-                                    tone={boardTone(item.status)}
-                                    label={formatStateLabel(item.status)}
-                                    onClick={() => setDetailPanel({ kind: "native_issue", item })}
-                                  />
-                                ))
-                              ) : (
-                                <div className="rounded-[12px] border border-dashed border-line bg-panel px-3 py-3 text-xs text-quiet">
-                                  No issues in this lane.
+                      <div>
+                        {nativeIssueViewMode === "board" ? (
+                          <div className="grid min-h-0 gap-3 xl:grid-cols-5">
+                            {nativeIssueColumns(filteredNativeIssues).map((column) => (
+                              <div key={column.key} className="flex min-h-[188px] flex-col rounded-[16px] border border-line bg-panelStrong p-3">
+                                <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
+                                  <p className="text-sm font-medium text-ink">{column.label}</p>
+                                  <StatusPill tone="muted">{column.items.length}</StatusPill>
                                 </div>
-                              )}
-                            </div>
+                                <div className="mt-3 flex-1 space-y-2">
+                                  {column.items.length ? (
+                                    column.items.map((item) => (
+                                      <BoardCard
+                                        key={item.id}
+                                        title={`PM-${item.number} · ${item.title}`}
+                                        detail={[
+                                          boardItemMeta(item),
+                                          item.stale ? `Stale ${item.stale_working_days}d` : null,
+                                          item.labels?.length ? item.labels.slice(0, 2).map((label) => label.name).join(", ") : null,
+                                        ].filter(Boolean).join(" · ")}
+                                        tone={boardTone(item.status)}
+                                        label={formatStateLabel(item.status)}
+                                        onClick={() => setDetailPanel({ kind: "native_issue", item })}
+                                      />
+                                    ))
+                                  ) : (
+                                    <div className="rounded-[12px] border border-dashed border-line bg-panel px-3 py-3 text-xs text-quiet">
+                                      No issues in this lane.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        ) : filteredNativeIssues.length ? (
+                          <div className="space-y-2">
+                            {filteredNativeIssues.map((item) => (
+                              <ListRow
+                                key={item.id}
+                                eyebrow={item.orbit_name || "Native issue"}
+                                title={`PM-${item.number} · ${item.title}`}
+                                detail={boardItemMeta(item)}
+                                supporting={
+                                  <>
+                                    {item.stale ? <span>{`Stale ${item.stale_working_days}d`}</span> : null}
+                                    {item.parent_issue ? <span>{`Child of PM-${item.parent_issue.number}`}</span> : null}
+                                    {item.sub_issues.length ? <span>{`${item.sub_issues.length} sub-issues`}</span> : null}
+                                    {item.relation_counts.blocked_by ? <span>{`${item.relation_counts.blocked_by} blocker${item.relation_counts.blocked_by > 1 ? "s" : ""}`}</span> : null}
+                                    {(item.labels ?? []).slice(0, 3).map((label) => (
+                                      <span key={`${item.id}-${label.id}`}>{label.name}</span>
+                                    ))}
+                                  </>
+                                }
+                                trailing={
+                                  <div className="flex flex-col items-end gap-2">
+                                    <StatusPill tone={boardTone(item.status)}>{formatStateLabel(item.status)}</StatusPill>
+                                    {item.assignee_display_name ? <StatusPill tone="muted">{item.assignee_display_name}</StatusPill> : null}
+                                  </div>
+                                }
+                                onClick={() => setDetailPanel({ kind: "native_issue", item })}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <EmptyState
+                            title="No matching native issues"
+                            detail="Broaden the current filters or create a new issue to start the planning graph."
+                            className="bg-panel"
+                          />
+                        )}
                       </div>
                       <div className="space-y-3">
                         <SurfaceCard className="bg-panelStrong">
@@ -2621,7 +2843,7 @@ export function OrbitWorkspace({
               : detailPanel?.kind === "pr"
                 ? "Pull request detail with GitHub handoff."
                 : detailPanel?.kind === "native_issue"
-                  ? "Native planning issue with stage and cycle control."
+                  ? "Native planning issue with state, ownership, hierarchy, and dependency control."
                 : detailPanel?.kind === "issue"
                   ? "Issue detail with status and GitHub handoff."
                   : undefined
@@ -2740,7 +2962,14 @@ export function OrbitWorkspace({
                 <div className="mt-4 flex flex-wrap gap-2">
                   <StatusPill tone="muted">{detailPanel.item.priority}</StatusPill>
                   {detailPanel.item.cycle_name ? <StatusPill tone="accent">{detailPanel.item.cycle_name}</StatusPill> : <StatusPill tone="muted">No cycle</StatusPill>}
+                  {detailPanel.item.assignee_display_name ? <StatusPill tone="muted">{detailPanel.item.assignee_display_name}</StatusPill> : <StatusPill tone="muted">Unassigned</StatusPill>}
+                  {detailPanel.item.stale ? <StatusPill tone="warning">{`Stale ${detailPanel.item.stale_working_days}d`}</StatusPill> : null}
                   {detailPanel.item.repository_full_name ? <StatusPill tone="muted">{detailPanel.item.repository_full_name}</StatusPill> : null}
+                  {(detailPanel.item.labels ?? []).map((label) => (
+                    <StatusPill key={`${detailPanel.item.id}-${label.id}`} tone={label.tone === "danger" ? "danger" : label.tone === "success" ? "success" : label.tone === "warning" ? "warning" : label.tone === "accent" ? "accent" : "muted"}>
+                      {label.name}
+                    </StatusPill>
+                  ))}
                 </div>
                 <p className="mt-4 text-sm leading-6 text-quiet">
                   {detailPanel.item.detail || "No additional planning context has been written for this issue yet."}
@@ -2752,6 +2981,7 @@ export function OrbitWorkspace({
                 <div className="flex flex-wrap gap-2">
                   {[
                     { value: "triage", label: "Triage" },
+                    { value: "backlog", label: "Backlog" },
                     { value: "planned", label: "Planned" },
                     { value: "in_progress", label: "In progress" },
                     { value: "in_review", label: "Review" },
@@ -2765,6 +2995,29 @@ export function OrbitWorkspace({
                       onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { status: statusOption.value })}
                     >
                       {statusOption.label}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Ownership</p>
+                <div className="flex flex-wrap gap-2">
+                  <SelectionChip
+                    active={!detailPanel.item.assignee_user_id}
+                    disabled={updatingNativeIssueId === detailPanel.item.id}
+                    onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { assignee_user_id: null })}
+                  >
+                    Unassigned
+                  </SelectionChip>
+                  {payload.members.map((member) => (
+                    <SelectionChip
+                      key={`${detailPanel.item.id}-${member.user_id}`}
+                      active={detailPanel.item.assignee_user_id === member.user_id}
+                      disabled={updatingNativeIssueId === detailPanel.item.id}
+                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { assignee_user_id: member.user_id })}
+                    >
+                      {member.display_name || member.login || member.github_login || member.user_id}
                     </SelectionChip>
                   ))}
                 </div>
@@ -2791,6 +3044,179 @@ export function OrbitWorkspace({
                     </SelectionChip>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Labels</p>
+                {availableIssueLabels.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {availableIssueLabels.map((label) => {
+                      const active = (detailPanel.item.labels ?? []).some((current) => current.slug === label.slug);
+                      const nextLabels = active
+                        ? (detailPanel.item.labels ?? []).filter((current) => current.slug !== label.slug).map((current) => current.name)
+                        : [...(detailPanel.item.labels ?? []).map((current) => current.name), label.name];
+                      return (
+                        <SelectionChip
+                          key={`${detailPanel.item.id}-${label.id}`}
+                          active={active}
+                          disabled={updatingNativeIssueId === detailPanel.item.id}
+                          onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { labels: nextLabels })}
+                        >
+                          {label.name}
+                        </SelectionChip>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState text="Create the first labeled issue and the catalog will appear here." />
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Hierarchy</p>
+                  <div className="flex gap-2">
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => setIssueLinkModal({ kind: "parent", issue: detailPanel.item })}>
+                      Set parent
+                    </GhostButton>
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => openCreateSubIssue(detailPanel.item)}>
+                      Create sub-issue
+                    </GhostButton>
+                  </div>
+                </div>
+                {detailPanel.item.parent_issue ? (
+                  <ListRow
+                    eyebrow="Parent issue"
+                    title={`PM-${detailPanel.item.parent_issue.number} · ${detailPanel.item.parent_issue.title}`}
+                    detail={[
+                      detailPanel.item.parent_issue.cycle_name || "No cycle",
+                      detailPanel.item.parent_issue.assignee_display_name || "Unassigned",
+                    ].join(" · ")}
+                    trailing={
+                      <GhostButton
+                        className="h-8 px-3 text-xs"
+                        onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { parent_issue_id: null })}
+                      >
+                        Clear
+                      </GhostButton>
+                    }
+                    onClick={() => {
+                      const nextIssue = nativeIssues.find((entry) => entry.id === detailPanel.item.parent_issue?.id);
+                      if (nextIssue) {
+                        setDetailPanel({ kind: "native_issue", item: nextIssue });
+                      }
+                    }}
+                  />
+                ) : (
+                  <EmptyState text="No parent issue linked yet." />
+                )}
+                {(detailPanel.item.sub_issues ?? []).length ? (
+                  <div className="space-y-2">
+                    {(detailPanel.item.sub_issues ?? []).map((child) => (
+                      <ListRow
+                        key={`${detailPanel.item.id}-${child.id}`}
+                        eyebrow="Sub-issue"
+                        title={`PM-${child.number} · ${child.title}`}
+                        detail={[child.cycle_name || "No cycle", child.assignee_display_name || "Unassigned"].join(" · ")}
+                        trailing={<StatusPill tone={boardTone(child.status)}>{formatStateLabel(child.status)}</StatusPill>}
+                        onClick={() => {
+                          const nextIssue = nativeIssues.find((entry) => entry.id === child.id);
+                          if (nextIssue) {
+                            setDetailPanel({ kind: "native_issue", item: nextIssue });
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Relations</p>
+                  <div className="flex flex-wrap gap-2">
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => setIssueLinkModal({ kind: "blocked_by", issue: detailPanel.item })}>
+                      Link blocker
+                    </GhostButton>
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => setIssueLinkModal({ kind: "related", issue: detailPanel.item })}>
+                      Link related
+                    </GhostButton>
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => setIssueLinkModal({ kind: "duplicate", issue: detailPanel.item })}>
+                      Link duplicate
+                    </GhostButton>
+                  </div>
+                </div>
+                {([
+                  { key: "blocked_by", label: "Blocked by", editable: true },
+                  { key: "blocking", label: "Blocking", editable: false },
+                  { key: "related", label: "Related", editable: true },
+                  { key: "duplicate", label: "Duplicate", editable: true },
+                ] as const).map((group) => {
+                  const items = detailPanel.item.relations?.[group.key] ?? [];
+                  if (!items.length) {
+                    return null;
+                  }
+                  return (
+                    <div key={`${detailPanel.item.id}-${group.key}`} className="space-y-2">
+                      <p className="text-xs text-quiet">{group.label}</p>
+                      {items.map((entry) => (
+                        <ListRow
+                          key={`${detailPanel.item.id}-${group.key}-${entry.id}`}
+                          title={`PM-${entry.number} · ${entry.title}`}
+                          detail={[entry.cycle_name || "No cycle", entry.assignee_display_name || "Unassigned"].join(" · ")}
+                          trailing={
+                            group.editable ? (
+                              <GhostButton
+                                className="h-8 px-3 text-xs"
+                                onClick={() =>
+                                  void onReplaceIssueLinks(
+                                    detailPanel.item,
+                                    group.key === "blocked_by" ? "blocked_by" : group.key,
+                                    relationIdsForIssue(detailPanel.item, group.key === "blocked_by" ? "blocked_by" : group.key).filter((id) => id !== entry.id),
+                                  )
+                                }
+                              >
+                                Remove
+                              </GhostButton>
+                            ) : (
+                              <StatusPill tone={boardTone(entry.status)}>{formatStateLabel(entry.status)}</StatusPill>
+                            )
+                          }
+                          onClick={() => {
+                            const nextIssue = nativeIssues.find((candidate) => candidate.id === entry.id);
+                            if (nextIssue) {
+                              setDetailPanel({ kind: "native_issue", item: nextIssue });
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
+                {!(detailPanel.item.relations?.blocked_by ?? []).length
+                && !(detailPanel.item.relations?.blocking ?? []).length
+                && !(detailPanel.item.relations?.related ?? []).length
+                && !(detailPanel.item.relations?.duplicate ?? []).length ? (
+                  <EmptyState text="No linked blockers or related work yet." />
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Activity</p>
+                {(detailPanel.item.activity ?? []).length ? (
+                  <div className="space-y-2">
+                    {(detailPanel.item.activity ?? []).map((event) => (
+                      <ListRow
+                        key={`${detailPanel.item.id}-${event.id}`}
+                        eyebrow={event.actor_display_name || "System"}
+                        title={formatStateLabel(event.action_type)}
+                        detail={new Date(event.created_at).toLocaleString()}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState text="Issue activity will appear here as ownership, state, and delivery context changes." />
+                )}
               </div>
 
               <GhostButton
@@ -2878,6 +3304,88 @@ export function OrbitWorkspace({
         </CenteredModal>
 
         <CenteredModal
+          open={issueLinkModal !== null}
+          onClose={() => {
+            setIssueLinkModal(null);
+            setIssueLinkSearch("");
+          }}
+          title={
+            issueLinkModal?.kind === "parent"
+              ? "Set parent issue"
+              : issueLinkModal?.kind === "blocked_by"
+                ? "Link blocker"
+                : issueLinkModal?.kind === "related"
+                  ? "Link related issue"
+                  : "Link duplicate issue"
+          }
+          description="Issue structure stays native to the orbit. Pick another native issue in this project graph."
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <GhostButton
+                onClick={() => {
+                  setIssueLinkModal(null);
+                  setIssueLinkSearch("");
+                }}
+              >
+                Close
+              </GhostButton>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <TextInput
+              value={issueLinkSearch}
+              onChange={(event) => setIssueLinkSearch(event.target.value)}
+              placeholder="Search native issues"
+            />
+            <div className="max-h-[420px] space-y-2 overflow-auto">
+              {issueLinkModal ? (
+                nativeIssues
+                  .filter((candidate) => candidate.id !== issueLinkModal.issue.id)
+                  .filter((candidate) => nativeIssueMatchesSearch(candidate, issueLinkSearch))
+                  .map((candidate) => (
+                    <ListRow
+                      key={`${issueLinkModal.issue.id}-${candidate.id}`}
+                      eyebrow={candidate.orbit_name || "Native issue"}
+                      title={`PM-${candidate.number} · ${candidate.title}`}
+                      detail={boardItemMeta(candidate)}
+                      supporting={
+                        <>
+                          {candidate.stale ? <span>{`Stale ${candidate.stale_working_days}d`}</span> : null}
+                          {(candidate.labels ?? []).slice(0, 2).map((label) => (
+                            <span key={`${candidate.id}-${label.id}`}>{label.name}</span>
+                          ))}
+                        </>
+                      }
+                      trailing={<StatusPill tone={boardTone(candidate.status)}>{formatStateLabel(candidate.status)}</StatusPill>}
+                      onClick={() => {
+                        if (!issueLinkModal) {
+                          return;
+                        }
+                        if (issueLinkModal.kind === "parent") {
+                          void onUpdateNativeIssue(issueLinkModal.issue.id, { parent_issue_id: candidate.id });
+                        } else {
+                          const relationKind = issueLinkModal.kind;
+                          const nextIds = Array.from(new Set([...relationIdsForIssue(issueLinkModal.issue, relationKind), candidate.id]));
+                          void onReplaceIssueLinks(issueLinkModal.issue, relationKind, nextIds);
+                        }
+                        setIssueLinkModal(null);
+                        setIssueLinkSearch("");
+                      }}
+                    />
+                  ))
+              ) : null}
+              {issueLinkModal
+              && !nativeIssues
+                .filter((candidate) => candidate.id !== issueLinkModal.issue.id)
+                .filter((candidate) => nativeIssueMatchesSearch(candidate, issueLinkSearch)).length ? (
+                <EmptyState text="No matching native issues in this orbit graph." />
+              ) : null}
+            </div>
+          </div>
+        </CenteredModal>
+
+        <CenteredModal
           open={showCreateIssue}
           onClose={() => setShowCreateIssue(false)}
           title="Create native issue"
@@ -2908,6 +3416,14 @@ export function OrbitWorkspace({
                 placeholder="What needs to be built, why it matters, and any rollout constraints."
               />
             </label>
+            <label className="grid gap-2">
+              <FieldLabel>Labels</FieldLabel>
+              <TextInput
+                value={issueDraft.labelsText}
+                onChange={(event) => setIssueDraft((current) => ({ ...current, labelsText: event.target.value }))}
+                placeholder="planning, review, rollout"
+              />
+            </label>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <FieldLabel>Priority</FieldLabel>
@@ -2919,6 +3435,42 @@ export function OrbitWorkspace({
                       onClick={() => setIssueDraft((current) => ({ ...current, priority }))}
                     >
                       {formatStateLabel(priority)}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <FieldLabel>Stage</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  {["triage", "backlog", "planned", "in_progress"].map((status) => (
+                    <SelectionChip
+                      key={status}
+                      active={issueDraft.status === status}
+                      onClick={() => setIssueDraft((current) => ({ ...current, status }))}
+                    >
+                      {formatStateLabel(status)}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <FieldLabel>Owner</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  <SelectionChip
+                    active={!issueDraft.assigneeUserId}
+                    onClick={() => setIssueDraft((current) => ({ ...current, assigneeUserId: "" }))}
+                  >
+                    Unassigned
+                  </SelectionChip>
+                  {payload.members.map((member) => (
+                    <SelectionChip
+                      key={member.user_id}
+                      active={issueDraft.assigneeUserId === member.user_id}
+                      onClick={() => setIssueDraft((current) => ({ ...current, assigneeUserId: member.user_id }))}
+                    >
+                      {member.display_name || member.login || member.github_login || member.user_id}
                     </SelectionChip>
                   ))}
                 </div>
@@ -2941,6 +3493,25 @@ export function OrbitWorkspace({
                 </div>
               </div>
             </div>
+            {issueDraft.parentIssueId ? (
+              <div className="space-y-2">
+                <FieldLabel>Parent</FieldLabel>
+                <ListRow
+                  title={
+                    (() => {
+                      const parent = nativeIssues.find((item) => item.id === issueDraft.parentIssueId);
+                      return parent ? `PM-${parent.number} · ${parent.title}` : "Parent issue selected";
+                    })()
+                  }
+                  detail="The new issue will be created as a sub-issue."
+                  trailing={
+                    <GhostButton className="h-8 px-3 text-xs" onClick={() => setIssueDraft((current) => ({ ...current, parentIssueId: "" }))}>
+                      Clear
+                    </GhostButton>
+                  }
+                />
+              </div>
+            ) : null}
           </div>
         </CenteredModal>
 

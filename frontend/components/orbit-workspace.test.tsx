@@ -1957,7 +1957,11 @@ describe("OrbitWorkspace", () => {
         title: "Create the approval lane",
         detail: "Track approvals next to issue state.",
         priority: "medium",
+        status: "triage",
         cycle_id: "cycle_1",
+        assignee_user_id: null,
+        parent_issue_id: null,
+        labels: [],
       }),
     );
 
@@ -2050,7 +2054,7 @@ describe("OrbitWorkspace", () => {
 
     renderOrbit({ initialSection: "issues", initialDetailKind: "native_issue", initialDetailId: "pm_1" });
 
-    expect(await screen.findByText("Native planning issue with stage and cycle control.")).toBeInTheDocument();
+    expect(await screen.findByText("Native planning issue with state, ownership, hierarchy, and dependency control.")).toBeInTheDocument();
     expect(screen.getAllByText("Keep planning inside the orbit shell.").length).toBeGreaterThan(0);
   });
 });

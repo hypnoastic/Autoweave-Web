@@ -58,8 +58,12 @@ type ViewDraft = {
   orbitId: string;
   statuses: string[];
   priorities: string[];
+  labels: string[];
   assigneeScope: "all" | "me";
   cycleScope: "any" | "with_cycle" | "without_cycle";
+  staleOnly: boolean;
+  relationScope: "any" | "blocked" | "related";
+  hierarchyScope: "any" | "root" | "parent" | "child";
 };
 
 const VIEW_DRAFT: ViewDraft = {
@@ -68,8 +72,12 @@ const VIEW_DRAFT: ViewDraft = {
   orbitId: "",
   statuses: [],
   priorities: [],
+  labels: [],
   assigneeScope: "all",
   cycleScope: "any",
+  staleOnly: false,
+  relationScope: "any",
+  hierarchyScope: "any",
 };
 
 function toggleSelection(values: string[], value: string) {
@@ -290,8 +298,12 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         orbit_id: viewDraft.orbitId || null,
         statuses: viewDraft.statuses,
         priorities: viewDraft.priorities,
+        labels: viewDraft.labels,
         assignee_scope: viewDraft.assigneeScope,
         cycle_scope: viewDraft.cycleScope,
+        stale_only: viewDraft.staleOnly,
+        relation_scope: viewDraft.relationScope,
+        hierarchy_scope: viewDraft.hierarchyScope,
       });
       setSavedViewsPayload(nextSavedViews);
       setShowCreateView(false);
@@ -319,6 +331,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
   const views = useMemo(() => savedViewsPayload?.views ?? [], [savedViewsPayload]);
 
   const entries = planningMode === "cycles" ? cycles : views;
+  const availableLabels = payload?.issue_labels ?? [];
   const filteredEntries = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) {
@@ -671,6 +684,22 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
               ))}
             </div>
           </div>
+          {availableLabels.length ? (
+            <div className="space-y-2">
+              <FieldLabel>Labels</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                {availableLabels.map((label) => (
+                  <SelectionChip
+                    key={label.id}
+                    active={viewDraft.labels.includes(label.slug)}
+                    onClick={() => setViewDraft((current) => ({ ...current, labels: toggleSelection(current.labels, label.slug) }))}
+                  >
+                    {label.name}
+                  </SelectionChip>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <FieldLabel>Ownership</FieldLabel>
@@ -709,6 +738,77 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
                   onClick={() => setViewDraft((current) => ({ ...current, cycleScope: "without_cycle" }))}
                 >
                   No cycle
+                </SelectionChip>
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <FieldLabel>Freshness</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                <SelectionChip
+                  active={!viewDraft.staleOnly}
+                  onClick={() => setViewDraft((current) => ({ ...current, staleOnly: false }))}
+                >
+                  Any age
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.staleOnly}
+                  onClick={() => setViewDraft((current) => ({ ...current, staleOnly: true }))}
+                >
+                  Stale only
+                </SelectionChip>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>Relations</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                <SelectionChip
+                  active={viewDraft.relationScope === "any"}
+                  onClick={() => setViewDraft((current) => ({ ...current, relationScope: "any" }))}
+                >
+                  Any links
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.relationScope === "blocked"}
+                  onClick={() => setViewDraft((current) => ({ ...current, relationScope: "blocked" }))}
+                >
+                  Dependency risk
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.relationScope === "related"}
+                  onClick={() => setViewDraft((current) => ({ ...current, relationScope: "related" }))}
+                >
+                  Linked work
+                </SelectionChip>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>Hierarchy</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                <SelectionChip
+                  active={viewDraft.hierarchyScope === "any"}
+                  onClick={() => setViewDraft((current) => ({ ...current, hierarchyScope: "any" }))}
+                >
+                  Any depth
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.hierarchyScope === "root"}
+                  onClick={() => setViewDraft((current) => ({ ...current, hierarchyScope: "root" }))}
+                >
+                  Root issues
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.hierarchyScope === "parent"}
+                  onClick={() => setViewDraft((current) => ({ ...current, hierarchyScope: "parent" }))}
+                >
+                  Sub-issues
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.hierarchyScope === "child"}
+                  onClick={() => setViewDraft((current) => ({ ...current, hierarchyScope: "child" }))}
+                >
+                  Parent issues
                 </SelectionChip>
               </div>
             </div>

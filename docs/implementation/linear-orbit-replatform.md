@@ -13,21 +13,22 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Add dedicated-chat deep links from planning and issue surfaces so ERGO behaves like a teammate attached to project work, not a separate destination with lost context.
-- Keep work surfaces primary: chat links should frame the selected issue or orbit inside the dedicated `Chat` route, not replace orbit-native planning views.
-- Preserve additive compatibility with the current inbox/chat plumbing and avoid backend contract churn for this slice.
+- Expand the native issue model into a real PM object: assignee, labels, parent/sub-issues, dependency links, and richer issue detail.
+- Project `My Work`, saved views, and orbit issue surfaces from the native issue model instead of keeping them mostly status/cycle projections.
+- Add denser orbit issue filters and list/board switching before drag and drop is considered.
 
 ## Files Touched In This Slice
-- `frontend/app/app/orbits/[orbitId]/page.tsx`
-- `frontend/app/app/chat/page.tsx`
-- `frontend/components/chat-screen.tsx`
-- `frontend/components/inbox-screen.tsx`
-- `frontend/components/inbox-screen.test.tsx`
+- `backend/src/autoweave_web/api/app.py`
+- `backend/src/autoweave_web/db/migrations.py`
+- `backend/src/autoweave_web/models/entities.py`
+- `backend/src/autoweave_web/schemas/api.py`
+- `backend/tests/test_api.py`
 - `frontend/components/my-work-screen.tsx`
 - `frontend/components/orbit-workspace.tsx`
 - `frontend/components/orbit-workspace.test.tsx`
-- `frontend/lib/chat-links.ts`
-- `frontend/lib/orbit-links.ts`
+- `frontend/components/planning-screen.tsx`
+- `frontend/components/planning-screen.test.tsx`
+- `frontend/lib/types.ts`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -47,30 +48,27 @@
   - remaining known gaps
 
 ## Verification Log
-- `npm test -- inbox-screen.test.tsx orbit-workspace.test.tsx planning-screen.test.tsx`
-- `npm test -- inbox-screen.test.tsx orbit-workspace.test.tsx`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'native_issue or saved_views'`
+- `npm test -- orbit-workspace.test.tsx planning-screen.test.tsx`
+- `npm test`
 - `npm run build`
-- Rebuilt runtime on `http://localhost:3000` with:
-  - `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend backend`
 - Browser validation status:
-  - public route checks succeeded
-  - authenticated deep-link browser proof is blocked until a real local GitHub token is entered or an existing session is restored; Playwright refused automated secret entry as expected
-- Observed browser issue: missing `favicon.ico` only.
+  - authenticated PM browser proof is still blocked by the missing local auth harness slice
+  - current browser-safe proof remains limited to unauthenticated/public routes unless a manual session is restored
 
 ## Remaining Planned Slices
-- Add richer native issue lifecycle beyond the current stage/cycle controls: assignment, labels, relations, subtasks, and richer board/list views.
-- Extend issue-to-chat and issue-to-delivery links deeper into saved views and board cards.
-- Refine orbit overview and board interactions.
-- Add Playwright coverage for the PM-first flows.
+- Rebuild Inbox as a triage-first surface around approvals, mentions, blocked work, stale work, and agent asks.
+- Strengthen cycles and saved views with editing, pinning, delete flows, and richer issue assignment controls.
+- Add a safe local auth bootstrap for Playwright so authenticated PM flows can be proven end to end without typing secrets in the browser.
 
 ## Slice Notes
-- The dedicated `Chat` route now accepts orbit and issue context from route params instead of reading search params directly inside the client shell.
-- Orbit issue detail and My Work issue queues can now open ERGO with the selected issue framed inside the chat surface.
-- Chat context stays compact: orbit/issue metadata is visible above the thread without turning the whole page back into a chat-first dashboard.
-- The orbit route now supports detail-targeted params so the chat context card can return users to the exact issue or PR detail state instead of only the orbit root.
+- Native issues now persist assignee, labels, one-parent hierarchy, dependency links, related links, duplicate links, stale-state calculation, and recent issue activity.
+- Saved views now understand labels, stale work, hierarchy scope, and dependency risk instead of only status, priority, and cycle scope.
+- Orbit issues now support a denser board/list surface with compact search, owner/blocker/stale filters, and richer right-side detail editing.
+- `My Work` now exposes stale and dependency-aware native issue metadata instead of treating native issues like thin board cards.
 
 ## Remaining Known Gaps
-- Native issues do not yet support labels, parent/sub-issue relationships, or richer relation modeling.
+- Inbox is still not triage-first enough. It needs explicit review/approval/blocker/agent buckets and inline quick actions.
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle management UI yet.
 - Saved views do not yet support editing, deleting, pin ordering, or share semantics.
 - The orbit board currently supports stage and cycle updates from the detail panel only; drag/drop is intentionally deferred until the PM model stabilizes.

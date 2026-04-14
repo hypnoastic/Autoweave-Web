@@ -50,6 +50,12 @@ class OrbitIssueCreateRequest(BaseModel):
     priority: str = "medium"
     status: str = "triage"
     cycle_id: str | None = None
+    assignee_user_id: str | None = None
+    parent_issue_id: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    blocked_by_issue_ids: list[str] = Field(default_factory=list)
+    related_issue_ids: list[str] = Field(default_factory=list)
+    duplicate_issue_ids: list[str] = Field(default_factory=list)
 
 
 class OrbitIssueUpdateRequest(BaseModel):
@@ -58,6 +64,12 @@ class OrbitIssueUpdateRequest(BaseModel):
     priority: str | None = None
     status: str | None = None
     cycle_id: str | None = None
+    assignee_user_id: str | None = None
+    parent_issue_id: str | None = None
+    labels: list[str] | None = None
+    blocked_by_issue_ids: list[str] | None = None
+    related_issue_ids: list[str] | None = None
+    duplicate_issue_ids: list[str] | None = None
 
 
 class SavedViewCreateRequest(BaseModel):
@@ -66,8 +78,12 @@ class SavedViewCreateRequest(BaseModel):
     orbit_id: str | None = None
     statuses: list[str] = Field(default_factory=list)
     priorities: list[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
     assignee_scope: str = "all"
     cycle_scope: str = "any"
+    stale_only: bool = False
+    relation_scope: str = "any"
+    hierarchy_scope: str = "any"
 
 
 class MessageCreateRequest(BaseModel):
@@ -145,7 +161,10 @@ class MyWorkPayload(BaseModel):
     work_items: list[dict] = Field(default_factory=list)
     active_issues: list[dict] = Field(default_factory=list)
     blocked_issues: list[dict] = Field(default_factory=list)
+    stale_issues: list[dict] = Field(default_factory=list)
     review_queue: list[dict] = Field(default_factory=list)
+    native_issues: list[dict] = Field(default_factory=list)
+    issue_labels: list[dict] = Field(default_factory=list)
     approvals: list[dict] = Field(default_factory=list)
     recent_orbits: list[dict] = Field(default_factory=list)
     codespaces: list[dict] = Field(default_factory=list)
@@ -180,6 +199,7 @@ class OrbitPayload(BaseModel):
     prs: list[dict]
     issues: list[dict]
     native_issues: list[dict] = Field(default_factory=list)
+    issue_labels: list[dict] = Field(default_factory=list)
     cycles: list[dict] = Field(default_factory=list)
     codespaces: list[dict]
     demos: list[dict]

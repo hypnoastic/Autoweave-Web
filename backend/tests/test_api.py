@@ -130,6 +130,75 @@ def test_orbit_native_issue_and_cycle_flow_are_available_in_orbit_payload(client
     assert any(item["id"] == issue["id"] for item in my_work_payload["review_queue"])
 
 
+def test_native_issue_supports_labels_hierarchy_and_dependency_links(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    parent_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Rebuild the issue control plane",
+            "detail": "The parent issue owns the full issue-model pass.",
+            "priority": "high",
+            "status": "planned",
+            "labels": ["planning", "control-plane"],
+        },
+        headers=headers,
+    )
+    assert parent_response.status_code == 200
+    parent_issue = parent_response.json()
+
+    blocker_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Model dependency tracking",
+            "detail": "This needs to land before the child issue can close.",
+            "priority": "medium",
+            "status": "in_progress",
+            "labels": ["dependencies"],
+        },
+        headers=headers,
+    )
+    assert blocker_response.status_code == 200
+    blocker_issue = blocker_response.json()
+
+    child_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Surface hierarchy in the detail panel",
+            "detail": "Show parent, sub-issues, and dependency links in one place.",
+            "priority": "high",
+            "status": "triage",
+            "assignee_user_id": user["id"],
+            "parent_issue_id": parent_issue["id"],
+            "labels": ["planning", "ui"],
+            "blocked_by_issue_ids": [blocker_issue["id"]],
+            "related_issue_ids": [parent_issue["id"]],
+        },
+        headers=headers,
+    )
+    assert child_response.status_code == 200
+    child_issue = child_response.json()
+
+    assert child_issue["assignee_user_id"] == user["id"]
+    assert child_issue["parent_issue"]["id"] == parent_issue["id"]
+    assert {label["name"] for label in child_issue["labels"]} == {"planning", "ui"}
+    assert child_issue["relations"]["blocked_by"][0]["id"] == blocker_issue["id"]
+    assert child_issue["relations"]["related"][0]["id"] == parent_issue["id"]
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+    labels = {label["slug"] for label in payload["issue_labels"]}
+    assert {"planning", "control-plane", "dependencies", "ui"}.issubset(labels)
+
+    hydrated_parent = next(item for item in payload["native_issues"] if item["id"] == parent_issue["id"])
+    hydrated_child = next(item for item in payload["native_issues"] if item["id"] == child_issue["id"])
+    assert hydrated_parent["sub_issues"][0]["id"] == child_issue["id"]
+    assert hydrated_child["relation_counts"]["blocked_by"] == 1
+
+
 def test_saved_views_can_be_created_over_native_issue_filters(client):
     token, _user = _login(client)
     headers = {"Authorization": f"Bearer {token}"}

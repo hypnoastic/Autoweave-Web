@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 import smtplib
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
 
@@ -11,7 +11,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from autoweave_web.core.settings import Settings, get_settings
 from autoweave_web.db.session import get_db, init_database, utc_now
 from autoweave_web.models.entities import (
     AuthState,
+    AuditEvent,
     Artifact,
     Channel,
     Codespace,
@@ -26,6 +27,7 @@ from autoweave_web.models.entities import (
     DmParticipant,
     DmThread,
     IntegrationInstallation,
+    IssueLabel,
     IssueSnapshot,
     Message,
     NavigationState,
@@ -34,6 +36,8 @@ from autoweave_web.models.entities import (
     OrbitCycle,
     OrbitInvite,
     OrbitIssue,
+    OrbitIssueLabel,
+    OrbitIssueRelation,
     OrbitMembership,
     OrbitRepositoryBinding,
     MatrixRoomBinding,
@@ -143,7 +147,12 @@ ORBIT_ISSUE_STATUS_ORDER = (
     "done",
     "canceled",
 )
+ORBIT_ISSUE_RELATION_KINDS = ("blocked_by", "related", "duplicate")
 SAVED_VIEW_PRIORITY_ORDER = ("low", "medium", "high", "urgent")
+SAVED_VIEW_RELATION_SCOPES = ("any", "blocked", "related")
+SAVED_VIEW_HIERARCHY_SCOPES = ("any", "root", "parent", "child")
+STALE_WORKING_DAY_THRESHOLD = 3
+ISSUE_LABEL_TONES = ("accent", "warning", "success", "muted")
 
 
 def create_app(
@@ -1142,6 +1151,15 @@ def create_app(
         prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id.in_(orbit_ids)).order_by(PullRequestSnapshot.updated_at.desc())).all() if orbit_ids else []
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id.in_(orbit_ids)).order_by(Codespace.created_at.desc())).all() if orbit_ids else []
         notifications = notifications_for_user(db, user_id=user.id)
+        issue_context = _build_orbit_issue_context(db, native_issues)
+        native_issue_payloads = [
+            _serialize_orbit_issue(db, item, context=issue_context)
+            for item in native_issues
+        ]
+        native_issue_board_items = {
+            item.id: _serialize_native_issue_as_board_item(db, item, context=issue_context)
+            for item in native_issues
+        }
 
         active_work_items = [
             item
@@ -1150,18 +1168,38 @@ def create_app(
         ]
         active_issues = [item for item in issues if _normalize_issue_status(item) not in {"closed", "done", "resolved"}]
         active_native_issues = [item for item in native_issues if _normalize_native_issue_status(item.status) not in {"done", "canceled"}]
+        stale_native_issues = [item for item in active_native_issues if _is_stale_orbit_issue(item)]
+        blocked_native_issues = [
+            item
+            for item in active_native_issues
+            if bool(native_issue_board_items.get(item.id, {}).get("is_blocked"))
+        ]
         blocked_issues = [item for item in issues if _normalize_issue_status(item) == "blocked"]
         review_queue = [item for item in prs if _normalize_pull_request_status(item) in {"awaiting_review", "changes_requested"}]
         native_review_queue = [item for item in native_issues if _normalize_native_issue_status(item.status) in {"in_review", "ready_to_merge"}]
         approvals = [item for item in notifications if item.kind in {"approval", "clarification", "run_failed"}]
         running_codespaces = [item for item in codespaces if item.status == "running"]
 
+        def native_issue_rank(item: OrbitIssue) -> tuple[int, int, int, float]:
+            return (
+                0 if item.assignee_user_id == user.id else 1,
+                0 if bool(native_issue_board_items.get(item.id, {}).get("is_blocked")) else 1,
+                0 if _is_stale_orbit_issue(item) else 1,
+                -item.updated_at.timestamp(),
+            )
+
+        active_native_issues = sorted(active_native_issues, key=native_issue_rank)
+        stale_native_issues = sorted(stale_native_issues, key=native_issue_rank)
+        blocked_native_issues = sorted(blocked_native_issues, key=native_issue_rank)
+        native_review_queue = sorted(native_review_queue, key=native_issue_rank)
+
         return {
             "me": _serialize_user(user),
             "summary": {
                 "active_work_items": len(active_work_items),
                 "active_issues": len(active_issues) + len(active_native_issues),
-                "blocked_issues": len(blocked_issues),
+                "blocked_issues": len(blocked_issues) + len(blocked_native_issues),
+                "stale_issues": len(stale_native_issues),
                 "review_queue": len(review_queue) + len(native_review_queue),
                 "approvals": len(approvals),
                 "running_codespaces": len(running_codespaces),
@@ -1169,14 +1207,20 @@ def create_app(
             },
             "work_items": [_serialize_work_item(item) for item in active_work_items[:8]],
             "active_issues": (
-                [_serialize_native_issue_as_board_item(db, item) for item in active_native_issues[:6]]
+                [native_issue_board_items[item.id] for item in active_native_issues[:8]]
                 + [_serialize_issue(db, item) for item in active_issues[:10]]
             )[:10],
-            "blocked_issues": [_serialize_issue(db, item) for item in blocked_issues[:8]],
+            "blocked_issues": (
+                [native_issue_board_items[item.id] for item in blocked_native_issues[:8]]
+                + [_serialize_issue(db, item) for item in blocked_issues[:8]]
+            )[:10],
+            "stale_issues": [native_issue_board_items[item.id] for item in stale_native_issues[:8]],
             "review_queue": (
-                [_serialize_native_issue_as_board_item(db, item) for item in native_review_queue[:4]]
+                [native_issue_board_items[item.id] for item in native_review_queue[:6]]
                 + [_serialize_pull_request(db, item) for item in review_queue[:8]]
-            )[:8],
+            )[:10],
+            "native_issues": native_issue_payloads,
+            "issue_labels": _serialize_issue_label_catalog(issue_context),
             "approvals": [_serialize_notification(item) for item in approvals[:8]],
             "recent_orbits": [_serialize_orbit(item) for item in orbits[:6]],
             "codespaces": [_serialize_codespace(db, item) for item in codespaces[:6]],
@@ -1354,6 +1398,253 @@ def create_app(
         normalized = str(value or "triage").strip().lower()
         return normalized if normalized in ORBIT_ISSUE_STATUS_ORDER else "triage"
 
+    def _normalize_native_issue_priority(value: str | None) -> str:
+        normalized = str(value or "medium").strip().lower()
+        return normalized if normalized in SAVED_VIEW_PRIORITY_ORDER else "medium"
+
+    def _normalize_saved_view_labels(values: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values or []:
+            slug = slugify(str(value or "").strip())
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            normalized.append(slug)
+        return normalized
+
+    def _normalize_saved_view_relation_scope(value: str | None) -> str:
+        normalized = str(value or "any").strip().lower()
+        return normalized if normalized in SAVED_VIEW_RELATION_SCOPES else "any"
+
+    def _normalize_saved_view_hierarchy_scope(value: str | None) -> str:
+        normalized = str(value or "any").strip().lower()
+        return normalized if normalized in SAVED_VIEW_HIERARCHY_SCOPES else "any"
+
+    def _normalize_issue_label_names(values: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values or []:
+            name = " ".join(str(value or "").replace(",", " ").split()).strip()
+            slug = slugify(name)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            normalized.append(name)
+        return normalized
+
+    def _canonicalize_issue_relation(
+        issue_id: str,
+        related_issue_id: str,
+        relation_kind: str,
+    ) -> tuple[str, str]:
+        if relation_kind in {"related", "duplicate"}:
+            return tuple(sorted((issue_id, related_issue_id)))
+        return issue_id, related_issue_id
+
+    def _working_days_since(value: datetime | None, *, reference: datetime | None = None) -> int:
+        if value is None:
+            return 0
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=utc_now().tzinfo)
+        reference = reference or utc_now()
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=utc_now().tzinfo)
+        start_date = value.date()
+        end_date = reference.date()
+        if end_date <= start_date:
+            return 0
+        days = 0
+        cursor = start_date + timedelta(days=1)
+        while cursor <= end_date:
+            if cursor.weekday() < 5:
+                days += 1
+            cursor += timedelta(days=1)
+        return days
+
+    def _is_stale_orbit_issue(item: OrbitIssue, *, reference: datetime | None = None) -> bool:
+        if _normalize_native_issue_status(item.status) in {"done", "canceled"}:
+            return False
+        return _working_days_since(item.updated_at, reference=reference) >= STALE_WORKING_DAY_THRESHOLD
+
+    def _label_tone_for_slug(slug: str) -> str:
+        if not slug:
+            return "muted"
+        return ISSUE_LABEL_TONES[sum(ord(char) for char in slug) % len(ISSUE_LABEL_TONES)]
+
+    def _serialize_issue_label_entry(label: IssueLabel, *, issue_count: int | None = None) -> dict[str, Any]:
+        payload = {
+            "id": label.id,
+            "name": label.name,
+            "slug": label.slug,
+            "tone": label.tone,
+        }
+        if issue_count is not None:
+            payload["issue_count"] = issue_count
+        return payload
+
+    def _build_orbit_issue_context(db: Session, issues: list[OrbitIssue]) -> dict[str, Any]:
+        if not issues:
+            return {
+                "issue_map": {},
+                "orbit_map": {},
+                "cycle_map": {},
+                "user_map": {},
+                "labels_by_issue": {},
+                "label_map": {},
+                "label_usage": {},
+                "children_map": {},
+                "outgoing_relations": {},
+                "incoming_relations": {},
+                "activity_map": {},
+                "stale_days": {},
+            }
+        orbit_ids = sorted({item.orbit_id for item in issues if item.orbit_id})
+        scoped_issues = db.scalars(
+            select(OrbitIssue)
+            .where(OrbitIssue.orbit_id.in_(orbit_ids))
+            .order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())
+        ).all()
+        issue_map = {item.id: item for item in scoped_issues}
+        for item in issues:
+            issue_map[item.id] = item
+        issue_ids = list(issue_map)
+        cycle_ids = sorted({item.cycle_id for item in issue_map.values() if item.cycle_id})
+        user_ids = sorted(
+            {
+                user_id
+                for item in issue_map.values()
+                for user_id in (item.assignee_user_id, item.created_by_user_id)
+                if user_id
+            }
+        )
+        relations = db.scalars(
+            select(OrbitIssueRelation)
+            .where(
+                (OrbitIssueRelation.issue_id.in_(issue_ids))
+                | (OrbitIssueRelation.related_issue_id.in_(issue_ids))
+            )
+            .order_by(OrbitIssueRelation.created_at.desc())
+        ).all()
+        for relation in relations:
+            if relation.created_by_user_id:
+                user_ids.append(relation.created_by_user_id)
+        activity_events = db.scalars(
+            select(AuditEvent)
+            .where(
+                AuditEvent.target_kind == "native_issue",
+                AuditEvent.target_id.in_(issue_ids),
+            )
+            .order_by(AuditEvent.created_at.desc())
+        ).all()
+        for event in activity_events:
+            if event.actor_user_id:
+                user_ids.append(event.actor_user_id)
+        user_map = {
+            item.id: item
+            for item in db.scalars(select(User).where(User.id.in_(sorted(set(user_ids))))).all()
+        } if user_ids else {}
+        orbit_map = {
+            item.id: item
+            for item in db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids))).all()
+        } if orbit_ids else {}
+        cycle_map = {
+            item.id: item
+            for item in db.scalars(select(OrbitCycle).where(OrbitCycle.id.in_(cycle_ids))).all()
+        } if cycle_ids else {}
+        label_bindings = db.scalars(
+            select(OrbitIssueLabel)
+            .where(OrbitIssueLabel.issue_id.in_(issue_ids))
+            .order_by(OrbitIssueLabel.created_at.asc())
+        ).all()
+        label_ids = sorted({binding.label_id for binding in label_bindings})
+        label_map = {
+            item.id: item
+            for item in db.scalars(select(IssueLabel).where(IssueLabel.id.in_(label_ids))).all()
+        } if label_ids else {}
+        labels_by_issue: dict[str, list[IssueLabel]] = {issue_id: [] for issue_id in issue_ids}
+        label_usage: dict[str, int] = {}
+        for binding in label_bindings:
+            label = label_map.get(binding.label_id)
+            if label is None:
+                continue
+            labels_by_issue.setdefault(binding.issue_id, []).append(label)
+            label_usage[label.id] = label_usage.get(label.id, 0) + 1
+        for issue_id, labels in labels_by_issue.items():
+            labels_by_issue[issue_id] = sorted(labels, key=lambda item: item.name.lower())
+        children_map: dict[str, list[OrbitIssue]] = {}
+        for child in issue_map.values():
+            if child.parent_issue_id:
+                children_map.setdefault(child.parent_issue_id, []).append(child)
+        for parent_issue_id, children in children_map.items():
+            children_map[parent_issue_id] = sorted(children, key=lambda item: item.sequence_no)
+        outgoing_relations: dict[str, list[OrbitIssueRelation]] = {}
+        incoming_relations: dict[str, list[OrbitIssueRelation]] = {}
+        for relation in relations:
+            outgoing_relations.setdefault(relation.issue_id, []).append(relation)
+            incoming_relations.setdefault(relation.related_issue_id, []).append(relation)
+        activity_map: dict[str, list[AuditEvent]] = {}
+        for event in activity_events:
+            if not event.target_id:
+                continue
+            activity_map.setdefault(event.target_id, [])
+            if len(activity_map[event.target_id]) < 6:
+                activity_map[event.target_id].append(event)
+        stale_days = {
+            issue_id: _working_days_since(item.updated_at)
+            for issue_id, item in issue_map.items()
+        }
+        return {
+            "issue_map": issue_map,
+            "orbit_map": orbit_map,
+            "cycle_map": cycle_map,
+            "user_map": user_map,
+            "labels_by_issue": labels_by_issue,
+            "label_map": label_map,
+            "label_usage": label_usage,
+            "children_map": children_map,
+            "outgoing_relations": outgoing_relations,
+            "incoming_relations": incoming_relations,
+            "activity_map": activity_map,
+            "stale_days": stale_days,
+        }
+
+    def _serialize_issue_reference(item: OrbitIssue, *, context: dict[str, Any]) -> dict[str, Any]:
+        cycle = context["cycle_map"].get(item.cycle_id) if item.cycle_id else None
+        assignee = context["user_map"].get(item.assignee_user_id) if item.assignee_user_id else None
+        orbit = context["orbit_map"].get(item.orbit_id)
+        stale_days = int(context["stale_days"].get(item.id, 0))
+        return {
+            "id": item.id,
+            "number": item.sequence_no,
+            "title": item.title,
+            "status": _normalize_native_issue_status(item.status),
+            "priority": _normalize_native_issue_priority(item.priority),
+            "cycle_id": item.cycle_id,
+            "cycle_name": cycle.name if cycle else None,
+            "assignee_user_id": item.assignee_user_id,
+            "assignee_display_name": assignee.display_name if assignee else None,
+            "orbit_id": item.orbit_id,
+            "orbit_name": orbit.name if orbit else None,
+            "labels": [
+                _serialize_issue_label_entry(label)
+                for label in context["labels_by_issue"].get(item.id, [])
+            ],
+            "stale": _is_stale_orbit_issue(item),
+            "stale_working_days": stale_days,
+        }
+
+    def _serialize_issue_activity(event: AuditEvent, *, context: dict[str, Any]) -> dict[str, Any]:
+        actor = context["user_map"].get(event.actor_user_id) if event.actor_user_id else None
+        return {
+            "id": event.id,
+            "action_type": event.action_type,
+            "actor_user_id": event.actor_user_id,
+            "actor_display_name": actor.display_name if actor else None,
+            "metadata": event.metadata_json or {},
+            "created_at": event.created_at.isoformat(),
+        }
+
     def _serialize_orbit_cycle(db: Session, item: OrbitCycle) -> dict[str, Any]:
         issues = db.scalars(
             select(OrbitIssue)
@@ -1377,32 +1668,137 @@ def create_app(
             "updated_at": item.updated_at.isoformat(),
         }
 
-    def _serialize_orbit_issue(db: Session, item: OrbitIssue) -> dict[str, Any]:
-        cycle = db.get(OrbitCycle, item.cycle_id) if item.cycle_id else None
-        assignee = db.get(User, item.assignee_user_id) if item.assignee_user_id else None
-        orbit = db.get(Orbit, item.orbit_id)
+    def _serialize_orbit_issue(
+        db: Session,
+        item: OrbitIssue,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        context = context or _build_orbit_issue_context(db, [item])
+        cycle = context["cycle_map"].get(item.cycle_id) if item.cycle_id else None
+        assignee = context["user_map"].get(item.assignee_user_id) if item.assignee_user_id else None
+        creator = context["user_map"].get(item.created_by_user_id) if item.created_by_user_id else None
+        orbit = context["orbit_map"].get(item.orbit_id)
+        parent_issue = context["issue_map"].get(item.parent_issue_id) if item.parent_issue_id else None
+        outgoing_relations = context["outgoing_relations"].get(item.id, [])
+        incoming_relations = context["incoming_relations"].get(item.id, [])
+
+        def unique_issue_references(entries: list[OrbitIssue]) -> list[dict[str, Any]]:
+            seen: set[str] = set()
+            serialized: list[dict[str, Any]] = []
+            for entry in entries:
+                if entry.id in seen:
+                    continue
+                seen.add(entry.id)
+                serialized.append(_serialize_issue_reference(entry, context=context))
+            return serialized
+
+        blocked_by_issues = [
+            context["issue_map"][relation.related_issue_id]
+            for relation in outgoing_relations
+            if relation.relation_kind == "blocked_by" and relation.related_issue_id in context["issue_map"]
+        ]
+        blocking_issues = [
+            context["issue_map"][relation.issue_id]
+            for relation in incoming_relations
+            if relation.relation_kind == "blocked_by" and relation.issue_id in context["issue_map"]
+        ]
+        related_issues = [
+            context["issue_map"][relation.related_issue_id]
+            for relation in outgoing_relations
+            if relation.relation_kind == "related" and relation.related_issue_id in context["issue_map"]
+        ] + [
+            context["issue_map"][relation.issue_id]
+            for relation in incoming_relations
+            if relation.relation_kind == "related" and relation.issue_id in context["issue_map"]
+        ]
+        duplicate_issues = [
+            context["issue_map"][relation.related_issue_id]
+            for relation in outgoing_relations
+            if relation.relation_kind == "duplicate" and relation.related_issue_id in context["issue_map"]
+        ] + [
+            context["issue_map"][relation.issue_id]
+            for relation in incoming_relations
+            if relation.relation_kind == "duplicate" and relation.issue_id in context["issue_map"]
+        ]
+        sub_issues = context["children_map"].get(item.id, [])
+        stale_days = int(context["stale_days"].get(item.id, 0))
+        blocked_by_payload = unique_issue_references(blocked_by_issues)
+        blocking_payload = unique_issue_references(blocking_issues)
+        related_payload = unique_issue_references(related_issues)
+        duplicate_payload = unique_issue_references(duplicate_issues)
         return {
             "id": item.id,
             "number": item.sequence_no,
             "title": item.title,
             "detail": item.detail,
             "status": _normalize_native_issue_status(item.status),
-            "priority": item.priority,
+            "priority": _normalize_native_issue_priority(item.priority),
             "source_kind": item.source_kind,
             "cycle_id": item.cycle_id,
             "cycle_name": cycle.name if cycle else None,
             "assignee_user_id": item.assignee_user_id,
             "assignee_display_name": assignee.display_name if assignee else None,
+            "created_by_user_id": item.created_by_user_id,
+            "created_by_display_name": creator.display_name if creator else None,
             "orbit_id": item.orbit_id,
             "orbit_name": orbit.name if orbit else None,
             "repository_connection_id": item.repository_connection_id,
+            "labels": [
+                _serialize_issue_label_entry(label)
+                for label in context["labels_by_issue"].get(item.id, [])
+            ],
+            "parent_issue_id": item.parent_issue_id,
+            "parent_issue": _serialize_issue_reference(parent_issue, context=context) if parent_issue else None,
+            "sub_issues": [
+                _serialize_issue_reference(child, context=context)
+                for child in sub_issues
+            ],
+            "relations": {
+                "blocked_by": blocked_by_payload,
+                "blocking": blocking_payload,
+                "related": related_payload,
+                "duplicate": duplicate_payload,
+            },
+            "relation_counts": {
+                "blocked_by": len(blocked_by_payload),
+                "blocking": len(blocking_payload),
+                "related": len(related_payload),
+                "duplicate": len(duplicate_payload),
+            },
+            "is_blocked": _normalize_native_issue_status(item.status) == "blocked" or bool(blocked_by_payload),
+            "has_sub_issues": bool(sub_issues),
+            "stale": _is_stale_orbit_issue(item),
+            "stale_working_days": stale_days,
+            "activity": [
+                _serialize_issue_activity(event, context=context)
+                for event in context["activity_map"].get(item.id, [])
+            ],
             **_repository_identity(db, item.repository_connection_id, None),
             "created_at": item.created_at.isoformat(),
             "updated_at": item.updated_at.isoformat(),
         }
 
-    def _serialize_native_issue_as_board_item(db: Session, item: OrbitIssue) -> dict[str, Any]:
-        serialized = _serialize_orbit_issue(db, item)
+    def _serialize_issue_label_catalog(context: dict[str, Any]) -> list[dict[str, Any]]:
+        labels = list(context.get("label_map", {}).values())
+        labels.sort(
+            key=lambda item: (
+                -int(context.get("label_usage", {}).get(item.id, 0)),
+                item.name.lower(),
+            )
+        )
+        return [
+            _serialize_issue_label_entry(item, issue_count=int(context.get("label_usage", {}).get(item.id, 0)))
+            for item in labels
+        ]
+
+    def _serialize_native_issue_as_board_item(
+        db: Session,
+        item: OrbitIssue,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        serialized = _serialize_orbit_issue(db, item, context=context)
         return {
             "id": item.id,
             "number": item.sequence_no,
@@ -1421,6 +1817,19 @@ def create_app(
             "orbit_id": item.orbit_id,
             "cycle_id": item.cycle_id,
             "cycle_name": serialized.get("cycle_name"),
+            "assignee_user_id": item.assignee_user_id,
+            "assignee_display_name": serialized.get("assignee_display_name"),
+            "labels": serialized.get("labels", []),
+            "stale": serialized.get("stale", False),
+            "stale_working_days": serialized.get("stale_working_days", 0),
+            "parent_issue_id": item.parent_issue_id,
+            "sub_issue_count": len(serialized.get("sub_issues", [])),
+            "blocked_by_count": serialized.get("relation_counts", {}).get("blocked_by", 0),
+            "related_count": (
+                serialized.get("relation_counts", {}).get("related", 0)
+                + serialized.get("relation_counts", {}).get("duplicate", 0)
+            ),
+            "is_blocked": serialized.get("is_blocked", False),
         }
 
     def _next_orbit_issue_sequence(db: Session, orbit_id: str) -> int:
@@ -1456,6 +1865,7 @@ def create_app(
         *,
         filters: dict[str, Any],
         user: User,
+        context: dict[str, Any],
     ) -> bool:
         if filters.get("orbit_id") and item.orbit_id != filters["orbit_id"]:
             return False
@@ -1482,12 +1892,60 @@ def create_app(
         if cycle_scope == "without_cycle" and item.cycle_id:
             return False
 
+        labels = _normalize_saved_view_labels(filters.get("labels"))
+        if labels:
+            issue_label_slugs = {
+                label.slug
+                for label in context["labels_by_issue"].get(item.id, [])
+            }
+            if not issue_label_slugs.intersection(labels):
+                return False
+
+        if bool(filters.get("stale_only")) and not _is_stale_orbit_issue(item):
+            return False
+
+        relation_scope = _normalize_saved_view_relation_scope(filters.get("relation_scope"))
+        outgoing_relations = context["outgoing_relations"].get(item.id, [])
+        incoming_relations = context["incoming_relations"].get(item.id, [])
+        blocked_count = len([relation for relation in outgoing_relations if relation.relation_kind == "blocked_by"]) + len(
+            [relation for relation in incoming_relations if relation.relation_kind == "blocked_by"]
+        )
+        related_count = len([relation for relation in outgoing_relations if relation.relation_kind in {"related", "duplicate"}]) + len(
+            [relation for relation in incoming_relations if relation.relation_kind in {"related", "duplicate"}]
+        )
+        if relation_scope == "blocked" and (
+            blocked_count == 0
+            and status != "blocked"
+        ):
+            return False
+        if relation_scope == "related" and related_count == 0:
+            return False
+
+        hierarchy_scope = _normalize_saved_view_hierarchy_scope(filters.get("hierarchy_scope"))
+        if hierarchy_scope == "parent" and not item.parent_issue_id:
+            return False
+        if hierarchy_scope == "child" and not context["children_map"].get(item.id):
+            return False
+        if hierarchy_scope == "root" and item.parent_issue_id:
+            return False
+
         return True
 
-    def _saved_view_tone(items: list[OrbitIssue]) -> str:
+    def _saved_view_tone(items: list[OrbitIssue], *, context: dict[str, Any]) -> str:
         if not items:
             return "muted"
         if any(str(item.priority or "").strip().lower() == "urgent" for item in items):
+            return "danger"
+        if any(_is_stale_orbit_issue(item) for item in items):
+            return "warning"
+        if any(
+            _normalize_native_issue_status(item.status) == "blocked"
+            or bool(
+                len([relation for relation in context["outgoing_relations"].get(item.id, []) if relation.relation_kind == "blocked_by"])
+                + len([relation for relation in context["incoming_relations"].get(item.id, []) if relation.relation_kind == "blocked_by"])
+            )
+            for item in items
+        ):
             return "danger"
         if any(_normalize_native_issue_status(item.status) in {"in_review", "ready_to_merge"} for item in items):
             return "warning"
@@ -1498,6 +1956,7 @@ def create_app(
         *,
         orbit_map: dict[str, Orbit],
         cycle_map: dict[str, OrbitCycle],
+        context: dict[str, Any],
     ) -> dict[str, Any]:
         orbit = orbit_map.get(item.orbit_id)
         cycle = cycle_map.get(item.cycle_id) if item.cycle_id else None
@@ -1505,6 +1964,11 @@ def create_app(
             cycle.name if cycle else "No cycle",
             f"Priority {str(item.priority or 'medium').strip().lower()}",
         ]
+        labels = context["labels_by_issue"].get(item.id, [])
+        if labels:
+            detail_parts.append(", ".join(label.name for label in labels[:2]))
+        if _is_stale_orbit_issue(item):
+            detail_parts.append(f"Stale {context['stale_days'].get(item.id, 0)}d")
         preview = {
             "id": f"native-{item.id}",
             "kind": "native_issue",
@@ -1512,8 +1976,8 @@ def create_app(
             "title": f"PM-{item.sequence_no} · {item.title}",
             "detail": " · ".join(detail_parts),
             "status": _format_state_label(_normalize_native_issue_status(item.status)),
-            "tone": _saved_view_tone([item]),
-            "href": f"/app/orbits/{item.orbit_id}",
+            "tone": _saved_view_tone([item], context=context),
+            "href": f"/app/orbits/{item.orbit_id}?section=issues&detailKind=native_issue&detailId={item.id}",
             "timestamp": item.updated_at.isoformat(),
         }
         if orbit and orbit.repo_full_name:
@@ -1547,11 +2011,34 @@ def create_app(
         if priorities:
             summary.append("Priority " + ", ".join(_format_state_label(priority) for priority in priorities))
 
+        labels = _normalize_saved_view_labels(filters.get("labels"))
+        if labels:
+            summary.append("Labels " + ", ".join(labels[:2]))
+            if len(labels) > 2:
+                summary.append(f"+{len(labels) - 2} labels")
+
         cycle_scope = _normalize_saved_view_cycle_scope(filters.get("cycle_scope"))
         if cycle_scope == "with_cycle":
             summary.append("In a cycle")
         elif cycle_scope == "without_cycle":
             summary.append("No cycle")
+
+        if bool(filters.get("stale_only")):
+            summary.append("Stale work")
+
+        relation_scope = _normalize_saved_view_relation_scope(filters.get("relation_scope"))
+        if relation_scope == "blocked":
+            summary.append("Dependency risk")
+        elif relation_scope == "related":
+            summary.append("Has linked work")
+
+        hierarchy_scope = _normalize_saved_view_hierarchy_scope(filters.get("hierarchy_scope"))
+        if hierarchy_scope == "parent":
+            summary.append("Sub-issue")
+        elif hierarchy_scope == "child":
+            summary.append("Parent issue")
+        elif hierarchy_scope == "root":
+            summary.append("Root issue")
 
         return summary
 
@@ -1572,11 +2059,18 @@ def create_app(
                 "filters": {"statuses": ["in_review", "ready_to_merge"]},
             },
             {
-                "id": "system-high-priority",
-                "name": "High priority",
-                "description": "High-signal work that should not disappear into the broader issue board.",
+                "id": "system-dependency-risk",
+                "name": "Dependency risk",
+                "description": "Issues blocked by upstream work or already acting as blockers for downstream delivery.",
                 "kind": "system",
-                "filters": {"priorities": ["high", "urgent"]},
+                "filters": {"relation_scope": "blocked"},
+            },
+            {
+                "id": "system-stale-owned-work",
+                "name": "Stale owned work",
+                "description": "Assigned work with no meaningful updates across three working days.",
+                "kind": "system",
+                "filters": {"assignee_scope": "me", "stale_only": True},
             },
             {
                 "id": "system-active-cycle",
@@ -1594,20 +2088,21 @@ def create_app(
         user: User,
         orbit_map: dict[str, Orbit],
         cycle_map: dict[str, OrbitCycle],
+        context: dict[str, Any],
     ) -> dict[str, Any]:
         filters = dict(definition.get("filters") or {})
-        matched = [item for item in issues if _saved_view_matches_issue(item, filters=filters, user=user)]
+        matched = [item for item in issues if _saved_view_matches_issue(item, filters=filters, user=user, context=context)]
         matched.sort(key=lambda item: item.updated_at, reverse=True)
         return {
             "id": definition["id"],
             "label": definition["name"],
             "detail": definition.get("description") or "Saved issue view.",
-            "tone": _saved_view_tone(matched),
+            "tone": _saved_view_tone(matched, context=context),
             "count": len(matched),
             "kind": definition.get("kind") or "custom",
             "filter_summary": _saved_view_filter_summary(filters, orbit_map=orbit_map),
             "preview": [
-                _serialize_saved_view_preview_item(item, orbit_map=orbit_map, cycle_map=cycle_map)
+                _serialize_saved_view_preview_item(item, orbit_map=orbit_map, cycle_map=cycle_map, context=context)
                 for item in matched[:6]
             ],
             "created_at": definition.get("created_at"),
@@ -1622,13 +2117,14 @@ def create_app(
         cycles = db.scalars(select(OrbitCycle).where(OrbitCycle.orbit_id.in_(orbit_ids)).order_by(OrbitCycle.updated_at.desc())).all() if orbit_ids else []
         cycle_map = {cycle.id: cycle for cycle in cycles}
         issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id.in_(orbit_ids)).order_by(OrbitIssue.updated_at.desc())).all() if orbit_ids else []
+        issue_context = _build_orbit_issue_context(db, issues)
         custom_views = db.scalars(
             select(SavedView)
             .where(SavedView.created_by_user_id == user.id)
             .order_by(SavedView.updated_at.desc(), SavedView.created_at.desc())
         ).all()
         entries = [
-            _serialize_saved_view_entry(spec, issues=issues, user=user, orbit_map=orbit_map, cycle_map=cycle_map)
+            _serialize_saved_view_entry(spec, issues=issues, user=user, orbit_map=orbit_map, cycle_map=cycle_map, context=issue_context)
             for spec in _system_saved_views(user)
         ]
         entries.extend(
@@ -1646,10 +2142,128 @@ def create_app(
                 user=user,
                 orbit_map=orbit_map,
                 cycle_map=cycle_map,
+                context=issue_context,
             )
             for item in custom_views
         )
         return {"views": entries}
+
+    def _resolve_issue_assignee_user_id(db: Session, orbit: Orbit, assignee_user_id: str | None) -> str | None:
+        normalized = str(assignee_user_id or "").strip() or None
+        if normalized is None:
+            return None
+        membership = db.scalar(
+            select(OrbitMembership).where(
+                OrbitMembership.orbit_id == orbit.id,
+                OrbitMembership.user_id == normalized,
+            )
+        )
+        if membership is None:
+            raise HTTPException(status_code=404, detail="Assignee is not a member of this orbit")
+        return normalized
+
+    def _resolve_issue_parent(
+        db: Session,
+        orbit: Orbit,
+        parent_issue_id: str | None,
+        *,
+        issue: OrbitIssue | None = None,
+    ) -> str | None:
+        normalized = str(parent_issue_id or "").strip() or None
+        if normalized is None:
+            return None
+        parent_issue = db.get(OrbitIssue, normalized)
+        if parent_issue is None or parent_issue.orbit_id != orbit.id:
+            raise HTTPException(status_code=404, detail="Parent issue not found")
+        if issue is not None and parent_issue.id == issue.id:
+            raise HTTPException(status_code=400, detail="An issue cannot parent itself")
+        cursor = parent_issue.parent_issue_id
+        while cursor:
+            if issue is not None and cursor == issue.id:
+                raise HTTPException(status_code=400, detail="This parent would create a cycle in the issue hierarchy")
+            ancestor = db.get(OrbitIssue, cursor)
+            cursor = ancestor.parent_issue_id if ancestor is not None else None
+        return parent_issue.id
+
+    def _ensure_issue_label(db: Session, *, user: User, name: str) -> IssueLabel | None:
+        normalized_name = " ".join(str(name or "").split()).strip()
+        slug = slugify(normalized_name)
+        if not slug:
+            return None
+        label = db.scalar(select(IssueLabel).where(IssueLabel.slug == slug))
+        if label is None:
+            label = IssueLabel(
+                created_by_user_id=user.id,
+                name=normalized_name,
+                slug=slug,
+                tone=_label_tone_for_slug(slug),
+            )
+            db.add(label)
+            db.flush()
+        elif normalized_name and label.name != normalized_name:
+            label.name = normalized_name
+            label.updated_at = utc_now()
+        return label
+
+    def _replace_issue_labels(db: Session, issue: OrbitIssue, *, labels: list[str], user: User) -> None:
+        label_names = _normalize_issue_label_names(labels)
+        db.execute(delete(OrbitIssueLabel).where(OrbitIssueLabel.issue_id == issue.id))
+        for label_name in label_names:
+            label = _ensure_issue_label(db, user=user, name=label_name)
+            if label is None:
+                continue
+            db.add(OrbitIssueLabel(issue_id=issue.id, label_id=label.id))
+        issue.updated_at = utc_now()
+        db.flush()
+
+    def _replace_issue_relations(
+        db: Session,
+        issue: OrbitIssue,
+        *,
+        relation_kind: str,
+        related_issue_ids: list[str],
+        orbit: Orbit,
+        user: User,
+    ) -> None:
+        normalized_ids: list[str] = []
+        seen: set[str] = set()
+        for related_issue_id in related_issue_ids:
+            normalized = str(related_issue_id or "").strip()
+            if not normalized or normalized == issue.id or normalized in seen:
+                continue
+            related_issue = db.get(OrbitIssue, normalized)
+            if related_issue is None or related_issue.orbit_id != orbit.id:
+                raise HTTPException(status_code=404, detail="Related issue not found")
+            seen.add(normalized)
+            normalized_ids.append(normalized)
+
+        if relation_kind in {"related", "duplicate"}:
+            db.execute(
+                delete(OrbitIssueRelation).where(
+                    OrbitIssueRelation.relation_kind == relation_kind,
+                    (OrbitIssueRelation.issue_id == issue.id) | (OrbitIssueRelation.related_issue_id == issue.id),
+                )
+            )
+        else:
+            db.execute(
+                delete(OrbitIssueRelation).where(
+                    OrbitIssueRelation.relation_kind == relation_kind,
+                    OrbitIssueRelation.issue_id == issue.id,
+                )
+            )
+
+        for related_issue_id in normalized_ids:
+            left_id, right_id = _canonicalize_issue_relation(issue.id, related_issue_id, relation_kind)
+            db.add(
+                OrbitIssueRelation(
+                    issue_id=left_id,
+                    related_issue_id=right_id,
+                    relation_kind=relation_kind,
+                    created_by_user_id=user.id,
+                )
+            )
+        issue.updated_at = utc_now()
+        db.flush()
 
     def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
         status = str(run_payload.get("status") or "").strip().lower()
@@ -2767,8 +3381,12 @@ def create_app(
             filters_json={
                 "statuses": _normalize_saved_view_statuses(payload.statuses),
                 "priorities": _normalize_saved_view_priorities(payload.priorities),
+                "labels": _normalize_saved_view_labels(payload.labels),
                 "assignee_scope": _normalize_saved_view_assignee_scope(payload.assignee_scope),
                 "cycle_scope": _normalize_saved_view_cycle_scope(payload.cycle_scope),
+                "stale_only": bool(payload.stale_only),
+                "relation_scope": _normalize_saved_view_relation_scope(payload.relation_scope),
+                "hierarchy_scope": _normalize_saved_view_hierarchy_scope(payload.hierarchy_scope),
             },
         )
         db.add(saved_view)
@@ -3152,13 +3770,15 @@ def create_app(
 
         prs: list[dict[str, Any]] = []
         issues: list[dict[str, Any]] = []
+        native_issue_models = db.scalars(
+            select(OrbitIssue)
+            .where(OrbitIssue.orbit_id == orbit.id)
+            .order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())
+        ).all()
+        native_issue_context = _build_orbit_issue_context(db, native_issue_models)
         native_issues = [
-            _serialize_orbit_issue(db, item)
-            for item in db.scalars(
-                select(OrbitIssue)
-                .where(OrbitIssue.orbit_id == orbit.id)
-                .order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())
-            ).all()
+            _serialize_orbit_issue(db, item, context=native_issue_context)
+            for item in native_issue_models
         ]
         cycles = [
             _serialize_orbit_cycle(db, item)
@@ -3223,6 +3843,7 @@ def create_app(
             prs=prs,
             issues=issues,
             native_issues=native_issues,
+            issue_labels=_serialize_issue_label_catalog(native_issue_context),
             cycles=cycles,
             codespaces=codespaces,
             demos=demos,
@@ -3252,6 +3873,7 @@ def create_app(
         prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id).order_by(PullRequestSnapshot.updated_at.desc())).all()
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         native_issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id == orbit.id).order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())).all()
+        native_issue_context = _build_orbit_issue_context(db, native_issues)
         cycles = db.scalars(select(OrbitCycle).where(OrbitCycle.orbit_id == orbit.id).order_by(OrbitCycle.starts_at.desc(), OrbitCycle.created_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
@@ -3301,7 +3923,8 @@ def create_app(
             workflow=workflow,
             prs=[_serialize_pull_request(db, item) for item in prs],
             issues=[_serialize_issue(db, item) for item in issues],
-            native_issues=[_serialize_orbit_issue(db, item) for item in native_issues],
+            native_issues=[_serialize_orbit_issue(db, item, context=native_issue_context) for item in native_issues],
+            issue_labels=_serialize_issue_label_catalog(native_issue_context),
             cycles=[_serialize_orbit_cycle(db, item) for item in cycles],
             codespaces=[_serialize_codespace(db, item) for item in codespaces],
             demos=[_serialize_demo(db, item) for item in demos],
@@ -3360,21 +3983,27 @@ def create_app(
             if cycle is None or cycle.orbit_id != orbit.id:
                 raise HTTPException(status_code=404, detail="Cycle not found")
         primary_repository = primary_repository_for_orbit(db, orbit)
+        assignee_user_id = _resolve_issue_assignee_user_id(db, orbit, payload.assignee_user_id or user.id)
         issue = OrbitIssue(
             orbit_id=orbit.id,
             cycle_id=cycle.id if cycle else None,
             created_by_user_id=user.id,
-            assignee_user_id=user.id,
+            assignee_user_id=assignee_user_id,
+            parent_issue_id=_resolve_issue_parent(db, orbit, payload.parent_issue_id),
             repository_connection_id=primary_repository.id if primary_repository else None,
             sequence_no=_next_orbit_issue_sequence(db, orbit.id),
             title=payload.title.strip(),
             detail=(payload.detail or "").strip() or None,
             status=_normalize_native_issue_status(payload.status),
-            priority=str(payload.priority or "medium").strip().lower() or "medium",
+            priority=_normalize_native_issue_priority(payload.priority),
             source_kind="manual",
         )
         db.add(issue)
         db.flush()
+        _replace_issue_labels(db, issue, labels=payload.labels, user=user)
+        _replace_issue_relations(db, issue, relation_kind="blocked_by", related_issue_ids=payload.blocked_by_issue_ids, orbit=orbit, user=user)
+        _replace_issue_relations(db, issue, relation_kind="related", related_issue_ids=payload.related_issue_ids, orbit=orbit, user=user)
+        _replace_issue_relations(db, issue, relation_kind="duplicate", related_issue_ids=payload.duplicate_issue_ids, orbit=orbit, user=user)
         record_audit_event(
             db,
             orbit_id=orbit.id,
@@ -3382,7 +4011,14 @@ def create_app(
             action_type="issue.created",
             target_kind="native_issue",
             target_id=issue.id,
-            metadata_json={"sequence_no": issue.sequence_no, "status": issue.status, "cycle_id": issue.cycle_id},
+            metadata_json={
+                "sequence_no": issue.sequence_no,
+                "status": issue.status,
+                "cycle_id": issue.cycle_id,
+                "assignee_user_id": issue.assignee_user_id,
+                "parent_issue_id": issue.parent_issue_id,
+                "labels": _normalize_issue_label_names(payload.labels),
+            },
         )
         db.commit()
         return _serialize_orbit_issue(db, issue)
@@ -3416,10 +4052,22 @@ def create_app(
         if payload.detail is not None:
             issue.detail = payload.detail.strip() or None
         if payload.priority is not None:
-            issue.priority = str(payload.priority or issue.priority).strip().lower() or issue.priority
+            issue.priority = _normalize_native_issue_priority(payload.priority)
         if payload.status is not None:
             issue.status = _normalize_native_issue_status(payload.status)
+        if "assignee_user_id" in payload.model_fields_set:
+            issue.assignee_user_id = _resolve_issue_assignee_user_id(db, orbit, payload.assignee_user_id)
+        if "parent_issue_id" in payload.model_fields_set:
+            issue.parent_issue_id = _resolve_issue_parent(db, orbit, payload.parent_issue_id, issue=issue)
         issue.cycle_id = next_cycle
+        if "labels" in payload.model_fields_set and payload.labels is not None:
+            _replace_issue_labels(db, issue, labels=payload.labels, user=user)
+        if "blocked_by_issue_ids" in payload.model_fields_set and payload.blocked_by_issue_ids is not None:
+            _replace_issue_relations(db, issue, relation_kind="blocked_by", related_issue_ids=payload.blocked_by_issue_ids, orbit=orbit, user=user)
+        if "related_issue_ids" in payload.model_fields_set and payload.related_issue_ids is not None:
+            _replace_issue_relations(db, issue, relation_kind="related", related_issue_ids=payload.related_issue_ids, orbit=orbit, user=user)
+        if "duplicate_issue_ids" in payload.model_fields_set and payload.duplicate_issue_ids is not None:
+            _replace_issue_relations(db, issue, relation_kind="duplicate", related_issue_ids=payload.duplicate_issue_ids, orbit=orbit, user=user)
         issue.updated_at = utc_now()
         record_audit_event(
             db,
@@ -3428,7 +4076,14 @@ def create_app(
             action_type="issue.updated",
             target_kind="native_issue",
             target_id=issue.id,
-            metadata_json={"status": issue.status, "cycle_id": issue.cycle_id, "priority": issue.priority},
+            metadata_json={
+                "status": issue.status,
+                "cycle_id": issue.cycle_id,
+                "priority": issue.priority,
+                "assignee_user_id": issue.assignee_user_id,
+                "parent_issue_id": issue.parent_issue_id,
+                "labels": _normalize_issue_label_names(payload.labels or [] if "labels" in payload.model_fields_set else []),
+            },
         )
         db.commit()
         return _serialize_orbit_issue(db, issue)

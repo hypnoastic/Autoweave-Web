@@ -305,8 +305,12 @@ describe("PlanningScreen", () => {
       orbit_id: "orbit_1",
       statuses: ["in_progress"],
       priorities: ["high"],
+      labels: [],
       assignee_scope: "me",
       cycle_scope: "with_cycle",
+      stale_only: false,
+      relation_scope: "any",
+      hierarchy_scope: "any",
     });
     expect(await screen.findAllByText("High priority cycle work")).not.toHaveLength(0);
   });

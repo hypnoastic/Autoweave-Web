@@ -316,6 +316,7 @@ class OrbitIssue(Base):
     cycle_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbit_cycles.id"), nullable=True, index=True)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
     assignee_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    parent_issue_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     repository_connection_id: Mapped[str | None] = mapped_column(
         ForeignKey("product_repository_connections.id"),
         nullable=True,
@@ -328,6 +329,43 @@ class OrbitIssue(Base):
     priority: Mapped[str] = mapped_column(String(64), default="medium")
     source_kind: Mapped[str] = mapped_column(String(64), default="manual")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class IssueLabel(Base):
+    __tablename__ = "product_issue_labels"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("label"))
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    slug: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    tone: Mapped[str] = mapped_column(String(32), default="muted")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class OrbitIssueLabel(Base):
+    __tablename__ = "product_orbit_issue_labels"
+    __table_args__ = (UniqueConstraint("issue_id", "label_id", name="uq_product_orbit_issue_label"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("issuelabel"))
+    issue_id: Mapped[str] = mapped_column(ForeignKey("product_orbit_native_issues.id"), index=True)
+    label_id: Mapped[str] = mapped_column(ForeignKey("product_issue_labels.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class OrbitIssueRelation(Base):
+    __tablename__ = "product_orbit_issue_relations"
+    __table_args__ = (
+        UniqueConstraint("issue_id", "related_issue_id", "relation_kind", name="uq_product_orbit_issue_relation"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("issuerel"))
+    issue_id: Mapped[str] = mapped_column(ForeignKey("product_orbit_native_issues.id"), index=True)
+    related_issue_id: Mapped[str] = mapped_column(ForeignKey("product_orbit_native_issues.id"), index=True)
+    relation_kind: Mapped[str] = mapped_column(String(64), index=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

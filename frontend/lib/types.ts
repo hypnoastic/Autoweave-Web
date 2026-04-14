@@ -239,6 +239,14 @@ export type WorkItemSummary = {
   updated_at: string;
 };
 
+export type IssueLabelSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  tone: string;
+  issue_count?: number;
+};
+
 export type BoardItem = {
   id: string;
   number: number;
@@ -257,6 +265,16 @@ export type BoardItem = {
   orbit_id?: string | null;
   cycle_id?: string | null;
   cycle_name?: string | null;
+  assignee_user_id?: string | null;
+  assignee_display_name?: string | null;
+  labels?: IssueLabelSummary[];
+  stale?: boolean;
+  stale_working_days?: number;
+  parent_issue_id?: string | null;
+  sub_issue_count?: number;
+  blocked_by_count?: number;
+  related_count?: number;
+  is_blocked?: boolean;
 };
 
 export type CodespaceSummary = {
@@ -362,6 +380,32 @@ export type OrbitCycle = {
   updated_at: string;
 };
 
+export type NativeOrbitIssueReference = {
+  id: string;
+  number: number;
+  title: string;
+  status: string;
+  priority: string;
+  cycle_id?: string | null;
+  cycle_name?: string | null;
+  assignee_user_id?: string | null;
+  assignee_display_name?: string | null;
+  orbit_id?: string | null;
+  orbit_name?: string | null;
+  labels: IssueLabelSummary[];
+  stale: boolean;
+  stale_working_days: number;
+};
+
+export type NativeIssueActivity = {
+  id: string;
+  action_type: string;
+  actor_user_id?: string | null;
+  actor_display_name?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
 export type NativeOrbitIssue = {
   id: string;
   number: number;
@@ -374,12 +418,35 @@ export type NativeOrbitIssue = {
   cycle_name?: string | null;
   assignee_user_id?: string | null;
   assignee_display_name?: string | null;
+  created_by_user_id?: string | null;
+  created_by_display_name?: string | null;
   orbit_id?: string | null;
   orbit_name?: string | null;
   repository_connection_id?: string | null;
   repository_id?: string | null;
   repository_full_name?: string | null;
   repository_url?: string | null;
+  labels: IssueLabelSummary[];
+  parent_issue_id?: string | null;
+  parent_issue?: NativeOrbitIssueReference | null;
+  sub_issues: NativeOrbitIssueReference[];
+  relations: {
+    blocked_by: NativeOrbitIssueReference[];
+    blocking: NativeOrbitIssueReference[];
+    related: NativeOrbitIssueReference[];
+    duplicate: NativeOrbitIssueReference[];
+  };
+  relation_counts: {
+    blocked_by: number;
+    blocking: number;
+    related: number;
+    duplicate: number;
+  };
+  is_blocked: boolean;
+  has_sub_issues: boolean;
+  stale: boolean;
+  stale_working_days: number;
+  activity: NativeIssueActivity[];
   created_at: string;
   updated_at: string;
 };
@@ -398,6 +465,7 @@ export type OrbitPayload = {
   prs: BoardItem[];
   issues: BoardItem[];
   native_issues: NativeOrbitIssue[];
+  issue_labels: IssueLabelSummary[];
   cycles: OrbitCycle[];
   codespaces: CodespaceSummary[];
   demos: DemoSummary[];
@@ -421,6 +489,7 @@ export type MyWorkPayload = {
     active_work_items: number;
     active_issues: number;
     blocked_issues: number;
+    stale_issues: number;
     review_queue: number;
     approvals: number;
     running_codespaces: number;
@@ -429,7 +498,10 @@ export type MyWorkPayload = {
   work_items: WorkItemSummary[];
   active_issues: BoardItem[];
   blocked_issues: BoardItem[];
+  stale_issues: BoardItem[];
   review_queue: BoardItem[];
+  native_issues: NativeOrbitIssue[];
+  issue_labels: IssueLabelSummary[];
   approvals: NotificationItem[];
   recent_orbits: Orbit[];
   codespaces: CodespaceSummary[];

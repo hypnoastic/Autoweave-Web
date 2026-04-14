@@ -55,11 +55,17 @@ function formatFreshness(value: string | undefined) {
 
 function boardTone(item: BoardItem) {
   const status = String(item.operational_status || item.state || "").toLowerCase();
+  if (item.is_blocked) {
+    return "danger" as const;
+  }
   if (["blocked", "changes_requested"].includes(status)) {
     return "danger" as const;
   }
   if (["awaiting_review", "in_review", "ready_for_review", "ready_to_merge"].includes(status)) {
     return "accent" as const;
+  }
+  if (item.stale) {
+    return "warning" as const;
   }
   if (["done", "closed", "merged", "completed", "resolved"].includes(status)) {
     return "success" as const;
@@ -94,6 +100,32 @@ function notificationTone(item: NotificationItem) {
   return "muted" as const;
 }
 
+function issueDetail(item: BoardItem) {
+  if (item.source_kind === "native_issue") {
+    return [
+      `PM-${item.number}`,
+      item.cycle_name || "No cycle",
+      item.assignee_display_name ? `Owner ${item.assignee_display_name}` : "Unassigned",
+    ].join(" · ");
+  }
+  return `#${item.number} · ${item.repository_full_name || "Issue queue"}`;
+}
+
+function issueSupporting(item: BoardItem) {
+  const labels = item.labels ?? [];
+  return (
+    <>
+      {item.repository_full_name ? <span>{item.repository_full_name}</span> : null}
+      {item.stale ? <span>{`Stale ${item.stale_working_days ?? 0}d`}</span> : null}
+      {item.blocked_by_count ? <span>{`${item.blocked_by_count} blocker${item.blocked_by_count > 1 ? "s" : ""}`}</span> : null}
+      {item.sub_issue_count ? <span>{`${item.sub_issue_count} sub-issue${item.sub_issue_count > 1 ? "s" : ""}`}</span> : null}
+      {labels.slice(0, 2).map((label) => (
+        <span key={`${item.id}-${label.id}`}>{label.name}</span>
+      ))}
+    </>
+  );
+}
+
 export function MyWorkScreen() {
   const router = useRouter();
   const { mode, setMode } = useTheme();
@@ -101,7 +133,7 @@ export function MyWorkScreen() {
   const [payload, setPayload] = useState<MyWorkPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState<"all" | "needs-review" | "blocked" | "agent">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "needs-review" | "blocked" | "stale" | "agent">("all");
 
   function issueChatHref(item: BoardItem, sourceKind?: "issue" | "pr") {
     return buildChatHref({
@@ -211,6 +243,9 @@ export function MyWorkScreen() {
     }
     if (activeFilter === "blocked") {
       return payload.blocked_issues;
+    }
+    if (activeFilter === "stale") {
+      return payload.stale_issues;
     }
     return payload.active_issues;
   }, [activeFilter, payload]);
@@ -357,6 +392,10 @@ export function MyWorkScreen() {
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Blocked
                 </SelectionChip>
+                <SelectionChip active={activeFilter === "stale"} onClick={() => setActiveFilter("stale")}>
+                  <TimerReset className="h-3.5 w-3.5" />
+                  Stale
+                </SelectionChip>
               </div>
             </div>
             <ScrollPanel className="flex-1 px-4 py-3">
@@ -367,11 +406,8 @@ export function MyWorkScreen() {
                       key={item.id}
                       eyebrow={item.repository_full_name || "Orbit issue"}
                       title={item.title}
-                      detail={
-                        item.source_kind === "native_issue"
-                          ? `PM-${item.number} · ${item.cycle_name || item.repository_full_name || "Native issue"}`
-                          : `#${item.number} · ${item.repository_full_name || "Issue queue"}`
-                      }
+                      detail={issueDetail(item)}
+                      supporting={issueSupporting(item)}
                       trailing={
                         <div className="flex flex-col items-end gap-2">
                           <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
