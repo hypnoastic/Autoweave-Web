@@ -50,6 +50,12 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("parent_issue_id", "VARCHAR(64)"),
         ),
     ),
+    (
+        "product_saved_views",
+        (
+            ("pin_rank", "INTEGER DEFAULT 0"),
+        ),
+    ),
 )
 
 

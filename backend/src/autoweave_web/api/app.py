@@ -68,7 +68,9 @@ from autoweave_web.schemas.api import (
     MessageCreateRequest,
     MyWorkPayload,
     NavigationStateRequest,
+    PlanningCyclesPayload,
     OrbitCycleCreateRequest,
+    OrbitCycleUpdateRequest,
     OrbitCreateRequest,
     OrbitIssueCreateRequest,
     OrbitIssueUpdateRequest,
@@ -77,6 +79,7 @@ from autoweave_web.schemas.api import (
     OrbitPayload,
     SessionPayload,
     SavedViewCreateRequest,
+    SavedViewUpdateRequest,
     SavedViewsPayload,
     TimestampedPayload,
     UserPreferencesPayload,
@@ -2191,6 +2194,28 @@ def create_app(
         normalized = str(value or "any").strip().lower()
         return normalized if normalized in {"any", "with_cycle", "without_cycle"} else "any"
 
+    def _saved_view_filters_payload(
+        *,
+        statuses: list[str] | None,
+        priorities: list[str] | None,
+        labels: list[str] | None,
+        assignee_scope: str | None,
+        cycle_scope: str | None,
+        stale_only: bool | None,
+        relation_scope: str | None,
+        hierarchy_scope: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "statuses": _normalize_saved_view_statuses(statuses),
+            "priorities": _normalize_saved_view_priorities(priorities),
+            "labels": _normalize_saved_view_labels(labels),
+            "assignee_scope": _normalize_saved_view_assignee_scope(assignee_scope),
+            "cycle_scope": _normalize_saved_view_cycle_scope(cycle_scope),
+            "stale_only": bool(stale_only),
+            "relation_scope": _normalize_saved_view_relation_scope(relation_scope),
+            "hierarchy_scope": _normalize_saved_view_hierarchy_scope(hierarchy_scope),
+        }
+
     def _saved_view_matches_issue(
         item: OrbitIssue,
         *,
@@ -2373,6 +2398,13 @@ def create_app(
 
         return summary
 
+    def _saved_view_is_pinned(item: SavedView | None) -> bool:
+        return bool(item and int(item.pin_rank or 0) > 0)
+
+    def _next_saved_view_pin_rank(db: Session, *, user_id: str) -> int:
+        current = db.scalar(select(func.max(SavedView.pin_rank)).where(SavedView.created_by_user_id == user_id))
+        return int(current or 0) + 1
+
     def _system_saved_views(user: User) -> list[dict[str, Any]]:
         return [
             {
@@ -2432,6 +2464,9 @@ def create_app(
             "count": len(matched),
             "kind": definition.get("kind") or "custom",
             "filter_summary": _saved_view_filter_summary(filters, orbit_map=orbit_map),
+            "filters": filters,
+            "pinned": bool(definition.get("pinned")),
+            "pin_rank": int(definition.get("pin_rank") or 0),
             "preview": [
                 _serialize_saved_view_preview_item(item, orbit_map=orbit_map, cycle_map=cycle_map, context=context)
                 for item in matched[:6]
@@ -2452,7 +2487,7 @@ def create_app(
         custom_views = db.scalars(
             select(SavedView)
             .where(SavedView.created_by_user_id == user.id)
-            .order_by(SavedView.updated_at.desc(), SavedView.created_at.desc())
+            .order_by(SavedView.pin_rank.desc(), SavedView.updated_at.desc(), SavedView.created_at.desc())
         ).all()
         entries = [
             _serialize_saved_view_entry(spec, issues=issues, user=user, orbit_map=orbit_map, cycle_map=cycle_map, context=issue_context)
@@ -2466,6 +2501,8 @@ def create_app(
                     "description": item.description,
                     "kind": "custom",
                     "filters": {**(item.filters_json or {}), "orbit_id": item.orbit_id},
+                    "pinned": _saved_view_is_pinned(item),
+                    "pin_rank": int(item.pin_rank or 0),
                     "created_at": item.created_at.isoformat(),
                     "updated_at": item.updated_at.isoformat(),
                 },
@@ -2478,6 +2515,107 @@ def create_app(
             for item in custom_views
         )
         return {"views": entries}
+
+    def _cycle_window_label(item: OrbitCycle) -> str:
+        if item.starts_at or item.ends_at:
+            parts = []
+            if item.starts_at:
+                parts.append(f"{item.starts_at.strftime('%b')} {item.starts_at.day}")
+            if item.ends_at:
+                parts.append(f"{item.ends_at.strftime('%b')} {item.ends_at.day}")
+            if len(parts) == 2:
+                return f"{parts[0]} - {parts[1]}"
+            if parts:
+                return parts[0]
+        return _format_state_label(item.status)
+
+    def _workspace_cycle_tone(issue_payloads: list[dict[str, Any]]) -> str:
+        if not issue_payloads:
+            return "muted"
+        if any(item.get("is_blocked") or item.get("stale") for item in issue_payloads):
+            return "danger"
+        if any(str(item.get("status") or "").strip().lower() in {"in_review", "ready_to_merge"} for item in issue_payloads):
+            return "warning"
+        if any(str(item.get("status") or "").strip().lower() not in {"done", "canceled"} for item in issue_payloads):
+            return "accent"
+        return "success"
+
+    def _serialize_workspace_cycle_entry(
+        db: Session,
+        item: OrbitCycle,
+        *,
+        orbit: Orbit | None,
+        issues: list[OrbitIssue],
+        context: dict[str, Any],
+        cycle_map: dict[str, OrbitCycle],
+    ) -> dict[str, Any]:
+        issue_payloads = [_serialize_orbit_issue(db, issue, context=context) for issue in issues]
+        blocked_count = len([issue for issue in issue_payloads if issue.get("is_blocked")])
+        stale_count = len([issue for issue in issue_payloads if issue.get("stale")])
+        review_count = len([issue for issue in issue_payloads if str(issue.get("status") or "").strip().lower() in {"in_review", "ready_to_merge"}])
+        completed_count = len([issue for issue in issue_payloads if str(issue.get("status") or "").strip().lower() == "done"])
+        sorted_issues = sorted(issues, key=lambda entry: entry.updated_at, reverse=True)
+        return {
+            "id": item.id,
+            "orbit_id": item.orbit_id,
+            "orbit_name": orbit.name if orbit else "Orbit",
+            "label": item.name,
+            "detail": item.goal or f"{orbit.name if orbit else 'Orbit'} delivery cycle",
+            "window_label": _cycle_window_label(item),
+            "tone": _workspace_cycle_tone(issue_payloads),
+            "status": item.status,
+            "goal": item.goal,
+            "starts_at": item.starts_at.isoformat() if item.starts_at else None,
+            "ends_at": item.ends_at.isoformat() if item.ends_at else None,
+            "metrics": {
+                "count": len(sorted_issues),
+                "review": review_count,
+                "blocked": blocked_count,
+                "stale": stale_count,
+                "completed": completed_count,
+            },
+            "highlights": [
+                _serialize_saved_view_preview_item(issue, orbit_map=context["orbit_map"], cycle_map=cycle_map, context=context)
+                for issue in sorted_issues[:6]
+            ],
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+        }
+
+    def _build_planning_cycles_payload(user: User, db: Session) -> dict[str, Any]:
+        memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()
+        orbit_ids = [membership.orbit_id for membership in memberships]
+        orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
+        orbit_map = {orbit.id: orbit for orbit in orbits}
+        cycles = db.scalars(
+            select(OrbitCycle)
+            .where(OrbitCycle.orbit_id.in_(orbit_ids))
+            .order_by(OrbitCycle.starts_at.desc(), OrbitCycle.ends_at.desc(), OrbitCycle.updated_at.desc(), OrbitCycle.created_at.desc())
+        ).all() if orbit_ids else []
+        issues = db.scalars(
+            select(OrbitIssue)
+            .where(OrbitIssue.orbit_id.in_(orbit_ids), OrbitIssue.cycle_id.is_not(None))
+            .order_by(OrbitIssue.updated_at.desc())
+        ).all() if orbit_ids else []
+        issue_context = _build_orbit_issue_context(db, issues)
+        cycle_map = {cycle.id: cycle for cycle in cycles}
+        issues_by_cycle: dict[str, list[OrbitIssue]] = {}
+        for issue in issues:
+            if issue.cycle_id:
+                issues_by_cycle.setdefault(issue.cycle_id, []).append(issue)
+
+        entries = [
+            _serialize_workspace_cycle_entry(
+                db,
+                cycle,
+                orbit=orbit_map.get(cycle.orbit_id),
+                issues=issues_by_cycle.get(cycle.id, []),
+                context=issue_context,
+                cycle_map=cycle_map,
+            )
+            for cycle in cycles
+        ]
+        return {"cycles": entries}
 
     def _resolve_issue_assignee_user_id(db: Session, orbit: Orbit, assignee_user_id: str | None) -> str | None:
         normalized = str(assignee_user_id or "").strip() or None
@@ -3721,6 +3859,10 @@ def create_app(
     def my_work(user: User = Depends(current_user), db: Session = Depends(get_db)) -> MyWorkPayload:
         return MyWorkPayload(**_build_my_work_payload(user, db))
 
+    @app.get("/api/cycles", response_model=PlanningCyclesPayload)
+    def planning_cycles(user: User = Depends(current_user), db: Session = Depends(get_db)) -> PlanningCyclesPayload:
+        return PlanningCyclesPayload(**_build_planning_cycles_payload(user, db))
+
     @app.get("/api/views", response_model=SavedViewsPayload)
     def saved_views(user: User = Depends(current_user), db: Session = Depends(get_db)) -> SavedViewsPayload:
         return SavedViewsPayload(**_build_saved_views_payload(user, db))
@@ -3742,16 +3884,16 @@ def create_app(
             orbit_id=orbit_id,
             name=name,
             description=(payload.description or "").strip() or None,
-            filters_json={
-                "statuses": _normalize_saved_view_statuses(payload.statuses),
-                "priorities": _normalize_saved_view_priorities(payload.priorities),
-                "labels": _normalize_saved_view_labels(payload.labels),
-                "assignee_scope": _normalize_saved_view_assignee_scope(payload.assignee_scope),
-                "cycle_scope": _normalize_saved_view_cycle_scope(payload.cycle_scope),
-                "stale_only": bool(payload.stale_only),
-                "relation_scope": _normalize_saved_view_relation_scope(payload.relation_scope),
-                "hierarchy_scope": _normalize_saved_view_hierarchy_scope(payload.hierarchy_scope),
-            },
+            filters_json=_saved_view_filters_payload(
+                statuses=payload.statuses,
+                priorities=payload.priorities,
+                labels=payload.labels,
+                assignee_scope=payload.assignee_scope,
+                cycle_scope=payload.cycle_scope,
+                stale_only=payload.stale_only,
+                relation_scope=payload.relation_scope,
+                hierarchy_scope=payload.hierarchy_scope,
+            ),
         )
         db.add(saved_view)
         db.flush()
@@ -3763,6 +3905,89 @@ def create_app(
             target_kind="saved_view",
             target_id=saved_view.id,
             metadata_json={"saved_view_id": saved_view.id},
+        )
+        db.commit()
+        return _build_saved_views_payload(user, db)
+
+    @app.patch("/api/views/{view_id}", response_model=SavedViewsPayload)
+    def update_saved_view(
+        view_id: str,
+        payload: SavedViewUpdateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        saved_view = db.scalar(
+            select(SavedView).where(SavedView.id == view_id, SavedView.created_by_user_id == user.id)
+        )
+        if saved_view is None:
+            raise HTTPException(status_code=404, detail="Saved view not found")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if "name" in updates:
+            name = str(updates.get("name") or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Saved view name is required")
+            saved_view.name = name
+        if "description" in updates:
+            saved_view.description = str(updates.get("description") or "").strip() or None
+        if "orbit_id" in updates:
+            orbit_id = str(updates.get("orbit_id") or "").strip() or None
+            if orbit_id is not None:
+                _orbit_for_member(db, orbit_id, user)
+            saved_view.orbit_id = orbit_id
+
+        current_filters = dict(saved_view.filters_json or {})
+        saved_view.filters_json = _saved_view_filters_payload(
+            statuses=updates["statuses"] if "statuses" in updates else current_filters.get("statuses"),
+            priorities=updates["priorities"] if "priorities" in updates else current_filters.get("priorities"),
+            labels=updates["labels"] if "labels" in updates else current_filters.get("labels"),
+            assignee_scope=updates["assignee_scope"] if "assignee_scope" in updates else current_filters.get("assignee_scope"),
+            cycle_scope=updates["cycle_scope"] if "cycle_scope" in updates else current_filters.get("cycle_scope"),
+            stale_only=updates["stale_only"] if "stale_only" in updates else current_filters.get("stale_only"),
+            relation_scope=updates["relation_scope"] if "relation_scope" in updates else current_filters.get("relation_scope"),
+            hierarchy_scope=updates["hierarchy_scope"] if "hierarchy_scope" in updates else current_filters.get("hierarchy_scope"),
+        )
+        if "pinned" in updates:
+            if bool(updates.get("pinned")):
+                if not _saved_view_is_pinned(saved_view):
+                    saved_view.pin_rank = _next_saved_view_pin_rank(db, user_id=user.id)
+            else:
+                saved_view.pin_rank = 0
+
+        saved_view.updated_at = utc_now()
+        record_audit_event(
+            db,
+            orbit_id=saved_view.orbit_id,
+            actor_user_id=user.id,
+            action_type="saved_view.updated",
+            target_kind="saved_view",
+            target_id=saved_view.id,
+            metadata_json={"saved_view_id": saved_view.id, "pinned": _saved_view_is_pinned(saved_view)},
+        )
+        db.commit()
+        return _build_saved_views_payload(user, db)
+
+    @app.delete("/api/views/{view_id}", response_model=SavedViewsPayload)
+    def delete_saved_view(
+        view_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        saved_view = db.scalar(
+            select(SavedView).where(SavedView.id == view_id, SavedView.created_by_user_id == user.id)
+        )
+        if saved_view is None:
+            raise HTTPException(status_code=404, detail="Saved view not found")
+        orbit_id = saved_view.orbit_id
+        db.delete(saved_view)
+        record_audit_event(
+            db,
+            orbit_id=orbit_id,
+            actor_user_id=user.id,
+            action_type="saved_view.deleted",
+            target_kind="saved_view",
+            target_id=view_id,
+            metadata_json={"saved_view_id": view_id},
         )
         db.commit()
         return _build_saved_views_payload(user, db)
@@ -3797,37 +4022,45 @@ def create_app(
     @app.post("/api/orbits")
     def create_orbit(payload: OrbitCreateRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         orbit_slug = _unique_orbit_slug(db, payload.name)
-        installation_context, repo = repo_access.create_repository(
-            db,
-            user=user,
-            name=orbit_slug,
-            description=payload.description,
-            private=payload.private,
+        local_session_orbit = (
+            settings.environment.strip().lower() in {"development", "dev", "local", "test"}
+            and user.access_token == "dev-session"
         )
+        installation_context = None
+        repo = None
+        if not local_session_orbit:
+            installation_context, repo = repo_access.create_repository(
+                db,
+                user=user,
+                name=orbit_slug,
+                description=payload.description,
+                private=payload.private,
+            )
         orbit = Orbit(
             slug=orbit_slug,
             name=payload.name,
             description=payload.description,
             logo=payload.logo,
-            repo_owner=repo["owner"]["login"],
-            repo_name=repo["name"],
-            repo_full_name=repo["full_name"],
-            repo_url=repo["html_url"],
-            repo_private=bool(repo["private"]),
-            default_branch=repo.get("default_branch") or "main",
+            repo_owner=repo["owner"]["login"] if repo else None,
+            repo_name=repo["name"] if repo else None,
+            repo_full_name=repo["full_name"] if repo else None,
+            repo_url=repo["html_url"] if repo else None,
+            repo_private=bool(repo["private"]) if repo else payload.private,
+            default_branch=repo.get("default_branch") or "main" if repo else "main",
             created_by_user_id=user.id,
         )
         db.add(orbit)
         db.flush()
         db.add(OrbitMembership(orbit_id=orbit.id, user_id=user.id, role="owner", introduced=True))
-        repository = upsert_repository_connection(db, installation=installation_context.installation, repo_payload=repo)
-        bind_repository_to_orbit(
-            db,
-            orbit=orbit,
-            repository=repository,
-            added_by_user_id=user.id,
-            make_primary=True,
-        )
+        if installation_context and repo:
+            repository = upsert_repository_connection(db, installation=installation_context.installation, repo_payload=repo)
+            bind_repository_to_orbit(
+                db,
+                orbit=orbit,
+                repository=repository,
+                added_by_user_id=user.id,
+                make_primary=True,
+            )
         _ensure_default_orbit_records(db, orbit, user)
         general = _orbit_channel(db, orbit.id)
         db.add(
@@ -4329,6 +4562,82 @@ def create_app(
         )
         db.commit()
         return _serialize_orbit_cycle(db, cycle)
+
+    @app.patch("/api/orbits/{orbit_id}/cycles/{cycle_id}")
+    def update_orbit_cycle(
+        orbit_id: str,
+        cycle_id: str,
+        payload: OrbitCycleUpdateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        if not role_at_least(permission_snapshot.orbit_role, ORBIT_ROLE_CONTRIBUTOR):
+            raise HTTPException(status_code=403, detail="Only contributors and above can update cycles.")
+        cycle = db.get(OrbitCycle, cycle_id)
+        if cycle is None or cycle.orbit_id != orbit.id:
+            raise HTTPException(status_code=404, detail="Cycle not found")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if "name" in updates:
+            name = str(updates.get("name") or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Cycle name is required")
+            cycle.name = name
+        if "goal" in updates:
+            cycle.goal = str(updates.get("goal") or "").strip() or None
+        if "status" in updates:
+            cycle.status = str(updates.get("status") or "active").strip().lower() or "active"
+        if "starts_at" in updates:
+            cycle.starts_at = updates.get("starts_at")
+        if "ends_at" in updates:
+            cycle.ends_at = updates.get("ends_at")
+        cycle.updated_at = utc_now()
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="cycle.updated",
+            target_kind="cycle",
+            target_id=cycle.id,
+            metadata_json={"name": cycle.name, "status": cycle.status},
+        )
+        db.commit()
+        return _serialize_orbit_cycle(db, cycle)
+
+    @app.delete("/api/orbits/{orbit_id}/cycles/{cycle_id}")
+    def delete_orbit_cycle(
+        orbit_id: str,
+        cycle_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        if not role_at_least(permission_snapshot.orbit_role, ORBIT_ROLE_CONTRIBUTOR):
+            raise HTTPException(status_code=403, detail="Only contributors and above can delete cycles.")
+        cycle = db.get(OrbitCycle, cycle_id)
+        if cycle is None or cycle.orbit_id != orbit.id:
+            raise HTTPException(status_code=404, detail="Cycle not found")
+
+        issue_count = 0
+        for issue in db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id == orbit.id, OrbitIssue.cycle_id == cycle.id)).all():
+            issue.cycle_id = None
+            issue.updated_at = utc_now()
+            issue_count += 1
+        db.delete(cycle)
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="cycle.deleted",
+            target_kind="cycle",
+            target_id=cycle_id,
+            metadata_json={"issue_count": issue_count},
+        )
+        db.commit()
+        return {"ok": True, "id": cycle_id}
 
     @app.post("/api/orbits/{orbit_id}/native-issues")
     def create_native_orbit_issue(

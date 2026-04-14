@@ -5,8 +5,10 @@ import {
   Filter,
   FolderOpen,
   Layers3,
+  Pin,
   Plus,
   Search,
+  Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -36,19 +38,28 @@ import {
 } from "@/components/ui";
 import {
   AuthSessionError,
+  createOrbitCycle,
   createSavedView,
+  deleteOrbitCycle,
+  deleteSavedView,
+  fetchPlanningCycles,
   fetchMyWork,
   fetchPreferences,
   fetchSavedViews,
   readSession,
+  updateOrbitCycle,
+  updateSavedView,
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
-import {
-  derivePlanningCycles,
-  type PlanningCycle,
-  type PlanningPreview,
-} from "@/lib/planning-derived";
-import type { MyWorkPayload, NotificationItem, SavedPlanningView, SavedViewsPayload } from "@/lib/types";
+import type {
+  MyWorkPayload,
+  NotificationItem,
+  PlanningCycleSummary,
+  PlanningCyclesPayload,
+  SavedPlanningView,
+  SavedViewPreview,
+  SavedViewsPayload,
+} from "@/lib/types";
 
 type PlanningMode = "cycles" | "views";
 
@@ -66,6 +77,15 @@ type ViewDraft = {
   hierarchyScope: "any" | "root" | "parent" | "child";
 };
 
+type CycleDraft = {
+  orbitId: string;
+  name: string;
+  goal: string;
+  status: "active" | "planned" | "completed" | "archived";
+  startsAt: string;
+  endsAt: string;
+};
+
 const VIEW_DRAFT: ViewDraft = {
   name: "",
   description: "",
@@ -80,8 +100,63 @@ const VIEW_DRAFT: ViewDraft = {
   hierarchyScope: "any",
 };
 
+const CYCLE_DRAFT: CycleDraft = {
+  orbitId: "",
+  name: "",
+  goal: "",
+  status: "active",
+  startsAt: "",
+  endsAt: "",
+};
+
 function toggleSelection(values: string[], value: string) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function isoDate(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+  return value.slice(0, 10);
+}
+
+function hydrateViewDraft(view: SavedPlanningView): ViewDraft {
+  return {
+    name: view.label,
+    description: view.detail,
+    orbitId: view.filters.orbit_id || "",
+    statuses: [...view.filters.statuses],
+    priorities: [...view.filters.priorities],
+    labels: [...view.filters.labels],
+    assigneeScope: view.filters.assignee_scope === "me" ? "me" : "all",
+    cycleScope:
+      view.filters.cycle_scope === "with_cycle" || view.filters.cycle_scope === "without_cycle"
+        ? view.filters.cycle_scope
+        : "any",
+    staleOnly: Boolean(view.filters.stale_only),
+    relationScope:
+      view.filters.relation_scope === "blocked" || view.filters.relation_scope === "related"
+        ? view.filters.relation_scope
+        : "any",
+    hierarchyScope:
+      view.filters.hierarchy_scope === "root" || view.filters.hierarchy_scope === "parent" || view.filters.hierarchy_scope === "child"
+        ? view.filters.hierarchy_scope
+        : "any",
+  };
+}
+
+function hydrateCycleDraft(cycle: PlanningCycleSummary): CycleDraft {
+  return {
+    orbitId: cycle.orbit_id,
+    name: cycle.label,
+    goal: cycle.goal || "",
+    status:
+      cycle.status === "planned" || cycle.status === "completed" || cycle.status === "archived"
+        ? cycle.status
+        : "active",
+    startsAt: isoDate(cycle.starts_at),
+    endsAt: isoDate(cycle.ends_at),
+  };
 }
 
 function notificationTone(item: NotificationItem) {
@@ -128,7 +203,7 @@ function PreviewRows({
   items,
   onOpen,
 }: {
-  items: PlanningPreview[];
+  items: SavedViewPreview[];
   onOpen: (href: string) => void;
 }) {
   if (!items.length) {
@@ -160,9 +235,13 @@ function PreviewRows({
 function PlanningCycleDetail({
   cycle,
   onOpen,
+  onEdit,
+  onDelete,
 }: {
-  cycle: PlanningCycle;
+  cycle: PlanningCycleSummary;
   onOpen: (href: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   return (
     <Panel className="flex min-h-0 flex-col overflow-hidden">
@@ -171,8 +250,21 @@ function PlanningCycleDetail({
           <div className="min-w-0">
             <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{cycle.label}</p>
             <p className="mt-1 text-xs leading-5 text-quiet">{cycle.detail}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <StatusPill tone="muted">{cycle.orbit_name}</StatusPill>
+              <StatusPill tone="muted">{cycle.status.replaceAll("_", " ")}</StatusPill>
+            </div>
           </div>
-          <StatusPill tone={cycle.tone}>{cycle.windowLabel}</StatusPill>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={cycle.tone}>{cycle.window_label}</StatusPill>
+            <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onEdit}>
+              Edit cycle
+            </GhostButton>
+            <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onDelete}>
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </GhostButton>
+          </div>
         </div>
       </div>
       <div className="grid gap-3 border-b border-line px-4 py-3 md:grid-cols-3">
@@ -189,6 +281,16 @@ function PlanningCycleDetail({
           <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{cycle.metrics.blocked}</p>
         </SurfaceCard>
       </div>
+      <div className="grid gap-3 border-b border-line px-4 py-3 md:grid-cols-2">
+        <SurfaceCard className="bg-panelStrong p-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Stale work</p>
+          <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{cycle.metrics.stale}</p>
+        </SurfaceCard>
+        <SurfaceCard className="bg-panelStrong p-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Completed</p>
+          <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{cycle.metrics.completed}</p>
+        </SurfaceCard>
+      </div>
       <ScrollPanel className="flex-1 px-4 py-3">
         <PreviewRows items={cycle.highlights} onOpen={onOpen} />
       </ScrollPanel>
@@ -199,9 +301,15 @@ function PlanningCycleDetail({
 function PlanningViewDetail({
   view,
   onOpen,
+  onPinToggle,
+  onEdit,
+  onDelete,
 }: {
   view: SavedPlanningView;
   onOpen: (href: string) => void;
+  onPinToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   return (
     <Panel className="flex min-h-0 flex-col overflow-hidden">
@@ -211,9 +319,26 @@ function PlanningViewDetail({
             <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{view.label}</p>
             <p className="mt-1 text-xs leading-5 text-quiet">{view.detail}</p>
           </div>
-          <StatusPill tone={view.kind === "custom" ? "accent" : "muted"}>
-            {view.kind === "custom" ? "Custom view" : "System view"}
-          </StatusPill>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={view.kind === "custom" ? "accent" : "muted"}>
+              {view.kind === "custom" ? (view.pinned ? "Pinned custom view" : "Custom view") : "System view"}
+            </StatusPill>
+            {view.kind === "custom" ? (
+              <>
+                <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onPinToggle}>
+                  <Pin className="h-3.5 w-3.5" />
+                  {view.pinned ? "Unpin" : "Pin"}
+                </GhostButton>
+                <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onEdit}>
+                  Edit
+                </GhostButton>
+                <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onDelete}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </GhostButton>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="grid gap-3 border-b border-line px-4 py-3 md:grid-cols-3">
@@ -244,13 +369,19 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<MyWorkPayload | null>(null);
+  const [planningCyclesPayload, setPlanningCyclesPayload] = useState<PlanningCyclesPayload | null>(null);
   const [savedViewsPayload, setSavedViewsPayload] = useState<SavedViewsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateView, setShowCreateView] = useState(false);
+  const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [viewDraft, setViewDraft] = useState<ViewDraft>(VIEW_DRAFT);
   const [creatingView, setCreatingView] = useState(false);
+  const [showCycleEditor, setShowCycleEditor] = useState(false);
+  const [editingCycleId, setEditingCycleId] = useState<string | null>(null);
+  const [cycleDraft, setCycleDraft] = useState<CycleDraft>(CYCLE_DRAFT);
+  const [savingCycle, setSavingCycle] = useState(false);
 
   async function reload() {
     const nextSession = readSession();
@@ -260,13 +391,15 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
       return;
     }
     try {
-      const [nextPayload, preferences, nextSavedViews] = await Promise.all([
+      const [nextPayload, preferences, nextSavedViews, nextCycles] = await Promise.all([
         fetchMyWork(nextSession.token),
         fetchPreferences(nextSession.token),
         planningMode === "views" ? fetchSavedViews(nextSession.token) : Promise.resolve(null),
+        planningMode === "cycles" ? fetchPlanningCycles(nextSession.token) : Promise.resolve(null),
       ]);
       setPayload(nextPayload);
       setSavedViewsPayload(nextSavedViews);
+      setPlanningCyclesPayload(nextCycles);
       if (preferences.theme_preference !== mode) {
         setMode(preferences.theme_preference);
       }
@@ -286,13 +419,13 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
     void reload();
   }, [planningMode]);
 
-  async function onCreateView() {
+  async function onSaveView() {
     if (!session || !viewDraft.name.trim()) {
       return;
     }
     setCreatingView(true);
     try {
-      const nextSavedViews = await createSavedView(session.token, {
+      const payload = {
         name: viewDraft.name.trim(),
         description: viewDraft.description.trim() || null,
         orbit_id: viewDraft.orbitId || null,
@@ -304,30 +437,107 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         stale_only: viewDraft.staleOnly,
         relation_scope: viewDraft.relationScope,
         hierarchy_scope: viewDraft.hierarchyScope,
-      });
+      };
+      const nextSavedViews = editingViewId
+        ? await updateSavedView(session.token, editingViewId, payload)
+        : await createSavedView(session.token, payload);
       setSavedViewsPayload(nextSavedViews);
       setShowCreateView(false);
+      setEditingViewId(null);
       setViewDraft(VIEW_DRAFT);
-      const created = nextSavedViews.views.find(
-        (entry) => entry.kind === "custom" && entry.label === viewDraft.name.trim(),
+      const savedEntry = nextSavedViews.views.find(
+        (entry) => entry.kind === "custom" && entry.label === payload.name,
       );
-      setSelectedId(created?.id ?? nextSavedViews.views[0]?.id ?? null);
+      setSelectedId(savedEntry?.id ?? nextSavedViews.views[0]?.id ?? null);
       setError(null);
     } catch (nextError) {
       if (nextError instanceof AuthSessionError) {
         setSession(null);
         setPayload(null);
         setSavedViewsPayload(null);
+        setPlanningCyclesPayload(null);
         router.replace("/");
         return;
       }
-      setError(nextError instanceof Error ? nextError.message : "Unable to create the saved view.");
+      setError(nextError instanceof Error ? nextError.message : "Unable to save the view.");
     } finally {
       setCreatingView(false);
     }
   }
 
-  const cycles = useMemo(() => (payload ? derivePlanningCycles(payload) : []), [payload]);
+  async function onTogglePinView(view: SavedPlanningView) {
+    if (!session || view.kind !== "custom") {
+      return;
+    }
+    try {
+      const nextSavedViews = await updateSavedView(session.token, view.id, { pinned: !view.pinned });
+      setSavedViewsPayload(nextSavedViews);
+      setSelectedId(view.id);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update the view pin.");
+    }
+  }
+
+  async function onDeleteView(view: SavedPlanningView) {
+    if (!session || view.kind !== "custom" || !window.confirm(`Delete ${view.label}?`)) {
+      return;
+    }
+    try {
+      const nextSavedViews = await deleteSavedView(session.token, view.id);
+      setSavedViewsPayload(nextSavedViews);
+      setSelectedId(nextSavedViews.views[0]?.id ?? null);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to delete the saved view.");
+    }
+  }
+
+  async function onSaveCycle() {
+    if (!session || !cycleDraft.name.trim() || !cycleDraft.orbitId) {
+      return;
+    }
+    setSavingCycle(true);
+    try {
+      const payload = {
+        name: cycleDraft.name.trim(),
+        goal: cycleDraft.goal.trim() || null,
+        status: cycleDraft.status,
+        starts_at: cycleDraft.startsAt ? new Date(`${cycleDraft.startsAt}T00:00:00Z`).toISOString() : null,
+        ends_at: cycleDraft.endsAt ? new Date(`${cycleDraft.endsAt}T00:00:00Z`).toISOString() : null,
+      };
+      if (editingCycleId) {
+        await updateOrbitCycle(session.token, cycleDraft.orbitId, editingCycleId, payload);
+      } else {
+        await createOrbitCycle(session.token, cycleDraft.orbitId, payload);
+      }
+      await reload();
+      setShowCycleEditor(false);
+      setEditingCycleId(null);
+      setCycleDraft(CYCLE_DRAFT);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to save the cycle.");
+    } finally {
+      setSavingCycle(false);
+    }
+  }
+
+  async function onDeleteCycle(cycle: PlanningCycleSummary) {
+    if (!session || !window.confirm(`Delete ${cycle.label}?`)) {
+      return;
+    }
+    try {
+      await deleteOrbitCycle(session.token, cycle.orbit_id, cycle.id);
+      await reload();
+      setSelectedId(null);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to delete the cycle.");
+    }
+  }
+
+  const cycles = useMemo(() => planningCyclesPayload?.cycles ?? [], [planningCyclesPayload]);
   const views = useMemo(() => savedViewsPayload?.views ?? [], [savedViewsPayload]);
 
   const entries = planningMode === "cycles" ? cycles : views;
@@ -351,7 +561,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
   }, [filteredEntries, selectedId]);
 
   const selectedCycle = planningMode === "cycles"
-    ? filteredEntries.find((entry): entry is PlanningCycle => entry.id === selectedId) ?? filteredEntries[0] as PlanningCycle | undefined
+    ? filteredEntries.find((entry): entry is PlanningCycleSummary => entry.id === selectedId) ?? filteredEntries[0] as PlanningCycleSummary | undefined
     : undefined;
   const selectedView = planningMode === "views"
     ? filteredEntries.find((entry): entry is SavedPlanningView => entry.id === selectedId) ?? filteredEntries[0] as SavedPlanningView | undefined
@@ -378,10 +588,10 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
 
   const searchResults = useMemo(() => {
     if (planningMode === "cycles") {
-      return (filteredEntries as PlanningCycle[]).map((entry) => ({
+      return (filteredEntries as PlanningCycleSummary[]).map((entry) => ({
         key: entry.id,
         label: entry.label,
-        detail: entry.windowLabel,
+        detail: entry.window_label,
       }));
     }
     return (filteredEntries as SavedPlanningView[]).map((entry) => ({
@@ -450,7 +660,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         detail: view.detail,
         tone: view.tone,
       }));
-  const cycleEntries = planningMode === "cycles" ? (filteredEntries as PlanningCycle[]) : [];
+  const cycleEntries = planningMode === "cycles" ? (filteredEntries as PlanningCycleSummary[]) : [];
   const viewEntries = planningMode === "views" ? (filteredEntries as SavedPlanningView[]) : [];
 
   return (
@@ -463,7 +673,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
           <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-ink">{planningMode === "cycles" ? "Cycles" : "Views"}</h1>
           <p className="mt-2 max-w-[64ch] text-sm leading-6 text-quiet">
             {planningMode === "cycles"
-              ? "These windows keep execution, review pressure, and risk visible in one place while the native cycle model is still being introduced."
+              ? "Real orbit cycles now carry scope, review pressure, and delivery risk across the workspace."
               : "Saved views pin real issue slices across orbits so planning stays operational and repeatable instead of getting rebuilt from scratch."}
           </p>
         </div>
@@ -473,10 +683,22 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
             Open my work
           </GhostButton>
           {planningMode === "cycles" ? (
-            <ActionButton onClick={() => router.push("/app/views")}>
-              <Filter className="h-4 w-4" />
-              Open views
-            </ActionButton>
+            <>
+              <GhostButton onClick={() => router.push("/app/views")}>
+                <Filter className="h-4 w-4" />
+                Open views
+              </GhostButton>
+              <ActionButton
+                onClick={() => {
+                  setEditingCycleId(null);
+                  setCycleDraft({ ...CYCLE_DRAFT, orbitId: payload.recent_orbits[0]?.id || "" });
+                  setShowCycleEditor(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                New cycle
+              </ActionButton>
+            </>
           ) : (
             <>
               <GhostButton onClick={() => router.push("/app/cycles")}>
@@ -515,7 +737,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
             </p>
             <p className="mt-1 text-xs text-quiet">
               {planningMode === "cycles"
-                ? "Choose the lane you want to inspect without leaving the main shell."
+                ? "Real orbit cycles grouped across the workspace."
                 : "Saved views stay focused on native issue work, not chat threads or one-off filters."}
             </p>
           </div>
@@ -525,7 +747,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
                 ? cycleEntries.map((entry) => (
                     <ListRow
                       key={entry.id}
-                      eyebrow={entry.windowLabel}
+                      eyebrow={entry.window_label}
                       title={entry.label}
                       detail={entry.detail}
                       active={entry.id === selectedId}
@@ -536,7 +758,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
                 : viewEntries.map((entry) => (
                     <ListRow
                       key={entry.id}
-                      eyebrow={entry.kind === "custom" ? "Custom view" : "System view"}
+                      eyebrow={entry.kind === "custom" ? (entry.pinned ? "Pinned custom view" : "Custom view") : "System view"}
                       title={entry.label}
                       detail={entry.detail}
                       active={entry.id === selectedId}
@@ -549,17 +771,36 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         </Panel>
 
         {planningMode === "cycles" && selectedCycle ? (
-          <PlanningCycleDetail cycle={selectedCycle} onOpen={(href) => router.push(href)} />
+          <PlanningCycleDetail
+            cycle={selectedCycle}
+            onOpen={(href) => router.push(href)}
+            onEdit={() => {
+              setEditingCycleId(selectedCycle.id);
+              setCycleDraft(hydrateCycleDraft(selectedCycle));
+              setShowCycleEditor(true);
+            }}
+            onDelete={() => void onDeleteCycle(selectedCycle)}
+          />
         ) : planningMode === "cycles" ? (
           <Panel className="flex min-h-0 items-center justify-center p-6">
             <EmptyState
-              title="No cycle windows"
-              detail="Cycle windows will populate as work, review pressure, and risk signals land in the shell."
+              title="No cycles"
+              detail="Create a real orbit cycle to start grouping native issue work across the workspace."
             />
           </Panel>
         ) : null}
         {planningMode === "views" && selectedView ? (
-          <PlanningViewDetail view={selectedView} onOpen={(href) => router.push(href)} />
+          <PlanningViewDetail
+            view={selectedView}
+            onOpen={(href) => router.push(href)}
+            onPinToggle={() => void onTogglePinView(selectedView)}
+            onEdit={() => {
+              setEditingViewId(selectedView.id);
+              setViewDraft(hydrateViewDraft(selectedView));
+              setShowCreateView(true);
+            }}
+            onDelete={() => void onDeleteView(selectedView)}
+          />
         ) : planningMode === "views" ? (
           <Panel className="flex min-h-0 items-center justify-center p-6">
             <EmptyState
@@ -604,14 +845,26 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
 
       <CenteredModal
         open={planningMode === "views" && showCreateView}
-        onClose={() => setShowCreateView(false)}
-        title="Create saved view"
+        onClose={() => {
+          setShowCreateView(false);
+          setEditingViewId(null);
+          setViewDraft(VIEW_DRAFT);
+        }}
+        title={editingViewId ? "Edit saved view" : "Create saved view"}
         description="Pin a native issue slice so the shell keeps surfacing it without rebuilding filters every time."
         footer={
           <div className="flex items-center justify-end gap-3">
-            <GhostButton onClick={() => setShowCreateView(false)}>Cancel</GhostButton>
-            <ActionButton onClick={() => void onCreateView()} disabled={creatingView || !viewDraft.name.trim()}>
-              {creatingView ? "Creating…" : "Create view"}
+            <GhostButton
+              onClick={() => {
+                setShowCreateView(false);
+                setEditingViewId(null);
+                setViewDraft(VIEW_DRAFT);
+              }}
+            >
+              Cancel
+            </GhostButton>
+            <ActionButton onClick={() => void onSaveView()} disabled={creatingView || !viewDraft.name.trim()}>
+              {creatingView ? "Saving…" : editingViewId ? "Save view" : "Create view"}
             </ActionButton>
           </div>
         }
@@ -812,6 +1065,99 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
                 </SelectionChip>
               </div>
             </div>
+          </div>
+        </div>
+      </CenteredModal>
+
+      <CenteredModal
+        open={planningMode === "cycles" && showCycleEditor}
+        onClose={() => {
+          setShowCycleEditor(false);
+          setEditingCycleId(null);
+          setCycleDraft(CYCLE_DRAFT);
+        }}
+        title={editingCycleId ? "Edit cycle" : "Create cycle"}
+        description="Keep delivery commitments explicit across each orbit instead of deriving them from queue pressure."
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <GhostButton
+              onClick={() => {
+                setShowCycleEditor(false);
+                setEditingCycleId(null);
+                setCycleDraft(CYCLE_DRAFT);
+              }}
+            >
+              Cancel
+            </GhostButton>
+            <ActionButton onClick={() => void onSaveCycle()} disabled={savingCycle || !cycleDraft.orbitId || !cycleDraft.name.trim()}>
+              {savingCycle ? "Saving…" : editingCycleId ? "Save cycle" : "Create cycle"}
+            </ActionButton>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="grid gap-2">
+            <FieldLabel>Orbit</FieldLabel>
+            <select
+              value={cycleDraft.orbitId}
+              onChange={(event) => setCycleDraft((current) => ({ ...current, orbitId: event.target.value }))}
+              disabled={Boolean(editingCycleId)}
+              className="rounded-chip border border-line bg-panel px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">Select orbit</option>
+              {payload.recent_orbits.map((orbit) => (
+                <option key={orbit.id} value={orbit.id}>
+                  {orbit.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-2">
+            <FieldLabel>Name</FieldLabel>
+            <TextInput
+              value={cycleDraft.name}
+              onChange={(event) => setCycleDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="April stabilization"
+            />
+          </label>
+          <label className="grid gap-2">
+            <FieldLabel>Goal</FieldLabel>
+            <TextArea
+              value={cycleDraft.goal}
+              onChange={(event) => setCycleDraft((current) => ({ ...current, goal: event.target.value }))}
+              placeholder="Land the PM shell cleanup and unblock release review."
+            />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="grid gap-2">
+              <FieldLabel>Status</FieldLabel>
+              <select
+                value={cycleDraft.status}
+                onChange={(event) => setCycleDraft((current) => ({ ...current, status: event.target.value as CycleDraft["status"] }))}
+                className="rounded-chip border border-line bg-panel px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing"
+              >
+                <option value="active">Active</option>
+                <option value="planned">Planned</option>
+                <option value="completed">Completed</option>
+                <option value="archived">Archived</option>
+              </select>
+            </label>
+            <label className="grid gap-2">
+              <FieldLabel>Starts</FieldLabel>
+              <TextInput
+                type="date"
+                value={cycleDraft.startsAt}
+                onChange={(event) => setCycleDraft((current) => ({ ...current, startsAt: event.target.value }))}
+              />
+            </label>
+            <label className="grid gap-2">
+              <FieldLabel>Ends</FieldLabel>
+              <TextInput
+                type="date"
+                value={cycleDraft.endsAt}
+                onChange={(event) => setCycleDraft((current) => ({ ...current, endsAt: event.target.value }))}
+              />
+            </label>
           </div>
         </div>
       </CenteredModal>

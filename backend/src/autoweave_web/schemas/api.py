@@ -50,6 +50,14 @@ class OrbitCycleCreateRequest(BaseModel):
     ends_at: datetime | None = None
 
 
+class OrbitCycleUpdateRequest(BaseModel):
+    name: str | None = None
+    goal: str | None = None
+    status: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
 class OrbitIssueCreateRequest(BaseModel):
     title: str
     detail: str | None = None
@@ -90,6 +98,21 @@ class SavedViewCreateRequest(BaseModel):
     stale_only: bool = False
     relation_scope: str = "any"
     hierarchy_scope: str = "any"
+
+
+class SavedViewUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    orbit_id: str | None = None
+    statuses: list[str] | None = None
+    priorities: list[str] | None = None
+    labels: list[str] | None = None
+    assignee_scope: str | None = None
+    cycle_scope: str | None = None
+    stale_only: bool | None = None
+    relation_scope: str | None = None
+    hierarchy_scope: str | None = None
+    pinned: bool | None = None
 
 
 class MessageCreateRequest(BaseModel):
@@ -179,6 +202,10 @@ class MyWorkPayload(BaseModel):
 
 class SavedViewsPayload(BaseModel):
     views: list[dict] = Field(default_factory=list)
+
+
+class PlanningCyclesPayload(BaseModel):
+    cycles: list[dict] = Field(default_factory=list)
 
 
 class InboxPayload(BaseModel):

@@ -20,6 +20,7 @@ import type {
   OrbitCycle,
   OrbitPayload,
   OrbitSearchResult,
+  PlanningCyclesPayload,
   Session,
   SavedViewsPayload,
   UserPreferences,
@@ -155,12 +156,24 @@ export async function fetchMyWork(token: string) {
   return request<MyWorkPayload>("/api/my-work", {}, token);
 }
 
+export async function fetchPlanningCycles(token: string) {
+  return request<PlanningCyclesPayload>("/api/cycles", {}, token);
+}
+
 export async function fetchSavedViews(token: string) {
   return request<SavedViewsPayload>("/api/views", {}, token);
 }
 
 export async function createSavedView(token: string, payload: Record<string, unknown>) {
   return request<SavedViewsPayload>("/api/views", { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function updateSavedView(token: string, viewId: string, payload: Record<string, unknown>) {
+  return request<SavedViewsPayload>(`/api/views/${viewId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+}
+
+export async function deleteSavedView(token: string, viewId: string) {
+  return request<SavedViewsPayload>(`/api/views/${viewId}`, { method: "DELETE" }, token);
 }
 
 export async function fetchInbox(token: string) {
@@ -246,6 +259,19 @@ export async function createOrbitCycle(
   payload: Record<string, unknown>,
 ) {
   return request<OrbitCycle>(`/api/orbits/${orbitId}/cycles`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function updateOrbitCycle(
+  token: string,
+  orbitId: string,
+  cycleId: string,
+  payload: Record<string, unknown>,
+) {
+  return request<OrbitCycle>(`/api/orbits/${orbitId}/cycles/${cycleId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+}
+
+export async function deleteOrbitCycle(token: string, orbitId: string, cycleId: string) {
+  return request<{ ok: boolean; id: string }>(`/api/orbits/${orbitId}/cycles/${cycleId}`, { method: "DELETE" }, token);
 }
 
 export async function createOrbitIssue(

@@ -521,6 +521,42 @@ export type SavedViewPreview = {
   timestamp?: string;
 };
 
+export type SavedViewFilters = {
+  orbit_id?: string | null;
+  statuses: string[];
+  priorities: string[];
+  labels: string[];
+  assignee_scope: string;
+  cycle_scope: string;
+  stale_only: boolean;
+  relation_scope: string;
+  hierarchy_scope: string;
+};
+
+export type PlanningCycleSummary = {
+  id: string;
+  orbit_id: string;
+  orbit_name: string;
+  label: string;
+  detail: string;
+  window_label: string;
+  tone: "accent" | "danger" | "muted" | "success" | "warning";
+  status: string;
+  goal?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  metrics: {
+    count: number;
+    review: number;
+    blocked: number;
+    stale: number;
+    completed: number;
+  };
+  highlights: SavedViewPreview[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type SavedPlanningView = {
   id: string;
   label: string;
@@ -529,6 +565,9 @@ export type SavedPlanningView = {
   count: number;
   kind: "system" | "custom";
   filter_summary: string[];
+  filters: SavedViewFilters;
+  pinned: boolean;
+  pin_rank: number;
   preview: SavedViewPreview[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -536,6 +575,10 @@ export type SavedPlanningView = {
 
 export type SavedViewsPayload = {
   views: SavedPlanningView[];
+};
+
+export type PlanningCyclesPayload = {
+  cycles: PlanningCycleSummary[];
 };
 
 export type InboxBucketKey = "all" | "review" | "blocked" | "stale" | "approvals" | "mentions" | "agent" | "sources";

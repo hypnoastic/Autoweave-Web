@@ -108,6 +108,40 @@ def test_local_dev_session_bootstrap_reuses_existing_hyphenated_user_login(clien
     assert payload["user"]["display_name"] == "Reused Dev Session"
 
 
+def test_local_dev_session_can_create_orbit_without_live_github_repo(client):
+    response = client.post(
+        "/api/auth/dev-session",
+        json={
+            "github_login": "playwright_dev",
+            "display_name": "Playwright Dev",
+            "email": "playwright@example.com",
+        },
+    )
+    assert response.status_code == 200
+    token = response.json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    orbit_response = client.post(
+        "/api/orbits",
+        json={
+            "name": "Planning Validation",
+            "description": "Local PM browser harness orbit.",
+            "private": True,
+        },
+        headers=headers,
+    )
+    assert orbit_response.status_code == 200
+    orbit = orbit_response.json()
+    assert orbit["name"] == "Planning Validation"
+    assert orbit["repo_full_name"] is None
+    assert orbit["default_branch"] == "main"
+
+    dashboard = client.get("/api/dashboard", headers=headers)
+    assert dashboard.status_code == 200
+    payload = dashboard.json()
+    assert payload["recent_orbits"][0]["id"] == orbit["id"]
+
+
 def test_orbit_native_issue_and_cycle_flow_are_available_in_orbit_payload(client):
     token, _user = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
@@ -302,6 +336,132 @@ def test_saved_views_can_be_created_over_native_issue_filters(client):
     listed_payload = listed.json()
     assert any(item["label"] == "Assigned to me" for item in listed_payload["views"])
     assert any(item["label"] == "High priority cycle work" for item in listed_payload["views"])
+
+
+def test_saved_views_can_be_pinned_updated_and_deleted(client):
+    token, _user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Risk watch",
+            "description": "Track blocked work.",
+            "orbit_id": orbit["id"],
+            "relation_scope": "blocked",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    custom_view = next(item for item in created.json()["views"] if item["kind"] == "custom")
+
+    updated = client.patch(
+        f"/api/views/{custom_view['id']}",
+        json={
+            "name": "Pinned risk watch",
+            "description": "Track blocked work that must move first.",
+            "pinned": True,
+            "stale_only": True,
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    updated_view = next(item for item in updated.json()["views"] if item["id"] == custom_view["id"])
+    assert updated_view["label"] == "Pinned risk watch"
+    assert updated_view["pinned"] is True
+    assert updated_view["pin_rank"] > 0
+    assert updated_view["filters"]["stale_only"] is True
+
+    deleted = client.delete(f"/api/views/{custom_view['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert all(item["id"] != custom_view["id"] for item in deleted.json()["views"])
+
+
+def test_planning_cycles_surface_uses_real_cycles_and_supports_updates(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    cycle_response = client.post(
+        f"/api/orbits/{orbit['id']}/cycles",
+        json={
+            "name": "April stabilization",
+            "goal": "Land the PM shell cleanup.",
+            "starts_at": "2026-04-14T00:00:00Z",
+            "ends_at": "2026-04-25T00:00:00Z",
+        },
+        headers=headers,
+    )
+    assert cycle_response.status_code == 200
+    cycle = cycle_response.json()
+
+    blocker_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Land the dependency parser",
+            "detail": "This has to move first.",
+            "priority": "high",
+            "status": "in_progress",
+        },
+        headers=headers,
+    )
+    assert blocker_response.status_code == 200
+    blocker_issue = blocker_response.json()
+
+    blocked_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Ship the cycle controls",
+            "detail": "Blocked while the parser is landing.",
+            "priority": "high",
+            "status": "planned",
+            "assignee_user_id": user["id"],
+            "cycle_id": cycle["id"],
+            "blocked_by_issue_ids": [blocker_issue["id"]],
+        },
+        headers=headers,
+    )
+    assert blocked_response.status_code == 200
+
+    review_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Review cycle ownership",
+            "detail": "Waiting for review follow-up.",
+            "priority": "medium",
+            "status": "in_review",
+            "assignee_user_id": user["id"],
+            "cycle_id": cycle["id"],
+        },
+        headers=headers,
+    )
+    assert review_response.status_code == 200
+
+    cycles_payload = client.get("/api/cycles", headers=headers)
+    assert cycles_payload.status_code == 200
+    cycle_entry = next(item for item in cycles_payload.json()["cycles"] if item["id"] == cycle["id"])
+    assert cycle_entry["label"] == "April stabilization"
+    assert cycle_entry["metrics"]["count"] == 2
+    assert cycle_entry["metrics"]["review"] == 1
+    assert cycle_entry["metrics"]["blocked"] == 1
+
+    updated = client.patch(
+        f"/api/orbits/{orbit['id']}/cycles/{cycle['id']}",
+        json={"name": "April release control", "status": "planned"},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "April release control"
+    assert updated.json()["status"] == "planned"
+
+    deleted = client.delete(f"/api/orbits/{orbit['id']}/cycles/{cycle['id']}", headers=headers)
+    assert deleted.status_code == 200
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    issue = next(item for item in orbit_payload.json()["native_issues"] if item["title"] == "Ship the cycle controls")
+    assert issue["cycle_id"] is None
 
 
 def test_inbox_payload_prioritizes_native_issue_triage_buckets(client):
