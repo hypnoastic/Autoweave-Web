@@ -20,7 +20,7 @@ const mockRouter = vi.hoisted(() => ({
   forward: vi.fn(),
 }));
 
-let mockPathname = "/app/dashboard";
+let mockPathname = "/app/orbits";
 
 vi.mock("@/lib/api", () => api);
 vi.mock("next/navigation", () => ({
@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 function renderDashboard() {
-  mockPathname = "/app/dashboard";
+  mockPathname = "/app/orbits";
   return render(
     <ThemeProvider>
       <AuthenticatedAppShell>
@@ -43,7 +43,7 @@ describe("DashboardScreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.removeItem?.("autoweave-shell-sidebar-collapsed");
-    mockPathname = "/app/dashboard";
+    mockPathname = "/app/orbits";
   });
 
   it("renders the unified dashboard rail and context sidebar", async () => {
@@ -83,15 +83,15 @@ describe("DashboardScreen", () => {
 
     renderDashboard();
 
-    expect(await screen.findByText("Hello, Octo Cat")).toBeInTheDocument();
-    expect(screen.getByText("Priority queue")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Orbits" })).toBeInTheDocument();
+    expect(screen.getByText("Delivery pressure")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Inbox" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AutoWeave home" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open notifications" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open profile menu" })).toBeInTheDocument();
-    expect(screen.getByText("Orbit Alpha")).toBeInTheDocument();
-    expect(screen.queryByText("octocat/orbit-alpha")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Orbit Alpha").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("octocat/orbit-alpha").length).toBeGreaterThan(0);
   });
 
   it("closes search before opening notifications from the persistent shell", async () => {
@@ -131,14 +131,14 @@ describe("DashboardScreen", () => {
 
     renderDashboard();
 
-    expect(await screen.findByText("Hello, Octo Cat")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Orbits" })).toBeInTheDocument();
 
     fireEvent.focus(screen.getByRole("textbox", { name: "Search" }));
     expect(await screen.findByRole("search", { name: "Search orbits" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by orbit name or repository")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open notifications" }));
-    expect(await screen.findByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Directory activity" })).toBeInTheDocument();
     expect(screen.queryByRole("search", { name: "Search orbits" })).not.toBeInTheDocument();
   });
 
@@ -190,7 +190,7 @@ describe("DashboardScreen", () => {
     api.fetchOrbits.mockResolvedValue([]);
 
     const { container } = renderDashboard();
-    await screen.findByText("Hello, Octo Cat");
+    await screen.findByRole("heading", { name: "Orbits" });
 
     expect(container.querySelector("[data-shell-root='true']")).toHaveClass("h-dvh", "min-h-dvh", "overflow-hidden");
   });

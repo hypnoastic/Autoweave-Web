@@ -1,5 +1,5 @@
-import { DashboardScreen } from "@/components/dashboard";
+import { redirect } from "next/navigation";
 
 export default function AppDashboardPage() {
-  return <DashboardScreen />;
+  redirect("/app/orbits");
 }

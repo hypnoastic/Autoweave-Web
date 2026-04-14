@@ -46,6 +46,7 @@ import {
   sendDmMessage,
   updateNavigation,
 } from "@/lib/api";
+import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import type {
   ConversationMessage,
   HumanLoopItem,
@@ -431,12 +432,12 @@ function ErgoConversation({
   );
 }
 
-export function InboxScreen() {
+export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | "chat" } = {}) {
   const router = useRouter();
-  const { mode, setMode } = useTheme();
+  const { mode: themeMode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<InboxPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<InboxTabKey>("inbox");
+  const [activeTab, setActiveTab] = useState<InboxTabKey>(surfaceMode === "chat" ? "chats" : "inbox");
   const [selectedItemId, setSelectedItemId] = useState<string>("briefing-ergo");
   const [composer, setComposer] = useState("");
   const [composerMode, setComposerMode] = useState<(typeof COMPOSER_MODES)[number]["key"]>("brief");
@@ -449,7 +450,7 @@ export function InboxScreen() {
   const [sendingComposer, setSendingComposer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
-  const [mobileSurface, setMobileSurface] = useState<MobileSurface>("list");
+  const [mobileSurface, setMobileSurface] = useState<MobileSurface>(surfaceMode === "chat" ? "chat" : "list");
   const [threadMessages, setThreadMessages] = useState<ConversationMessage[]>([]);
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -479,7 +480,7 @@ export function InboxScreen() {
         const preferred = preferredItemId ?? current;
         return nextInbox.items.some((item) => item.id === preferred) ? preferred : nextInbox.briefing.id;
       });
-      if (preferences.theme_preference !== mode) {
+      if (preferences.theme_preference !== themeMode) {
         setMode(preferences.theme_preference);
       }
       setError(null);
@@ -496,7 +497,7 @@ export function InboxScreen() {
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [surfaceMode]);
 
   const activeScope = useMemo(
     () => payload?.scopes.find((scope) => scope.orbit_id === selectedScopeId) ?? payload?.active_scope ?? null,
@@ -509,8 +510,8 @@ export function InboxScreen() {
     if (!session || !selectedScopeId) {
       return;
     }
-    void updateNavigation(session.token, { orbit_id: selectedScopeId, section: "inbox" }).catch(() => {});
-  }, [session, selectedScopeId]);
+    void updateNavigation(session.token, { orbit_id: selectedScopeId, section: surfaceMode }).catch(() => {});
+  }, [session, selectedScopeId, surfaceMode]);
 
   useEffect(() => {
     if (!session || !activeScope) {
@@ -639,34 +640,24 @@ export function InboxScreen() {
   const shellConfig = useMemo<AppShellConfig>(
     () => ({
       mode: "inbox",
-      breadcrumb: ["Inbox"],
-      items: [
-        {
-          key: "inbox",
-          label: "Inbox",
-          icon: InboxIcon,
-          active: true,
-          onSelect: () => router.push("/app"),
-        },
-        {
-          key: "new-orbit",
-          label: "New orbit",
-          icon: Plus,
-          active: false,
-          onSelect: () => setShowCreateOrbit(true),
-        },
-      ],
+      breadcrumb: [surfaceMode === "chat" ? "Chat" : "Inbox"],
+      items: buildPrimaryShellItems(router, surfaceMode === "chat" ? "chat" : "inbox", {
+        onCreateOrbit: () => setShowCreateOrbit(true),
+      }),
       secondaryContent: payload ? (
         <RecentOrbitSidebarContent scopes={payload.scopes} onSelectOrbit={(orbitId) => router.push(`/app/orbits/${orbitId}`)} />
       ) : (
         <RecentOrbitSidebarSkeleton />
       ),
       search: {
-        title: "Search inbox",
-        description: "Find the right triage item, briefing, or orbit without leaving the shell.",
+        title: surfaceMode === "chat" ? "Search chat" : "Search inbox",
+        description:
+          surfaceMode === "chat"
+            ? "Find the right ERGO thread, conversation, or orbit without leaving the shell."
+            : "Find the right triage item, briefing, or orbit without leaving the shell.",
         query: search,
         onQueryChange: setSearch,
-        placeholder: "Search inbox or jump to an orbit",
+        placeholder: surfaceMode === "chat" ? "Search chats or jump to an orbit" : "Search inbox or jump to an orbit",
         content: searchResults.length ? (
           <div className="max-h-[420px] space-y-2 overflow-auto">
             {searchResults.map((item) => (
@@ -678,12 +669,15 @@ export function InboxScreen() {
         ),
       },
       notifications: {
-        title: "Activity",
-        description: "The latest high-signal items already feeding the Inbox workbench.",
+        title: surfaceMode === "chat" ? "Agent activity" : "Inbox triage",
+        description:
+          surfaceMode === "chat"
+            ? "The latest high-signal work around ERGO threads, approvals, and delivery."
+            : "The latest high-signal items already feeding the Inbox workbench.",
         content: notificationsContent,
       },
     }),
-    [notificationsContent, payload, router, search, searchResults],
+    [notificationsContent, payload, router, search, searchResults, surfaceMode],
   );
 
   useAuthenticatedShellConfig(shellConfig);
@@ -810,13 +804,18 @@ export function InboxScreen() {
     }
 
     if (target.section === "inbox") {
-      router.push("/app");
+      router.push("/app/inbox");
       return;
     }
 
     if (target.section === "chat" && target.orbit_id) {
       setSelectedScopeId(target.orbit_id);
       setMobileSurface("chat");
+      return;
+    }
+
+    if (target.section === "chat") {
+      router.push("/app/chat");
       return;
     }
 
@@ -827,7 +826,7 @@ export function InboxScreen() {
     }
 
     if (target.section === "dashboard") {
-      router.push("/app/dashboard");
+      router.push("/app/my-work");
     }
   }
 
@@ -847,10 +846,10 @@ export function InboxScreen() {
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <div className="hidden h-full lg:flex">
-            <div className="flex w-[312px] min-w-[312px] flex-col border-r border-line">
+            <div className={cx("flex min-w-[296px] flex-col border-r border-line", surfaceMode === "chat" ? "w-[296px]" : "w-[312px]")}>
               <div className="border-b border-line px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? "ERGO Inbox"}</p>
+                  <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? (surfaceMode === "chat" ? "ERGO Chat" : "ERGO Inbox")}</p>
                   <GhostButton className="px-3 py-2 text-xs" onClick={() => setShowCreateOrbit(true)}>
                     <Plus className="h-3.5 w-3.5" />
                     Orbit
@@ -950,7 +949,7 @@ export function InboxScreen() {
           <div className="flex h-full flex-col lg:hidden">
             <div className="border-b border-line px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? "ERGO Inbox"}</p>
+                <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? (surfaceMode === "chat" ? "ERGO Chat" : "ERGO Inbox")}</p>
                 <GhostButton className="px-3 py-2 text-xs" onClick={() => setShowCreateOrbit(true)}>
                   <Plus className="h-3.5 w-3.5" />
                   Orbit

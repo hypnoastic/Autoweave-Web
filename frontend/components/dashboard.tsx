@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  ChevronRight,
-  Inbox as InboxIcon,
   Plus,
   Upload,
 } from "lucide-react";
@@ -17,6 +15,7 @@ import {
   fetchPreferences,
   readSession,
 } from "@/lib/api";
+import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import type { DashboardPayload, Orbit } from "@/lib/types";
 import {
   type AppShellConfig,
@@ -186,10 +185,12 @@ function DashboardScreenBody({
   payload,
   error,
   onCreateOrbitClick,
+  onSelectOrbit,
 }: {
   payload: DashboardPayload;
   error: string | null;
   onCreateOrbitClick: () => void;
+  onSelectOrbit: (orbitId: string) => void;
 }) {
   const activePriorityCount = payload.priority_items.length;
   const runningWorkspaceCount = payload.codespaces.filter((item) => item.status === "running").length;
@@ -198,9 +199,10 @@ function DashboardScreenBody({
     <ShellPage className="gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm text-quiet">Hello, {payload.me.display_name}</p>
+          <p className="text-sm text-quiet">Project directory</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-ink">Orbits</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-quiet">
-            <span>{activePriorityCount} priority signals</span>
+            <span>{activePriorityCount} delivery signals</span>
             <span className="h-1 w-1 rounded-full bg-faint/60" />
             <span>{payload.codespaces.length} workspaces</span>
             <span className="h-1 w-1 rounded-full bg-faint/60" />
@@ -215,11 +217,11 @@ function DashboardScreenBody({
 
       <div className="grid gap-3 lg:grid-cols-3">
         <SurfaceCard className="bg-panelStrong p-3.5">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Priority</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Active delivery</p>
           <div className="mt-2 flex items-end justify-between gap-3">
             <div>
               <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">{activePriorityCount}</p>
-              <p className="text-xs text-quiet">Active approvals, reviews, and completion signals.</p>
+              <p className="text-xs text-quiet">Approvals, reviews, and ERGO handoffs across the orbit portfolio.</p>
             </div>
             <StatusPill tone={activePriorityCount ? "accent" : "muted"}>
               {activePriorityCount ? "live" : "quiet"}
@@ -243,21 +245,21 @@ function DashboardScreenBody({
           <div className="mt-2 flex items-end justify-between gap-3">
             <div>
               <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">{payload.recent_orbits.length}</p>
-              <p className="text-xs text-quiet">Fast return paths stay in the rail and here in summary only.</p>
+              <p className="text-xs text-quiet">The active project layer that organizes issues, repos, and agent execution.</p>
             </div>
             <StatusPill tone="muted">focus</StatusPill>
           </div>
         </SurfaceCard>
       </div>
 
-      {error ? <InlineNotice tone="danger" title="Dashboard action blocked" detail={error} /> : null}
+      {error ? <InlineNotice tone="danger" title="Orbit action blocked" detail={error} /> : null}
 
       <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
         <Panel className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
             <div>
-              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Priority queue</h2>
-              <p className="mt-1 text-xs text-quiet">Only the highest-signal approvals, reviews, demos, and completions.</p>
+              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Delivery pressure</h2>
+              <p className="mt-1 text-xs text-quiet">Use this as a fast portfolio view before opening a specific orbit.</p>
             </div>
             <StatusPill tone={activePriorityCount ? "accent" : "muted"}>
               {activePriorityCount}
@@ -304,34 +306,33 @@ function DashboardScreenBody({
         <Panel className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
             <div>
-              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Recent workspaces</h2>
-              <p className="mt-1 text-xs text-quiet">Return to active branches quickly without opening a full orbit first.</p>
+              <h2 className="text-sm font-semibold tracking-[-0.02em] text-ink">Recent orbits</h2>
+              <p className="mt-1 text-xs text-quiet">Jump straight into the projects currently carrying delivery load.</p>
             </div>
-            <StatusPill tone={runningWorkspaceCount ? "success" : "muted"}>
-              {runningWorkspaceCount ? `${runningWorkspaceCount} running` : "idle"}
+            <StatusPill tone={payload.recent_orbits.length ? "accent" : "muted"}>
+              {payload.recent_orbits.length ? `${payload.recent_orbits.length} active` : "idle"}
             </StatusPill>
           </div>
           <ScrollPanel className="flex-1 px-3 py-3">
             <div className="space-y-2">
-              {payload.codespaces.length ? (
-                payload.codespaces.map((item) => (
+              {payload.recent_orbits.length ? (
+                payload.recent_orbits.map((item) => (
                   <ListRow
                     key={item.id}
                     title={item.name}
-                    detail={[item.branch_name, item.workspace_path].filter(Boolean).join(" · ")}
-                    trailing={<StatusPill tone={item.status === "running" ? "success" : "muted"}>{item.status}</StatusPill>}
+                    detail={item.repo_full_name || item.description || "Project control plane"}
+                    trailing={<StatusPill tone="muted">orbit</StatusPill>}
+                    onClick={() => onSelectOrbit(item.id)}
                     supporting={
-                      item.editor_url ? (
-                        <a href={item.editor_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-                          Open editor
-                          <ChevronRight className="h-4 w-4" />
-                        </a>
-                      ) : null
+                      <>
+                        {item.description ? <span>{item.description}</span> : null}
+                        {item.repo_full_name ? <span>{item.repo_full_name}</span> : null}
+                      </>
                     }
                   />
                 ))
               ) : (
-                <EmptyState detail="Workspaces appear here with a running or stopped state once they are created inside an orbit." />
+                <EmptyState detail="Newly created orbits appear here so project work, issues, and ERGO execution can stay together." />
               )}
             </div>
           </ScrollPanel>
@@ -410,22 +411,10 @@ export function DashboardScreen() {
 
   const shellConfig = useMemo<AppShellConfig>(() => ({
     mode: "dashboard",
-    breadcrumb: ["Overview"],
-    items: [
-      {
-        key: "inbox",
-        label: "Inbox",
-        icon: InboxIcon,
-        active: false,
-        onSelect: () => router.push("/app"),
-      },
-      {
-        key: "new-orbit",
-        label: "New orbit",
-        icon: Plus,
-        onSelect: () => setShowCreateOrbit(true),
-      },
-    ],
+    breadcrumb: ["Orbits"],
+    items: buildPrimaryShellItems(router, "orbits", {
+      onCreateOrbit: () => setShowCreateOrbit(true),
+    }),
     secondaryContent: payload ? (
       <DashboardSidebarContent
         recentOrbits={payload.recent_orbits}
@@ -436,7 +425,7 @@ export function DashboardScreen() {
     ),
     search: {
       title: "Search orbits",
-      description: "Jump to a recent orbit or scan the current product surface quickly.",
+      description: "Jump to an orbit by project name or repository binding.",
       query: search,
       onQueryChange: setSearch,
       placeholder: "Search by orbit name or repository",
@@ -448,8 +437,8 @@ export function DashboardScreen() {
       ),
     },
     notifications: {
-      title: "Notifications",
-      description: "The broader activity stream, including the high-signal items already surfaced in Priority.",
+      title: "Directory activity",
+      description: "Signals that help you choose the next orbit to enter.",
       content: <DashboardNotificationsSurface notifications={notifications} />,
     },
   }), [filteredOrbits, notifications, payload, router, search]);
@@ -504,7 +493,12 @@ export function DashboardScreen() {
 
   return (
     <>
-      <DashboardScreenBody payload={payload} error={error} onCreateOrbitClick={() => setShowCreateOrbit(true)} />
+      <DashboardScreenBody
+        payload={payload}
+        error={error}
+        onCreateOrbitClick={() => setShowCreateOrbit(true)}
+        onSelectOrbit={(orbitId) => router.push(`/app/orbits/${orbitId}`)}
+      />
 
       <CenteredModal
         open={showCreateOrbit}
