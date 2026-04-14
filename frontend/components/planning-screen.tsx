@@ -5,6 +5,7 @@ import {
   Filter,
   FolderOpen,
   Layers3,
+  Plus,
   Search,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -17,29 +18,63 @@ import {
 import { useTheme } from "@/components/theme-provider";
 import {
   ActionButton,
+  CenteredModal,
   EmptyState,
+  FieldLabel,
   GhostButton,
   InlineNotice,
   ListRow,
   Panel,
   ScrollPanel,
+  SelectionChip,
   ShellPage,
   ShellPageSkeleton,
   StatusPill,
   SurfaceCard,
+  TextArea,
+  TextInput,
 } from "@/components/ui";
-import { AuthSessionError, fetchMyWork, fetchPreferences, readSession } from "@/lib/api";
+import {
+  AuthSessionError,
+  createSavedView,
+  fetchMyWork,
+  fetchPreferences,
+  fetchSavedViews,
+  readSession,
+} from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import {
   derivePlanningCycles,
-  derivePlanningViews,
   type PlanningCycle,
   type PlanningPreview,
-  type PlanningView,
 } from "@/lib/planning-derived";
-import type { MyWorkPayload, NotificationItem } from "@/lib/types";
+import type { MyWorkPayload, NotificationItem, SavedPlanningView, SavedViewsPayload } from "@/lib/types";
 
 type PlanningMode = "cycles" | "views";
+
+type ViewDraft = {
+  name: string;
+  description: string;
+  orbitId: string;
+  statuses: string[];
+  priorities: string[];
+  assigneeScope: "all" | "me";
+  cycleScope: "any" | "with_cycle" | "without_cycle";
+};
+
+const VIEW_DRAFT: ViewDraft = {
+  name: "",
+  description: "",
+  orbitId: "",
+  statuses: [],
+  priorities: [],
+  assigneeScope: "all",
+  cycleScope: "any",
+};
+
+function toggleSelection(values: string[], value: string) {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
 
 function notificationTone(item: NotificationItem) {
   if (item.kind === "run_failed") {
@@ -157,7 +192,7 @@ function PlanningViewDetail({
   view,
   onOpen,
 }: {
-  view: PlanningView;
+  view: SavedPlanningView;
   onOpen: (href: string) => void;
 }) {
   return (
@@ -168,9 +203,9 @@ function PlanningViewDetail({
             <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{view.label}</p>
             <p className="mt-1 text-xs leading-5 text-quiet">{view.detail}</p>
           </div>
-          <GhostButton className="px-3 py-1.5 text-xs" onClick={() => onOpen(view.href)}>
-            Open surface
-          </GhostButton>
+          <StatusPill tone={view.kind === "custom" ? "accent" : "muted"}>
+            {view.kind === "custom" ? "Custom view" : "System view"}
+          </StatusPill>
         </div>
       </div>
       <div className="grid gap-3 border-b border-line px-4 py-3 md:grid-cols-3">
@@ -178,11 +213,16 @@ function PlanningViewDetail({
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Items in view</p>
           <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{view.count}</p>
         </SurfaceCard>
-        <InlineNotice
-          tone={view.tone === "danger" ? "danger" : view.tone === "warning" ? "warning" : "neutral"}
-          detail="These views are currently derived from live issue, approval, and teammate signals. Native saved views are the next planning slice."
-          className="md:col-span-2"
-        />
+        <SurfaceCard className="bg-panelStrong p-3 md:col-span-2">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Filters</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {view.filter_summary.map((item) => (
+              <StatusPill key={`${view.id}-${item}`} tone="muted">
+                {item}
+              </StatusPill>
+            ))}
+          </div>
+        </SurfaceCard>
       </div>
       <ScrollPanel className="flex-1 px-4 py-3">
         <PreviewRows items={view.preview} onOpen={onOpen} />
@@ -196,9 +236,13 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<MyWorkPayload | null>(null);
+  const [savedViewsPayload, setSavedViewsPayload] = useState<SavedViewsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showCreateView, setShowCreateView] = useState(false);
+  const [viewDraft, setViewDraft] = useState<ViewDraft>(VIEW_DRAFT);
+  const [creatingView, setCreatingView] = useState(false);
 
   async function reload() {
     const nextSession = readSession();
@@ -208,11 +252,13 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
       return;
     }
     try {
-      const [nextPayload, preferences] = await Promise.all([
+      const [nextPayload, preferences, nextSavedViews] = await Promise.all([
         fetchMyWork(nextSession.token),
         fetchPreferences(nextSession.token),
+        planningMode === "views" ? fetchSavedViews(nextSession.token) : Promise.resolve(null),
       ]);
       setPayload(nextPayload);
+      setSavedViewsPayload(nextSavedViews);
       if (preferences.theme_preference !== mode) {
         setMode(preferences.theme_preference);
       }
@@ -230,10 +276,47 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [planningMode]);
+
+  async function onCreateView() {
+    if (!session || !viewDraft.name.trim()) {
+      return;
+    }
+    setCreatingView(true);
+    try {
+      const nextSavedViews = await createSavedView(session.token, {
+        name: viewDraft.name.trim(),
+        description: viewDraft.description.trim() || null,
+        orbit_id: viewDraft.orbitId || null,
+        statuses: viewDraft.statuses,
+        priorities: viewDraft.priorities,
+        assignee_scope: viewDraft.assigneeScope,
+        cycle_scope: viewDraft.cycleScope,
+      });
+      setSavedViewsPayload(nextSavedViews);
+      setShowCreateView(false);
+      setViewDraft(VIEW_DRAFT);
+      const created = nextSavedViews.views.find(
+        (entry) => entry.kind === "custom" && entry.label === viewDraft.name.trim(),
+      );
+      setSelectedId(created?.id ?? nextSavedViews.views[0]?.id ?? null);
+      setError(null);
+    } catch (nextError) {
+      if (nextError instanceof AuthSessionError) {
+        setSession(null);
+        setPayload(null);
+        setSavedViewsPayload(null);
+        router.replace("/");
+        return;
+      }
+      setError(nextError instanceof Error ? nextError.message : "Unable to create the saved view.");
+    } finally {
+      setCreatingView(false);
+    }
+  }
 
   const cycles = useMemo(() => (payload ? derivePlanningCycles(payload) : []), [payload]);
-  const views = useMemo(() => (payload ? derivePlanningViews(payload) : []), [payload]);
+  const views = useMemo(() => savedViewsPayload?.views ?? [], [savedViewsPayload]);
 
   const entries = planningMode === "cycles" ? cycles : views;
   const filteredEntries = useMemo(() => {
@@ -258,7 +341,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
     ? filteredEntries.find((entry): entry is PlanningCycle => entry.id === selectedId) ?? filteredEntries[0] as PlanningCycle | undefined
     : undefined;
   const selectedView = planningMode === "views"
-    ? filteredEntries.find((entry): entry is PlanningView => entry.id === selectedId) ?? filteredEntries[0] as PlanningView | undefined
+    ? filteredEntries.find((entry): entry is SavedPlanningView => entry.id === selectedId) ?? filteredEntries[0] as SavedPlanningView | undefined
     : undefined;
 
   const notificationsContent = useMemo(() => {
@@ -288,7 +371,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         detail: entry.windowLabel,
       }));
     }
-    return (filteredEntries as PlanningView[]).map((entry) => ({
+    return (filteredEntries as SavedPlanningView[]).map((entry) => ({
       key: entry.id,
       label: entry.label,
       detail: `${entry.count} items`,
@@ -306,7 +389,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
       title: planningMode === "cycles" ? "Search cycles" : "Search views",
       description: planningMode === "cycles"
         ? "Jump between the current execution, review, and risk windows."
-        : "Jump between pinned planning views derived from live operational work.",
+        : "Jump between saved issue views without leaving the PM shell.",
       query: search,
       onQueryChange: setSearch,
       placeholder: planningMode === "cycles" ? "Search operational cycles" : "Search pinned views",
@@ -355,7 +438,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
         tone: view.tone,
       }));
   const cycleEntries = planningMode === "cycles" ? (filteredEntries as PlanningCycle[]) : [];
-  const viewEntries = planningMode === "views" ? (filteredEntries as PlanningView[]) : [];
+  const viewEntries = planningMode === "views" ? (filteredEntries as SavedPlanningView[]) : [];
 
   return (
     <ShellPage className="gap-4">
@@ -368,7 +451,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
           <p className="mt-2 max-w-[64ch] text-sm leading-6 text-quiet">
             {planningMode === "cycles"
               ? "These windows keep execution, review pressure, and risk visible in one place while the native cycle model is still being introduced."
-              : "These views pin the highest-signal work slices so the product behaves like a PM system first and a chat tool second."}
+              : "Saved views pin real issue slices across orbits so planning stays operational and repeatable instead of getting rebuilt from scratch."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -376,10 +459,23 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
             <Layers3 className="h-4 w-4" />
             Open my work
           </GhostButton>
-          <ActionButton onClick={() => router.push(planningMode === "cycles" ? "/app/views" : "/app/cycles")}>
-            {planningMode === "cycles" ? <Filter className="h-4 w-4" /> : <CalendarRange className="h-4 w-4" />}
-            {planningMode === "cycles" ? "Open views" : "Open cycles"}
-          </ActionButton>
+          {planningMode === "cycles" ? (
+            <ActionButton onClick={() => router.push("/app/views")}>
+              <Filter className="h-4 w-4" />
+              Open views
+            </ActionButton>
+          ) : (
+            <>
+              <GhostButton onClick={() => router.push("/app/cycles")}>
+                <CalendarRange className="h-4 w-4" />
+                Open cycles
+              </GhostButton>
+              <ActionButton onClick={() => setShowCreateView(true)}>
+                <Plus className="h-4 w-4" />
+                New view
+              </ActionButton>
+            </>
+          )}
         </div>
       </div>
 
@@ -407,7 +503,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
             <p className="mt-1 text-xs text-quiet">
               {planningMode === "cycles"
                 ? "Choose the lane you want to inspect without leaving the main shell."
-                : "Use these slices to stay inside the PM surface instead of hunting through chat."}
+                : "Saved views stay focused on native issue work, not chat threads or one-off filters."}
             </p>
           </div>
           <ScrollPanel className="flex-1 px-4 py-3">
@@ -427,7 +523,7 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
                 : viewEntries.map((entry) => (
                     <ListRow
                       key={entry.id}
-                      eyebrow="Pinned view"
+                      eyebrow={entry.kind === "custom" ? "Custom view" : "System view"}
                       title={entry.label}
                       detail={entry.detail}
                       active={entry.id === selectedId}
@@ -441,9 +537,23 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
 
         {planningMode === "cycles" && selectedCycle ? (
           <PlanningCycleDetail cycle={selectedCycle} onOpen={(href) => router.push(href)} />
+        ) : planningMode === "cycles" ? (
+          <Panel className="flex min-h-0 items-center justify-center p-6">
+            <EmptyState
+              title="No cycle windows"
+              detail="Cycle windows will populate as work, review pressure, and risk signals land in the shell."
+            />
+          </Panel>
         ) : null}
         {planningMode === "views" && selectedView ? (
           <PlanningViewDetail view={selectedView} onOpen={(href) => router.push(href)} />
+        ) : planningMode === "views" ? (
+          <Panel className="flex min-h-0 items-center justify-center p-6">
+            <EmptyState
+              title="No saved views"
+              detail="Create a view to pin an issue slice across orbits and keep it available from the shell."
+            />
+          </Panel>
         ) : null}
       </div>
 
@@ -478,6 +588,133 @@ export function PlanningScreen({ mode: planningMode }: { mode: PlanningMode }) {
           </div>
         </ScrollPanel>
       </Panel>
+
+      <CenteredModal
+        open={planningMode === "views" && showCreateView}
+        onClose={() => setShowCreateView(false)}
+        title="Create saved view"
+        description="Pin a native issue slice so the shell keeps surfacing it without rebuilding filters every time."
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <GhostButton onClick={() => setShowCreateView(false)}>Cancel</GhostButton>
+            <ActionButton onClick={() => void onCreateView()} disabled={creatingView || !viewDraft.name.trim()}>
+              {creatingView ? "Creating…" : "Create view"}
+            </ActionButton>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="grid gap-2">
+            <FieldLabel>Name</FieldLabel>
+            <TextInput
+              value={viewDraft.name}
+              onChange={(event) => setViewDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="High priority cycle work"
+            />
+          </label>
+          <label className="grid gap-2">
+            <FieldLabel>Description</FieldLabel>
+            <TextArea
+              value={viewDraft.description}
+              onChange={(event) => setViewDraft((current) => ({ ...current, description: event.target.value }))}
+              placeholder="Keep urgent issues with explicit cycle ownership visible across active orbits."
+            />
+          </label>
+          <div className="space-y-2">
+            <FieldLabel>Orbit scope</FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              <SelectionChip active={!viewDraft.orbitId} onClick={() => setViewDraft((current) => ({ ...current, orbitId: "" }))}>
+                All orbits
+              </SelectionChip>
+              {payload?.recent_orbits.map((orbit) => (
+                <SelectionChip
+                  key={orbit.id}
+                  active={viewDraft.orbitId === orbit.id}
+                  onClick={() => setViewDraft((current) => ({ ...current, orbitId: orbit.id }))}
+                >
+                  {orbit.name}
+                </SelectionChip>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel>Stages</FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: "triage", label: "Triage" },
+                { value: "planned", label: "Planned" },
+                { value: "in_progress", label: "In progress" },
+                { value: "in_review", label: "Review" },
+                { value: "ready_to_merge", label: "Ready to merge" },
+              ].map((status) => (
+                <SelectionChip
+                  key={status.value}
+                  active={viewDraft.statuses.includes(status.value)}
+                  onClick={() => setViewDraft((current) => ({ ...current, statuses: toggleSelection(current.statuses, status.value) }))}
+                >
+                  {status.label}
+                </SelectionChip>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel>Priority</FieldLabel>
+            <div className="flex flex-wrap gap-2">
+              {["low", "medium", "high", "urgent"].map((priority) => (
+                <SelectionChip
+                  key={priority}
+                  active={viewDraft.priorities.includes(priority)}
+                  onClick={() => setViewDraft((current) => ({ ...current, priorities: toggleSelection(current.priorities, priority) }))}
+                >
+                  {priority}
+                </SelectionChip>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <FieldLabel>Ownership</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                <SelectionChip
+                  active={viewDraft.assigneeScope === "all"}
+                  onClick={() => setViewDraft((current) => ({ ...current, assigneeScope: "all" }))}
+                >
+                  All assignees
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.assigneeScope === "me"}
+                  onClick={() => setViewDraft((current) => ({ ...current, assigneeScope: "me" }))}
+                >
+                  Assigned to me
+                </SelectionChip>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>Cycle scope</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                <SelectionChip
+                  active={viewDraft.cycleScope === "any"}
+                  onClick={() => setViewDraft((current) => ({ ...current, cycleScope: "any" }))}
+                >
+                  Any cycle
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.cycleScope === "with_cycle"}
+                  onClick={() => setViewDraft((current) => ({ ...current, cycleScope: "with_cycle" }))}
+                >
+                  In a cycle
+                </SelectionChip>
+                <SelectionChip
+                  active={viewDraft.cycleScope === "without_cycle"}
+                  onClick={() => setViewDraft((current) => ({ ...current, cycleScope: "without_cycle" }))}
+                >
+                  No cycle
+                </SelectionChip>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CenteredModal>
     </ShellPage>
   );
 }

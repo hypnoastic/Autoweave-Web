@@ -436,6 +436,36 @@ export type MyWorkPayload = {
   notifications: NotificationItem[];
 };
 
+export type SavedViewPreview = {
+  id: string;
+  kind: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  supporting?: string;
+  status: string;
+  tone: "accent" | "danger" | "muted" | "success" | "warning";
+  href: string;
+  timestamp?: string;
+};
+
+export type SavedPlanningView = {
+  id: string;
+  label: string;
+  detail: string;
+  tone: "accent" | "danger" | "muted" | "success" | "warning";
+  count: number;
+  kind: "system" | "custom";
+  filter_summary: string[];
+  preview: SavedViewPreview[];
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type SavedViewsPayload = {
+  views: SavedPlanningView[];
+};
+
 export type InboxNavigationTarget = {
   orbit_id?: string | null;
   section: string;

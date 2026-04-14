@@ -5,8 +5,10 @@ import { PlanningScreen } from "@/components/planning-screen";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const api = vi.hoisted(() => ({
+  createSavedView: vi.fn(),
   fetchMyWork: vi.fn(),
   fetchPreferences: vi.fn(),
+  fetchSavedViews: vi.fn(),
   readSession: vi.fn(),
   updatePreferences: vi.fn(),
   writeSession: vi.fn(),
@@ -155,6 +157,59 @@ function renderPlanning(mode: "cycles" | "views") {
   );
 }
 
+function savedViewsPayload() {
+  return {
+    views: [
+      {
+        id: "system-assigned-to-me",
+        label: "Assigned to me",
+        detail: "Everything currently owned by you across orbit-native issue work.",
+        tone: "accent",
+        count: 2,
+        kind: "system",
+        filter_summary: ["All orbits", "Assigned to me", "Open work"],
+        preview: [
+          {
+            id: "native-pm_1",
+            kind: "native_issue",
+            eyebrow: "Orbit One",
+            title: "PM-1 · Ship the release cut",
+            detail: "April stabilization · Priority high",
+            supporting: "octocat/orbit-one",
+            status: "In progress",
+            tone: "accent",
+            href: "/app/orbits/orbit_1",
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      {
+        id: "system-needs-review",
+        label: "Needs review",
+        detail: "Native issues currently waiting on review or merge readiness.",
+        tone: "warning",
+        count: 1,
+        kind: "system",
+        filter_summary: ["All orbits", "All assignees", "In review", "Ready to merge"],
+        preview: [
+          {
+            id: "native-pm_2",
+            kind: "native_issue",
+            eyebrow: "Orbit One",
+            title: "PM-2 · Review release branch promotion",
+            detail: "April stabilization · Priority medium",
+            supporting: "octocat/orbit-one",
+            status: "Ready to merge",
+            tone: "warning",
+            href: "/app/orbits/orbit_1",
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe("PlanningScreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -168,6 +223,8 @@ describe("PlanningScreen", () => {
     });
     api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
     api.fetchMyWork.mockResolvedValue(myWorkPayload());
+    api.fetchSavedViews.mockResolvedValue(savedViewsPayload());
+    api.createSavedView.mockResolvedValue(savedViewsPayload());
   });
 
   it("renders the cycles surface with execution and risk windows", async () => {
@@ -192,7 +249,65 @@ describe("PlanningScreen", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /Needs review/i })[0]);
 
-    expect(await screen.findByText("Approval requested for release promotion")).toBeInTheDocument();
-    expect(screen.getAllByText("Review release branch promotion").length).toBeGreaterThan(0);
+    expect(await screen.findByText("PM-2 · Review release branch promotion")).toBeInTheDocument();
+    expect(screen.getAllByText("Ready to merge").length).toBeGreaterThan(0);
+  });
+
+  it("creates a custom saved view from the views surface", async () => {
+    api.createSavedView.mockResolvedValue({
+      views: [
+        ...savedViewsPayload().views,
+        {
+          id: "view_1",
+          label: "High priority cycle work",
+          detail: "Keep urgent issues with explicit cycle ownership visible across active orbits.",
+          tone: "accent",
+          count: 1,
+          kind: "custom",
+          filter_summary: ["Orbit One", "Assigned to me", "In progress", "Priority high", "In a cycle"],
+          preview: [
+            {
+              id: "native-pm_1",
+              kind: "native_issue",
+              eyebrow: "Orbit One",
+              title: "PM-1 · Ship the release cut",
+              detail: "April stabilization · Priority high",
+              supporting: "octocat/orbit-one",
+              status: "In progress",
+              tone: "accent",
+              href: "/app/orbits/orbit_1",
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        },
+      ],
+    });
+
+    renderPlanning("views");
+
+    expect(await screen.findByRole("heading", { name: "Views" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /New view/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "High priority cycle work" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
+      target: { value: "Keep urgent issues with explicit cycle ownership visible across active orbits." },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Orbit One" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "In progress" }));
+    fireEvent.click(screen.getByRole("button", { name: "high" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assigned to me" }));
+    fireEvent.click(screen.getByRole("button", { name: "In a cycle" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Create view$/i }));
+
+    expect(api.createSavedView).toHaveBeenCalledWith("session-token", {
+      name: "High priority cycle work",
+      description: "Keep urgent issues with explicit cycle ownership visible across active orbits.",
+      orbit_id: "orbit_1",
+      statuses: ["in_progress"],
+      priorities: ["high"],
+      assignee_scope: "me",
+      cycle_scope: "with_cycle",
+    });
+    expect(await screen.findAllByText("High priority cycle work")).not.toHaveLength(0);
   });
 });

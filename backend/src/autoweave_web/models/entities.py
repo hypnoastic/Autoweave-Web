@@ -332,6 +332,19 @@ class OrbitIssue(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class SavedView(Base):
+    __tablename__ = "product_saved_views"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("view"))
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    orbit_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbits.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filters_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class Codespace(Base):
     __tablename__ = "product_codespaces"
 

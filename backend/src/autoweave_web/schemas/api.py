@@ -60,6 +60,16 @@ class OrbitIssueUpdateRequest(BaseModel):
     cycle_id: str | None = None
 
 
+class SavedViewCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    orbit_id: str | None = None
+    statuses: list[str] = Field(default_factory=list)
+    priorities: list[str] = Field(default_factory=list)
+    assignee_scope: str = "all"
+    cycle_scope: str = "any"
+
+
 class MessageCreateRequest(BaseModel):
     body: str
 
@@ -140,6 +150,10 @@ class MyWorkPayload(BaseModel):
     recent_orbits: list[dict] = Field(default_factory=list)
     codespaces: list[dict] = Field(default_factory=list)
     notifications: list[dict] = Field(default_factory=list)
+
+
+class SavedViewsPayload(BaseModel):
+    views: list[dict] = Field(default_factory=list)
 
 
 class InboxPayload(BaseModel):

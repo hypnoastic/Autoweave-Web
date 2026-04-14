@@ -42,6 +42,7 @@ from autoweave_web.models.entities import (
     RepositoryConnection,
     RuntimeHumanLoopItem,
     RuntimeRunProjection,
+    SavedView,
     SessionToken,
     User,
     UserPreference,
@@ -69,6 +70,8 @@ from autoweave_web.schemas.api import (
     OrbitRepositoryConnectRequest,
     OrbitPayload,
     SessionPayload,
+    SavedViewCreateRequest,
+    SavedViewsPayload,
     TimestampedPayload,
     UserPreferencesPayload,
     UserPreferencesUpdateRequest,
@@ -140,6 +143,7 @@ ORBIT_ISSUE_STATUS_ORDER = (
     "done",
     "canceled",
 )
+SAVED_VIEW_PRIORITY_ORDER = ("low", "medium", "high", "urgent")
 
 
 def create_app(
@@ -1423,6 +1427,230 @@ def create_app(
         current = db.scalar(select(func.max(OrbitIssue.sequence_no)).where(OrbitIssue.orbit_id == orbit_id))
         return int(current or 0) + 1
 
+    def _normalize_saved_view_statuses(values: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        for value in values or []:
+            status = _normalize_native_issue_status(value)
+            if status not in normalized:
+                normalized.append(status)
+        return normalized
+
+    def _normalize_saved_view_priorities(values: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        for value in values or []:
+            priority = str(value or "").strip().lower()
+            if priority in SAVED_VIEW_PRIORITY_ORDER and priority not in normalized:
+                normalized.append(priority)
+        return normalized
+
+    def _normalize_saved_view_assignee_scope(value: str | None) -> str:
+        normalized = str(value or "all").strip().lower()
+        return normalized if normalized in {"all", "me"} else "all"
+
+    def _normalize_saved_view_cycle_scope(value: str | None) -> str:
+        normalized = str(value or "any").strip().lower()
+        return normalized if normalized in {"any", "with_cycle", "without_cycle"} else "any"
+
+    def _saved_view_matches_issue(
+        item: OrbitIssue,
+        *,
+        filters: dict[str, Any],
+        user: User,
+    ) -> bool:
+        if filters.get("orbit_id") and item.orbit_id != filters["orbit_id"]:
+            return False
+
+        status = _normalize_native_issue_status(item.status)
+        statuses = _normalize_saved_view_statuses(filters.get("statuses"))
+        if statuses:
+            if status not in statuses:
+                return False
+        elif status in {"done", "canceled"}:
+            return False
+
+        priorities = _normalize_saved_view_priorities(filters.get("priorities"))
+        if priorities and str(item.priority or "").strip().lower() not in priorities:
+            return False
+
+        assignee_scope = _normalize_saved_view_assignee_scope(filters.get("assignee_scope"))
+        if assignee_scope == "me" and item.assignee_user_id != user.id:
+            return False
+
+        cycle_scope = _normalize_saved_view_cycle_scope(filters.get("cycle_scope"))
+        if cycle_scope == "with_cycle" and not item.cycle_id:
+            return False
+        if cycle_scope == "without_cycle" and item.cycle_id:
+            return False
+
+        return True
+
+    def _saved_view_tone(items: list[OrbitIssue]) -> str:
+        if not items:
+            return "muted"
+        if any(str(item.priority or "").strip().lower() == "urgent" for item in items):
+            return "danger"
+        if any(_normalize_native_issue_status(item.status) in {"in_review", "ready_to_merge"} for item in items):
+            return "warning"
+        return "accent"
+
+    def _serialize_saved_view_preview_item(
+        item: OrbitIssue,
+        *,
+        orbit_map: dict[str, Orbit],
+        cycle_map: dict[str, OrbitCycle],
+    ) -> dict[str, Any]:
+        orbit = orbit_map.get(item.orbit_id)
+        cycle = cycle_map.get(item.cycle_id) if item.cycle_id else None
+        detail_parts = [
+            cycle.name if cycle else "No cycle",
+            f"Priority {str(item.priority or 'medium').strip().lower()}",
+        ]
+        preview = {
+            "id": f"native-{item.id}",
+            "kind": "native_issue",
+            "eyebrow": orbit.name if orbit else "Orbit issue",
+            "title": f"PM-{item.sequence_no} · {item.title}",
+            "detail": " · ".join(detail_parts),
+            "status": _format_state_label(_normalize_native_issue_status(item.status)),
+            "tone": _saved_view_tone([item]),
+            "href": f"/app/orbits/{item.orbit_id}",
+            "timestamp": item.updated_at.isoformat(),
+        }
+        if orbit and orbit.repo_full_name:
+            preview["supporting"] = orbit.repo_full_name
+        return preview
+
+    def _saved_view_filter_summary(
+        filters: dict[str, Any],
+        *,
+        orbit_map: dict[str, Orbit],
+    ) -> list[str]:
+        summary: list[str] = []
+        orbit_id = str(filters.get("orbit_id") or "").strip()
+        if orbit_id and orbit_id in orbit_map:
+            summary.append(orbit_map[orbit_id].name)
+        else:
+            summary.append("All orbits")
+
+        assignee_scope = _normalize_saved_view_assignee_scope(filters.get("assignee_scope"))
+        summary.append("Assigned to me" if assignee_scope == "me" else "All assignees")
+
+        statuses = _normalize_saved_view_statuses(filters.get("statuses"))
+        if statuses:
+            summary.extend(_format_state_label(status) for status in statuses[:2])
+            if len(statuses) > 2:
+                summary.append(f"+{len(statuses) - 2} stages")
+        else:
+            summary.append("Open work")
+
+        priorities = _normalize_saved_view_priorities(filters.get("priorities"))
+        if priorities:
+            summary.append("Priority " + ", ".join(_format_state_label(priority) for priority in priorities))
+
+        cycle_scope = _normalize_saved_view_cycle_scope(filters.get("cycle_scope"))
+        if cycle_scope == "with_cycle":
+            summary.append("In a cycle")
+        elif cycle_scope == "without_cycle":
+            summary.append("No cycle")
+
+        return summary
+
+    def _system_saved_views(user: User) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "system-assigned-to-me",
+                "name": "Assigned to me",
+                "description": "Everything currently owned by you across orbit-native issue work.",
+                "kind": "system",
+                "filters": {"assignee_scope": "me"},
+            },
+            {
+                "id": "system-needs-review",
+                "name": "Needs review",
+                "description": "Native issues currently waiting on review or merge readiness.",
+                "kind": "system",
+                "filters": {"statuses": ["in_review", "ready_to_merge"]},
+            },
+            {
+                "id": "system-high-priority",
+                "name": "High priority",
+                "description": "High-signal work that should not disappear into the broader issue board.",
+                "kind": "system",
+                "filters": {"priorities": ["high", "urgent"]},
+            },
+            {
+                "id": "system-active-cycle",
+                "name": "Active cycle",
+                "description": "Scheduled work already committed into an explicit delivery cycle.",
+                "kind": "system",
+                "filters": {"cycle_scope": "with_cycle"},
+            },
+        ]
+
+    def _serialize_saved_view_entry(
+        definition: dict[str, Any],
+        *,
+        issues: list[OrbitIssue],
+        user: User,
+        orbit_map: dict[str, Orbit],
+        cycle_map: dict[str, OrbitCycle],
+    ) -> dict[str, Any]:
+        filters = dict(definition.get("filters") or {})
+        matched = [item for item in issues if _saved_view_matches_issue(item, filters=filters, user=user)]
+        matched.sort(key=lambda item: item.updated_at, reverse=True)
+        return {
+            "id": definition["id"],
+            "label": definition["name"],
+            "detail": definition.get("description") or "Saved issue view.",
+            "tone": _saved_view_tone(matched),
+            "count": len(matched),
+            "kind": definition.get("kind") or "custom",
+            "filter_summary": _saved_view_filter_summary(filters, orbit_map=orbit_map),
+            "preview": [
+                _serialize_saved_view_preview_item(item, orbit_map=orbit_map, cycle_map=cycle_map)
+                for item in matched[:6]
+            ],
+            "created_at": definition.get("created_at"),
+            "updated_at": definition.get("updated_at"),
+        }
+
+    def _build_saved_views_payload(user: User, db: Session) -> dict[str, Any]:
+        memberships = db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()
+        orbit_ids = [membership.orbit_id for membership in memberships]
+        orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
+        orbit_map = {orbit.id: orbit for orbit in orbits}
+        cycles = db.scalars(select(OrbitCycle).where(OrbitCycle.orbit_id.in_(orbit_ids)).order_by(OrbitCycle.updated_at.desc())).all() if orbit_ids else []
+        cycle_map = {cycle.id: cycle for cycle in cycles}
+        issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id.in_(orbit_ids)).order_by(OrbitIssue.updated_at.desc())).all() if orbit_ids else []
+        custom_views = db.scalars(
+            select(SavedView)
+            .where(SavedView.created_by_user_id == user.id)
+            .order_by(SavedView.updated_at.desc(), SavedView.created_at.desc())
+        ).all()
+        entries = [
+            _serialize_saved_view_entry(spec, issues=issues, user=user, orbit_map=orbit_map, cycle_map=cycle_map)
+            for spec in _system_saved_views(user)
+        ]
+        entries.extend(
+            _serialize_saved_view_entry(
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "description": item.description,
+                    "kind": "custom",
+                    "filters": {**(item.filters_json or {}), "orbit_id": item.orbit_id},
+                    "created_at": item.created_at.isoformat(),
+                    "updated_at": item.updated_at.isoformat(),
+                },
+                issues=issues,
+                user=user,
+                orbit_map=orbit_map,
+                cycle_map=cycle_map,
+            )
+            for item in custom_views
+        )
+        return {"views": entries}
+
     def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
         status = str(run_payload.get("status") or "").strip().lower()
         operator_status = str(run_payload.get("operator_status") or "").strip().lower()
@@ -2514,6 +2742,48 @@ def create_app(
     @app.get("/api/my-work", response_model=MyWorkPayload)
     def my_work(user: User = Depends(current_user), db: Session = Depends(get_db)) -> MyWorkPayload:
         return MyWorkPayload(**_build_my_work_payload(user, db))
+
+    @app.get("/api/views", response_model=SavedViewsPayload)
+    def saved_views(user: User = Depends(current_user), db: Session = Depends(get_db)) -> SavedViewsPayload:
+        return SavedViewsPayload(**_build_saved_views_payload(user, db))
+
+    @app.post("/api/views", response_model=SavedViewsPayload)
+    def create_saved_view(
+        payload: SavedViewCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Saved view name is required")
+        orbit_id = str(payload.orbit_id or "").strip() or None
+        if orbit_id is not None:
+            _orbit_for_member(db, orbit_id, user)
+        saved_view = SavedView(
+            created_by_user_id=user.id,
+            orbit_id=orbit_id,
+            name=name,
+            description=(payload.description or "").strip() or None,
+            filters_json={
+                "statuses": _normalize_saved_view_statuses(payload.statuses),
+                "priorities": _normalize_saved_view_priorities(payload.priorities),
+                "assignee_scope": _normalize_saved_view_assignee_scope(payload.assignee_scope),
+                "cycle_scope": _normalize_saved_view_cycle_scope(payload.cycle_scope),
+            },
+        )
+        db.add(saved_view)
+        db.flush()
+        record_audit_event(
+            db,
+            orbit_id=orbit_id,
+            actor_user_id=user.id,
+            action_type="saved_view.created",
+            target_kind="saved_view",
+            target_id=saved_view.id,
+            metadata_json={"saved_view_id": saved_view.id},
+        )
+        db.commit()
+        return _build_saved_views_payload(user, db)
 
     @app.get("/api/inbox", response_model=InboxPayload)
     def inbox(user: User = Depends(current_user), db: Session = Depends(get_db)) -> InboxPayload:

@@ -13,31 +13,20 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Add first-class native orbit issues so planning work no longer lives only in GitHub snapshots or chat context.
-- Add orbit cycles as explicit planning buckets with goal, dates, and issue membership.
-- Surface native issues inside the orbit issues section as the primary planning board, while keeping GitHub issue sync visible below as delivery context.
-- Make `My Work` aware of native planning issues so personal work and review queues stop being GitHub-only projections.
-- Keep the implementation additive: do not break existing repo sync, PR snapshots, workflow execution, or chat routing while the PM model becomes first-class.
+- Add first-class saved views over native orbit issues so planning can pin durable issue slices across orbits instead of rebuilding filters inside the shell.
+- Keep cycles derived for now, but move `Views` off of frontend-only projections and onto a real backend payload.
+- Preserve the PM-first shell: saved views should surface planning work, not thread lists or generic feed state.
 
 ## Files Touched In This Slice
 - `backend/src/autoweave_web/api/app.py`
 - `backend/src/autoweave_web/models/entities.py`
 - `backend/src/autoweave_web/schemas/api.py`
-- `backend/src/autoweave_web/services/matrix.py`
 - `backend/tests/test_api.py`
-- `frontend/lib/types.ts`
 - `frontend/lib/api.ts`
-- `frontend/lib/app-shell-nav.ts`
-- `frontend/components/my-work-screen.tsx`
 - `frontend/components/planning-screen.tsx`
-- `frontend/components/chat-screen.tsx`
-- `frontend/components/inbox-screen.tsx`
-- `frontend/components/dashboard.tsx`
-- `frontend/components/orbit-workspace.tsx`
-- `frontend/components/orbit-workspace.test.tsx`
 - `frontend/components/planning-screen.test.tsx`
-- `frontend/lib/planning-derived.ts`
-- `frontend/app/app/*`
+- `frontend/lib/types.ts`
+- `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
 - Commit after each green vertical slice. Do not batch unrelated backend, frontend, and docs work into one changeset.
@@ -56,36 +45,26 @@
   - remaining known gaps
 
 ## Verification Log
-- `npm test`
+- `npm test -- planning-screen.test.tsx`
 - `npm run build`
-- `python -m pytest tests/test_api.py -k native_issue`
-- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'native_issue or test_matrix_flagged_channel_send_queues_transport_and_bootstrap or test_matrix_bootstrap_gracefully_disables_when_transport_is_unavailable'`
-- Browser validation on `http://localhost:3000` with a seeded local session:
-  - `output/playwright/my-work-screen.png`
-  - `output/playwright/cycles-screen.png`
-  - `output/playwright/views-screen.png`
-- Browser validation for orbit-native issue flow:
-  - `output/playwright/orbit-native-issues-board.png`
-  - `output/playwright/orbit-native-issue-detail.png`
-- Runtime hardening:
-  - Matrix chat bootstrap now degrades to a disabled product payload when Matrix transport is unavailable, instead of throwing a shell-visible 500/CORS failure.
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'saved_views or native_issue'`
+- Browser validation on `http://localhost:3000/app/views` with a seeded local session:
+  - `output/playwright/views-saved-custom.png`
 - Observed browser issue: missing `favicon.ico` only.
 
 ## Remaining Planned Slices
 - Add richer native issue lifecycle beyond the current stage/cycle controls: assignment, labels, relations, subtasks, and richer board/list views.
-- Add saved views as first-class backend and UI entities instead of the current derived shell projections.
 - Add stronger issue-to-chat and issue-to-delivery deep links.
 - Refine orbit overview and board interactions.
 - Add Playwright coverage for the PM-first flows.
 
 ## Slice Notes
-- Native orbit issues now have stable `PM-{number}` identifiers per orbit.
-- Native issue stages currently map to: `triage`, `planned`, `in_progress`, `in_review`, `ready_to_merge`, and `done`.
-- Orbit cycles are intentionally lightweight in this slice: name, goal, status, dates, and membership counts.
-- GitHub issues remain visible, but they are now explicitly framed as synced delivery context instead of the primary planning model.
+- Saved views now come from a backend payload that mixes system views with persisted user-created views.
+- Custom views currently support orbit scope, status filters, priority filters, assignee scope, and cycle scope.
+- Preview rows stay focused on native issue work and keep the shell pointed at planning surfaces instead of chat routes.
 
 ## Remaining Known Gaps
-- Native issues do not yet support labels, parent/sub-issue relationships, or saved views.
+- Native issues do not yet support labels, parent/sub-issue relationships, or richer relation modeling.
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle management UI yet.
+- Saved views do not yet support editing, deleting, pin ordering, or share semantics.
 - The orbit board currently supports stage and cycle updates from the detail panel only; drag/drop is intentionally deferred until the PM model stabilizes.
-- Matrix-backed chat sync still depends on a reachable Matrix homeserver for the full bridge path; this slice only fixed the degraded fallback so the orbit shell remains operational when Matrix is unavailable.

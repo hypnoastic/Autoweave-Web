@@ -130,6 +130,75 @@ def test_orbit_native_issue_and_cycle_flow_are_available_in_orbit_payload(client
     assert any(item["id"] == issue["id"] for item in my_work_payload["review_queue"])
 
 
+def test_saved_views_can_be_created_over_native_issue_filters(client):
+    token, _user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    cycle_response = client.post(
+        f"/api/orbits/{orbit['id']}/cycles",
+        json={
+            "name": "April stabilization",
+            "goal": "Land the PM shell cleanup.",
+        },
+        headers=headers,
+    )
+    assert cycle_response.status_code == 200
+    cycle = cycle_response.json()
+
+    first_issue = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Model the issue board",
+            "detail": "Keep planning inside the orbit shell.",
+            "priority": "high",
+            "status": "in_progress",
+            "cycle_id": cycle["id"],
+        },
+        headers=headers,
+    )
+    assert first_issue.status_code == 200
+
+    second_issue = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Tighten cycle filters",
+            "detail": "Keep ad hoc planning out of chat.",
+            "priority": "low",
+            "status": "planned",
+        },
+        headers=headers,
+    )
+    assert second_issue.status_code == 200
+
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "High priority cycle work",
+            "description": "Keep urgent cycle work visible.",
+            "orbit_id": orbit["id"],
+            "statuses": ["in_progress"],
+            "priorities": ["high"],
+            "assignee_scope": "me",
+            "cycle_scope": "with_cycle",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    created_payload = created.json()
+    custom_view = next(item for item in created_payload["views"] if item["kind"] == "custom")
+    assert custom_view["label"] == "High priority cycle work"
+    assert custom_view["count"] == 1
+    assert custom_view["preview"][0]["title"] == "PM-1 · Model the issue board"
+    assert "Orbit Control" in custom_view["filter_summary"]
+
+    listed = client.get("/api/views", headers=headers)
+    assert listed.status_code == 200
+    listed_payload = listed.json()
+    assert any(item["label"] == "Assigned to me" for item in listed_payload["views"])
+    assert any(item["label"] == "High priority cycle work" for item in listed_payload["views"])
+
+
 def test_health_endpoint_allows_local_frontend_origin(client):
     response = client.options(
         "/api/health",

@@ -21,6 +21,7 @@ import type {
   OrbitPayload,
   OrbitSearchResult,
   Session,
+  SavedViewsPayload,
   UserPreferences,
   WorkflowSnapshot,
 } from "@/lib/types";
@@ -152,6 +153,14 @@ export async function fetchDashboard(token: string) {
 
 export async function fetchMyWork(token: string) {
   return request<MyWorkPayload>("/api/my-work", {}, token);
+}
+
+export async function fetchSavedViews(token: string) {
+  return request<SavedViewsPayload>("/api/views", {}, token);
+}
+
+export async function createSavedView(token: string, payload: Record<string, unknown>) {
+  return request<SavedViewsPayload>("/api/views", { method: "POST", body: JSON.stringify(payload) }, token);
 }
 
 export async function fetchInbox(token: string) {
