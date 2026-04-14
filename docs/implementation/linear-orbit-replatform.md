@@ -13,20 +13,14 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Promote cycles and saved views from derived planning helpers into real workspace controls.
-- Add create, edit, pin, and delete flows for saved views plus real orbit-backed cycle management on the planning surfaces.
-- Keep the local Playwright path honest by allowing local dev-session users to create repo-less validation orbits when GitHub is intentionally absent.
+- Rebuild the orbit native-issue surface around denser filters and a stronger right-hand detail editor.
+- Let issue detail edit the actual planning record: title, detail, stage, priority, owner, and cycle in one place.
+- Keep browser proof anchored to a live local orbit so the detail pane is verified against real native issue payloads.
 
 ## Files Touched In This Slice
-- `backend/src/autoweave_web/models/entities.py`
-- `backend/src/autoweave_web/db/migrations.py`
-- `backend/src/autoweave_web/api/app.py`
-- `backend/src/autoweave_web/schemas/api.py`
-- `backend/tests/test_api.py`
-- `frontend/components/planning-screen.tsx`
-- `frontend/components/planning-screen.test.tsx`
-- `frontend/lib/api.ts`
-- `frontend/lib/types.ts`
+- `frontend/components/ui.tsx`
+- `frontend/components/orbit-workspace.tsx`
+- `frontend/components/orbit-workspace.test.tsx`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -89,10 +83,24 @@
   - artifacts:
     - `output/playwright/cycles-real-surface.png`
     - `output/playwright/views-pinned-surface.png`
+- `npm test -- orbit-workspace.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend`
+- Browser validation:
+  - seeded a fresh local session through `POST /api/auth/dev-session`
+  - created a repo-less validation orbit plus cycle and native issues through the live local API
+  - verified authenticated `/app/orbits/{orbitId}?section=issues` on `3000`
+  - filtered orbit native issues by priority and cycle in the live UI
+  - opened the right-hand native issue detail pane
+  - edited title, detail, stage, and priority from the issue record panel and saved successfully
+  - artifacts:
+    - `output/playwright/orbit-issues-filtered-surface.png`
+    - `output/playwright/orbit-issue-detail-editor.png`
 
 ## Remaining Planned Slices
-- Expand issue surfaces with richer assignment and cycle controls directly inside orbit issue detail.
 - Broaden triage semantics so inbox and my-work can move work between cycles and review stages without leaving their primary surfaces.
+- Tighten the native issue surface further with cycle moves and relation editing from denser inline flows instead of modal-heavy paths.
 
 ## Slice Notes
 - Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
@@ -106,9 +114,13 @@
 - Saved views now persist their full filter definition, support pinning, editing, and deletion, and render directly from the backend instead of acting like static projections.
 - Cycles now surface real orbit-backed records across the workspace, with create, edit, and delete controls in the planning shell.
 - Local dev-session users can create repo-less orbits in development/test, which makes Playwright PM validation possible without a live GitHub token.
+- Orbit issue filters now include priority, owner, and cycle selects instead of relying only on chips and search.
+- The native issue detail pane now edits the issue record directly with compact selects and structured fields instead of a long status/ownership chip wall.
+- Browser proof now covers live native issue record editing in addition to cycles, views, inbox, and my-work.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.
 - Saved views still do not support explicit pin reordering or share semantics.
-- The orbit board currently supports stage and cycle updates from the detail panel only; drag/drop is intentionally deferred until the PM model stabilizes.
+- Relation and hierarchy editing still rely on modal pickers instead of the denser inline controls now used for title, owner, stage, and cycle.
+- The orbit board still does not support drag/drop; that remains intentionally deferred until the PM model stabilizes.
 - Browser-proof automation now exists for authenticated flows, but richer seeded PM scenarios still depend on manual API setup rather than a dedicated fixture endpoint.

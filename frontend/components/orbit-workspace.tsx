@@ -38,6 +38,7 @@ import {
   Panel,
   RightDetailPanel,
   ScrollPanel,
+  SelectInput,
   SelectionChip,
   SectionTitle,
   ShellPage,
@@ -139,6 +140,14 @@ type OrbitIssueDraft = {
   parentIssueId: string;
   labelsText: string;
 };
+type NativeIssueDetailDraft = {
+  title: string;
+  detail: string;
+  priority: string;
+  status: string;
+  cycleId: string;
+  assigneeUserId: string;
+};
 type OrbitCycleDraft = { name: string; goal: string; startsAt: string; endsAt: string };
 type NativeIssueScopeFilter = "all" | "mine" | "blocked" | "stale" | "review";
 type NativeIssueViewMode = "board" | "list";
@@ -157,6 +166,14 @@ const ORBIT_ISSUE_DRAFT: OrbitIssueDraft = {
   assigneeUserId: "",
   parentIssueId: "",
   labelsText: "",
+};
+const NATIVE_ISSUE_DETAIL_DRAFT: NativeIssueDetailDraft = {
+  title: "",
+  detail: "",
+  priority: "medium",
+  status: "triage",
+  cycleId: "",
+  assigneeUserId: "",
 };
 const ORBIT_CYCLE_DRAFT: OrbitCycleDraft = { name: "", goal: "", startsAt: "", endsAt: "" };
 const LOCAL_AGENT_PENDING_TIMEOUT_MS = 120_000;
@@ -305,12 +322,32 @@ function relationIdsForIssue(item: NativeOrbitIssue, relationKind: "blocked_by" 
   return (item.relations?.[relationKey] ?? []).map((entry) => entry.id);
 }
 
+function memberDisplayName(member: {
+  display_name?: string | null;
+  login?: string | null;
+  github_login?: string | null;
+  user_id?: string | null;
+}) {
+  return member.display_name || member.login || member.github_login || member.user_id || "Unknown";
+}
+
 function boardItemMeta(item: NativeOrbitIssue) {
   return [
     item.cycle_name || "No cycle",
     `Priority ${formatStateLabel(item.priority)}`,
     item.assignee_display_name ? item.assignee_display_name : "Unassigned",
   ].join(" · ");
+}
+
+function detailIssueDraftFromItem(item: NativeOrbitIssue): NativeIssueDetailDraft {
+  return {
+    title: item.title || "",
+    detail: item.detail || "",
+    priority: item.priority || "medium",
+    status: item.status || "triage",
+    cycleId: item.cycle_id || "",
+    assigneeUserId: item.assignee_user_id || "",
+  };
 }
 
 function OrbitSectionBar({
@@ -639,10 +676,14 @@ export function OrbitWorkspace({
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
   const [dmDraft, setDmDraft] = useState<DmDraft>(DM_DRAFT);
   const [issueDraft, setIssueDraft] = useState<OrbitIssueDraft>(ORBIT_ISSUE_DRAFT);
+  const [detailIssueDraft, setDetailIssueDraft] = useState<NativeIssueDetailDraft>(NATIVE_ISSUE_DETAIL_DRAFT);
   const [nativeIssueSearch, setNativeIssueSearch] = useState("");
   const [nativeIssueScope, setNativeIssueScope] = useState<NativeIssueScopeFilter>("all");
   const [nativeIssueViewMode, setNativeIssueViewMode] = useState<NativeIssueViewMode>("board");
   const [selectedNativeLabel, setSelectedNativeLabel] = useState<string>("all");
+  const [selectedNativePriority, setSelectedNativePriority] = useState<string>("all");
+  const [selectedNativeAssigneeId, setSelectedNativeAssigneeId] = useState<string>("all");
+  const [selectedNativeCycleId, setSelectedNativeCycleId] = useState<string>("all");
   const [issueLinkModal, setIssueLinkModal] = useState<IssueLinkModalState>(null);
   const [issueLinkSearch, setIssueLinkSearch] = useState("");
   const [cycleDraft, setCycleDraft] = useState<OrbitCycleDraft>(ORBIT_CYCLE_DRAFT);
@@ -708,6 +749,7 @@ export function OrbitWorkspace({
   const nativeIssues = payload?.native_issues ?? [];
   const availableIssueLabels = payload?.issue_labels ?? [];
   const orbitCycles = payload?.cycles ?? [];
+  const activeNativeIssue = detailPanel?.kind === "native_issue" ? detailPanel.item : null;
   const filteredNativeIssues = useMemo(() => {
     return nativeIssues.filter((item) => {
       if (!nativeIssueMatchesSearch(item, nativeIssueSearch)) {
@@ -728,14 +770,66 @@ export function OrbitWorkspace({
       if (nativeIssueScope === "review" && !["in_review", "ready_to_merge"].includes(item.status)) {
         return false;
       }
+      if (selectedNativePriority !== "all" && item.priority !== selectedNativePriority) {
+        return false;
+      }
+      if (selectedNativeAssigneeId === "unassigned" && item.assignee_user_id) {
+        return false;
+      }
+      if (selectedNativeAssigneeId !== "all" && selectedNativeAssigneeId !== "unassigned" && item.assignee_user_id !== selectedNativeAssigneeId) {
+        return false;
+      }
+      if (selectedNativeCycleId === "without_cycle" && item.cycle_id) {
+        return false;
+      }
+      if (selectedNativeCycleId !== "all" && selectedNativeCycleId !== "without_cycle" && item.cycle_id !== selectedNativeCycleId) {
+        return false;
+      }
       return true;
     });
-  }, [nativeIssueScope, nativeIssueSearch, nativeIssues, selectedNativeLabel, session?.user.id]);
+  }, [
+    nativeIssueScope,
+    nativeIssueSearch,
+    nativeIssues,
+    selectedNativeAssigneeId,
+    selectedNativeCycleId,
+    selectedNativeLabel,
+    selectedNativePriority,
+    session?.user.id,
+  ]);
   const visibleIssueLabelChips = useMemo(() => availableIssueLabels.slice(0, 8), [availableIssueLabels]);
+  const nativeIssueFiltersDirty =
+    selectedNativeLabel !== "all"
+    || selectedNativePriority !== "all"
+    || selectedNativeAssigneeId !== "all"
+    || selectedNativeCycleId !== "all"
+    || nativeIssueScope !== "all"
+    || nativeIssueSearch.trim().length > 0;
+  const nativeIssueDetailDirty = useMemo(() => {
+    if (!activeNativeIssue) {
+      return false;
+    }
+    return (
+      detailIssueDraft.title.trim() !== activeNativeIssue.title
+      || detailIssueDraft.detail.trim() !== (activeNativeIssue.detail || "").trim()
+      || detailIssueDraft.priority !== activeNativeIssue.priority
+      || detailIssueDraft.status !== activeNativeIssue.status
+      || (detailIssueDraft.assigneeUserId || "") !== (activeNativeIssue.assignee_user_id || "")
+      || (detailIssueDraft.cycleId || "") !== (activeNativeIssue.cycle_id || "")
+    );
+  }, [activeNativeIssue, detailIssueDraft]);
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
     [selectedRun],
   );
+
+  useEffect(() => {
+    if (!activeNativeIssue) {
+      setDetailIssueDraft(NATIVE_ISSUE_DETAIL_DRAFT);
+      return;
+    }
+    setDetailIssueDraft(detailIssueDraftFromItem(activeNativeIssue));
+  }, [activeNativeIssue]);
   const openApprovalRequests = useMemo(
     () => Object.fromEntries((selectedRun?.approval_requests ?? []).filter((request) => request.status === "requested").map((request) => [request.id, request])),
     [selectedRun],
@@ -2219,6 +2313,46 @@ export function OrbitWorkspace({
     }
   }
 
+  function resetNativeIssueFilters() {
+    setNativeIssueSearch("");
+    setNativeIssueScope("all");
+    setSelectedNativeLabel("all");
+    setSelectedNativePriority("all");
+    setSelectedNativeAssigneeId("all");
+    setSelectedNativeCycleId("all");
+  }
+
+  async function onSaveNativeIssueDetail() {
+    if (!activeNativeIssue) {
+      return;
+    }
+    const patch: Record<string, unknown> = {};
+    const nextTitle = detailIssueDraft.title.trim();
+    const nextDetail = detailIssueDraft.detail.trim();
+    if (nextTitle && nextTitle !== activeNativeIssue.title) {
+      patch.title = nextTitle;
+    }
+    if ((activeNativeIssue.detail || "").trim() !== nextDetail) {
+      patch.detail = nextDetail || null;
+    }
+    if (detailIssueDraft.priority !== activeNativeIssue.priority) {
+      patch.priority = detailIssueDraft.priority;
+    }
+    if (detailIssueDraft.status !== activeNativeIssue.status) {
+      patch.status = detailIssueDraft.status;
+    }
+    if ((detailIssueDraft.assigneeUserId || null) !== (activeNativeIssue.assignee_user_id || null)) {
+      patch.assignee_user_id = detailIssueDraft.assigneeUserId || null;
+    }
+    if ((detailIssueDraft.cycleId || null) !== (activeNativeIssue.cycle_id || null)) {
+      patch.cycle_id = detailIssueDraft.cycleId || null;
+    }
+    if (!Object.keys(patch).length) {
+      return;
+    }
+    await onUpdateNativeIssue(activeNativeIssue.id, patch);
+  }
+
   async function onReplaceIssueLinks(
     item: NativeOrbitIssue,
     relationKind: "blocked_by" | "related" | "duplicate",
@@ -2433,6 +2567,47 @@ export function OrbitWorkspace({
                         <SelectionChip active={nativeIssueViewMode === "list"} onClick={() => setNativeIssueViewMode("list")}>
                           List
                         </SelectionChip>
+                        {nativeIssueFiltersDirty ? (
+                          <GhostButton className="h-10 px-3 text-xs" onClick={resetNativeIssueFilters}>
+                            Reset filters
+                          </GhostButton>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <label className="grid gap-2">
+                          <FieldLabel>Priority</FieldLabel>
+                          <SelectInput value={selectedNativePriority} onChange={(event) => setSelectedNativePriority(event.target.value)}>
+                            <option value="all">All priorities</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                          </SelectInput>
+                        </label>
+                        <label className="grid gap-2">
+                          <FieldLabel>Owner</FieldLabel>
+                          <SelectInput value={selectedNativeAssigneeId} onChange={(event) => setSelectedNativeAssigneeId(event.target.value)}>
+                            <option value="all">All owners</option>
+                            <option value="unassigned">Unassigned</option>
+                            {payload.members.map((member) => (
+                              <option key={`filter-member-${member.user_id}`} value={member.user_id}>
+                                {memberDisplayName(member)}
+                              </option>
+                            ))}
+                          </SelectInput>
+                        </label>
+                        <label className="grid gap-2">
+                          <FieldLabel>Cycle</FieldLabel>
+                          <SelectInput value={selectedNativeCycleId} onChange={(event) => setSelectedNativeCycleId(event.target.value)}>
+                            <option value="all">All cycles</option>
+                            <option value="without_cycle">No cycle</option>
+                            {orbitCycles.map((cycle) => (
+                              <option key={`filter-cycle-${cycle.id}`} value={cycle.id}>
+                                {cycle.name}
+                              </option>
+                            ))}
+                          </SelectInput>
+                        </label>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <SelectionChip active={nativeIssueScope === "all"} onClick={() => setNativeIssueScope("all")}>
@@ -2951,103 +3126,176 @@ export function OrbitWorkspace({
 
           {detailPanel?.kind === "native_issue" ? (
             <div className="space-y-5">
-              <SurfaceCard className="bg-panelStrong">
+              <SurfaceCard className="space-y-4 bg-panelStrong">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-ink">{detailPanel.item.title}</p>
-                    <p className="mt-1 text-xs text-quiet">PM-{detailPanel.item.number}</p>
+                    <p className="mt-1 text-xs text-quiet">
+                      {`PM-${detailPanel.item.number} · Updated ${new Date(detailPanel.item.updated_at).toLocaleString()}`}
+                    </p>
                   </div>
                   <StatusPill tone={boardTone(detailPanel.item.status)}>{formatStateLabel(detailPanel.item.status)}</StatusPill>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <StatusPill tone="muted">{detailPanel.item.priority}</StatusPill>
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill tone="muted">{formatStateLabel(detailPanel.item.priority)}</StatusPill>
                   {detailPanel.item.cycle_name ? <StatusPill tone="accent">{detailPanel.item.cycle_name}</StatusPill> : <StatusPill tone="muted">No cycle</StatusPill>}
                   {detailPanel.item.assignee_display_name ? <StatusPill tone="muted">{detailPanel.item.assignee_display_name}</StatusPill> : <StatusPill tone="muted">Unassigned</StatusPill>}
                   {detailPanel.item.stale ? <StatusPill tone="warning">{`Stale ${detailPanel.item.stale_working_days}d`}</StatusPill> : null}
                   {detailPanel.item.repository_full_name ? <StatusPill tone="muted">{detailPanel.item.repository_full_name}</StatusPill> : null}
-                  {(detailPanel.item.labels ?? []).map((label) => (
-                    <StatusPill key={`${detailPanel.item.id}-${label.id}`} tone={label.tone === "danger" ? "danger" : label.tone === "success" ? "success" : label.tone === "warning" ? "warning" : label.tone === "accent" ? "accent" : "muted"}>
-                      {label.name}
-                    </StatusPill>
-                  ))}
                 </div>
-                <p className="mt-4 text-sm leading-6 text-quiet">
-                  {detailPanel.item.detail || "No additional planning context has been written for this issue yet."}
-                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <SurfaceCard className="bg-panel p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Blocked by</p>
+                    <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{detailPanel.item.relation_counts?.blocked_by ?? 0}</p>
+                  </SurfaceCard>
+                  <SurfaceCard className="bg-panel p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Blocking</p>
+                    <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{detailPanel.item.relation_counts?.blocking ?? 0}</p>
+                  </SurfaceCard>
+                  <SurfaceCard className="bg-panel p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Sub-issues</p>
+                    <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-ink">{(detailPanel.item.sub_issues ?? []).length}</p>
+                  </SurfaceCard>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <GhostButton
+                    onClick={() =>
+                      router.push(
+                        buildChatHref({
+                          orbitId,
+                          issueId: detailPanel.item.id,
+                          sourceKind: "native_issue",
+                        }),
+                      )
+                    }
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Open in Chat
+                  </GhostButton>
+                  <GhostButton onClick={() => openCreateSubIssue(detailPanel.item)}>
+                    <Plus className="h-4 w-4" />
+                    Create sub-issue
+                  </GhostButton>
+                </div>
               </SurfaceCard>
 
-              <div className="space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Stage</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { value: "triage", label: "Triage" },
-                    { value: "backlog", label: "Backlog" },
-                    { value: "planned", label: "Planned" },
-                    { value: "in_progress", label: "In progress" },
-                    { value: "in_review", label: "Review" },
-                    { value: "ready_to_merge", label: "Ready to merge" },
-                    { value: "done", label: "Done" },
-                  ].map((statusOption) => (
-                    <SelectionChip
-                      key={`${detailPanel.item.id}-${statusOption.value}`}
-                      active={detailPanel.item.status === statusOption.value}
-                      disabled={updatingNativeIssueId === detailPanel.item.id}
-                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { status: statusOption.value })}
+              <SurfaceCard className="space-y-4 bg-panelStrong">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-ink">Issue record</p>
+                    <p className="mt-1 text-xs text-quiet">
+                      Edit the planning record directly here. Status, priority, owner, and cycle update together instead of being spread across chip walls.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <GhostButton
+                      className="h-9 px-3 text-xs"
+                      disabled={!nativeIssueDetailDirty || updatingNativeIssueId === detailPanel.item.id}
+                      onClick={() => setDetailIssueDraft(detailIssueDraftFromItem(detailPanel.item))}
                     >
-                      {statusOption.label}
-                    </SelectionChip>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Ownership</p>
-                <div className="flex flex-wrap gap-2">
-                  <SelectionChip
-                    active={!detailPanel.item.assignee_user_id}
-                    disabled={updatingNativeIssueId === detailPanel.item.id}
-                    onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { assignee_user_id: null })}
-                  >
-                    Unassigned
-                  </SelectionChip>
-                  {payload.members.map((member) => (
-                    <SelectionChip
-                      key={`${detailPanel.item.id}-${member.user_id}`}
-                      active={detailPanel.item.assignee_user_id === member.user_id}
-                      disabled={updatingNativeIssueId === detailPanel.item.id}
-                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { assignee_user_id: member.user_id })}
+                      Reset
+                    </GhostButton>
+                    <ActionButton
+                      className="h-9 px-3 text-xs"
+                      disabled={!nativeIssueDetailDirty || !detailIssueDraft.title.trim() || updatingNativeIssueId === detailPanel.item.id}
+                      onClick={() => void onSaveNativeIssueDetail()}
                     >
-                      {member.display_name || member.login || member.github_login || member.user_id}
-                    </SelectionChip>
-                  ))}
+                      Save changes
+                    </ActionButton>
+                  </div>
                 </div>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Cycle</p>
-                <div className="flex flex-wrap gap-2">
-                  <SelectionChip
-                    active={!detailPanel.item.cycle_id}
-                    disabled={updatingNativeIssueId === detailPanel.item.id}
-                    onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { cycle_id: "" })}
-                  >
-                    No cycle
-                  </SelectionChip>
-                  {orbitCycles.map((cycle) => (
-                    <SelectionChip
-                      key={`${detailPanel.item.id}-${cycle.id}`}
-                      active={detailPanel.item.cycle_id === cycle.id}
+                <div className="space-y-3">
+                  <label className="grid gap-2">
+                    <FieldLabel>Title</FieldLabel>
+                    <TextInput
+                      value={detailIssueDraft.title}
+                      onChange={(event) => setDetailIssueDraft((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="Issue title"
                       disabled={updatingNativeIssueId === detailPanel.item.id}
-                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { cycle_id: cycle.id })}
-                    >
-                      {cycle.name}
-                    </SelectionChip>
-                  ))}
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <FieldLabel>Detail</FieldLabel>
+                    <TextArea
+                      value={detailIssueDraft.detail}
+                      onChange={(event) => setDetailIssueDraft((current) => ({ ...current, detail: event.target.value }))}
+                      placeholder="Capture the planning context, rollout intent, and constraints."
+                      disabled={updatingNativeIssueId === detailPanel.item.id}
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="grid gap-2">
+                      <FieldLabel>Stage</FieldLabel>
+                      <SelectInput
+                        value={detailIssueDraft.status}
+                        onChange={(event) => setDetailIssueDraft((current) => ({ ...current, status: event.target.value }))}
+                        disabled={updatingNativeIssueId === detailPanel.item.id}
+                      >
+                        <option value="triage">Triage</option>
+                        <option value="backlog">Backlog</option>
+                        <option value="planned">Planned</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="in_review">Review</option>
+                        <option value="ready_to_merge">Ready to merge</option>
+                        <option value="done">Done</option>
+                        <option value="canceled">Canceled</option>
+                      </SelectInput>
+                    </label>
+                    <label className="grid gap-2">
+                      <FieldLabel>Priority</FieldLabel>
+                      <SelectInput
+                        value={detailIssueDraft.priority}
+                        onChange={(event) => setDetailIssueDraft((current) => ({ ...current, priority: event.target.value }))}
+                        disabled={updatingNativeIssueId === detailPanel.item.id}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </SelectInput>
+                    </label>
+                    <label className="grid gap-2">
+                      <FieldLabel>Owner</FieldLabel>
+                      <SelectInput
+                        value={detailIssueDraft.assigneeUserId}
+                        onChange={(event) => setDetailIssueDraft((current) => ({ ...current, assigneeUserId: event.target.value }))}
+                        disabled={updatingNativeIssueId === detailPanel.item.id}
+                      >
+                        <option value="">Unassigned</option>
+                        {payload.members.map((member) => (
+                          <option key={`${detailPanel.item.id}-${member.user_id}`} value={member.user_id}>
+                            {memberDisplayName(member)}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </label>
+                    <label className="grid gap-2">
+                      <FieldLabel>Cycle</FieldLabel>
+                      <SelectInput
+                        value={detailIssueDraft.cycleId}
+                        onChange={(event) => setDetailIssueDraft((current) => ({ ...current, cycleId: event.target.value }))}
+                        disabled={updatingNativeIssueId === detailPanel.item.id}
+                      >
+                        <option value="">No cycle</option>
+                        {orbitCycles.map((cycle) => (
+                          <option key={`${detailPanel.item.id}-${cycle.id}`} value={cycle.id}>
+                            {cycle.name}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </label>
+                  </div>
                 </div>
-              </div>
+              </SurfaceCard>
 
-              <div className="space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Labels</p>
+              <SurfaceCard className="space-y-3 bg-panelStrong">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">Labels</p>
+                    <p className="mt-1 text-xs text-quiet">Labels stay workspace-scoped so issue slices remain stable across views and inbox triage.</p>
+                  </div>
+                  <StatusPill tone="muted">{(detailPanel.item.labels ?? []).length}</StatusPill>
+                </div>
                 {availableIssueLabels.length ? (
                   <div className="flex flex-wrap gap-2">
                     {availableIssueLabels.map((label) => {
@@ -3068,9 +3316,9 @@ export function OrbitWorkspace({
                     })}
                   </div>
                 ) : (
-                  <EmptyState text="Create the first labeled issue and the catalog will appear here." />
+                  <SharedEmptyState title="No labels yet" detail="Create the first labeled issue and the shared catalog will appear here." />
                 )}
-              </div>
+              </SurfaceCard>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
@@ -3218,21 +3466,6 @@ export function OrbitWorkspace({
                   <EmptyState text="Issue activity will appear here as ownership, state, and delivery context changes." />
                 )}
               </div>
-
-              <GhostButton
-                onClick={() =>
-                  router.push(
-                    buildChatHref({
-                      orbitId,
-                      issueId: detailPanel.item.id,
-                      sourceKind: "native_issue",
-                    }),
-                  )
-                }
-              >
-                <MessageSquare className="h-4 w-4" />
-                Open in Chat
-              </GhostButton>
             </div>
           ) : null}
         </RightDetailPanel>

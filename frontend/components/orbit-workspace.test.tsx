@@ -1878,13 +1878,27 @@ describe("OrbitWorkspace", () => {
           source_kind: "manual",
           cycle_id: "cycle_1",
           cycle_name: "April stabilization",
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
           orbit_id: "orbit_1",
           orbit_name: "Orbit One",
           repository_full_name: "octocat/orbit-one",
+          labels: [{ id: "label_1", name: "platform", slug: "platform", tone: "warning" }],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
       ],
+      issue_labels: [{ id: "label_1", name: "platform", slug: "platform", tone: "warning", issue_count: 1 }],
       cycles: [
         {
           id: "cycle_1",
@@ -1916,25 +1930,51 @@ describe("OrbitWorkspace", () => {
       source_kind: "manual",
       cycle_id: "cycle_1",
       cycle_name: "April stabilization",
+      assignee_user_id: null,
+      assignee_display_name: null,
       orbit_id: "orbit_1",
       orbit_name: "Orbit One",
       repository_full_name: "octocat/orbit-one",
+      labels: [],
+      parent_issue_id: null,
+      parent_issue: null,
+      sub_issues: [],
+      relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+      relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+      is_blocked: false,
+      has_sub_issues: false,
+      stale: false,
+      stale_working_days: 0,
+      activity: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
     api.updateOrbitIssue.mockResolvedValue({
       id: "pm_1",
       number: 1,
-      title: "Model the issue board",
+      title: "Model the orbit issue board",
       detail: "Keep planning inside the orbit shell.",
       status: "in_progress",
-      priority: "high",
+      priority: "urgent",
       source_kind: "manual",
       cycle_id: "cycle_1",
       cycle_name: "April stabilization",
+      assignee_user_id: "user_1",
+      assignee_display_name: "Octo Cat",
       orbit_id: "orbit_1",
       orbit_name: "Orbit One",
       repository_full_name: "octocat/orbit-one",
+      labels: [{ id: "label_1", name: "platform", slug: "platform", tone: "warning" }],
+      parent_issue_id: null,
+      parent_issue: null,
+      sub_issues: [],
+      relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+      relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+      is_blocked: false,
+      has_sub_issues: false,
+      stale: false,
+      stale_working_days: 0,
+      activity: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -1970,11 +2010,168 @@ describe("OrbitWorkspace", () => {
 
     expect(mockRouter.push).toHaveBeenCalledWith("/app/chat?orbitId=orbit_1&issueId=pm_1&sourceKind=native_issue");
 
-    fireEvent.click(screen.getByRole("button", { name: "In progress" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), {
+      target: { value: "Model the orbit issue board" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Stage" }), {
+      target: { value: "in_progress" },
+    });
+    fireEvent.change(screen.getAllByRole("combobox", { name: "Priority" }).at(-1)!, {
+      target: { value: "urgent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
-      expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", { status: "in_progress" }),
+      expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", {
+        title: "Model the orbit issue board",
+        status: "in_progress",
+        priority: "urgent",
+      }),
     );
+  });
+
+  it("filters native issues by priority owner and cycle in the orbit board", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [],
+      members: [
+        { id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat", is_self: true },
+        { id: "user_2", user_id: "user_2", role: "member", display_name: "Release Reviewer", login: "reviewer" },
+      ],
+      channels: [],
+      direct_messages: [],
+      messages: [],
+      human_loop_items: [],
+      notifications: [],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: {},
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Model the issue board",
+          detail: "Keep planning inside the orbit shell.",
+          status: "planned",
+          priority: "high",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: "pm_2",
+          number: 2,
+          title: "Review release train",
+          detail: "Push review-ready work toward merge.",
+          status: "in_review",
+          priority: "medium",
+          source_kind: "manual",
+          cycle_id: null,
+          cycle_name: null,
+          assignee_user_id: "user_2",
+          assignee_display_name: "Release Reviewer",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      issue_labels: [],
+      cycles: [
+        {
+          id: "cycle_1",
+          name: "April stabilization",
+          goal: "Land PM-first work control.",
+          status: "active",
+          starts_at: new Date().toISOString(),
+          ends_at: new Date().toISOString(),
+          issue_count: 1,
+          completed_count: 0,
+          active_count: 1,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      codespaces: [],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "issues" },
+    });
+    api.updateNavigation.mockResolvedValue({});
+
+    renderOrbit({ initialSection: "issues" });
+
+    expect(await screen.findByText("PM-1 · Model the issue board")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "high" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Owner" }), { target: { value: "user_1" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Cycle" }), { target: { value: "cycle_1" } });
+
+    expect(screen.getByText("PM-1 · Model the issue board")).toBeInTheDocument();
+    expect(screen.queryByText("PM-2 · Review release train")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+
+    expect(screen.getByText("PM-2 · Review release train")).toBeInTheDocument();
   });
 
   it("opens the requested native issue detail from orbit route params", async () => {

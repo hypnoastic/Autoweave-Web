@@ -9,6 +9,7 @@ import type {
   InputHTMLAttributes,
   PropsWithChildren,
   ReactNode,
+  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
 import { forwardRef, useEffect, useId, useRef } from "react";
@@ -188,6 +189,28 @@ export const TextInput = forwardRef(function TextInput(
       )}
       {...rest}
     />
+  );
+});
+
+export const SelectInput = forwardRef(function SelectInput(
+  {
+    className,
+    children,
+    ...rest
+  }: PropsWithChildren<SelectHTMLAttributes<HTMLSelectElement>>,
+  ref: ForwardedRef<HTMLSelectElement>,
+) {
+  return (
+    <select
+      ref={ref}
+      className={clsx(
+        "w-full rounded-chip border border-line bg-panel px-3.5 py-2.5 text-sm text-ink outline-none transition-[background-color,border-color,box-shadow] duration-200 ease-out focus:border-lineStrong focus:bg-panelStrong focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 motion-reduce:transition-none",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </select>
   );
 });
 
