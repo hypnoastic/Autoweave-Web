@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
-  Inbox as InboxIcon,
   Paperclip,
   Plus,
   Search,
@@ -45,16 +44,18 @@ import {
   fetchPreferences,
   readSession,
   sendDmMessage,
+  updateOrbitIssue,
   updateNavigation,
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
-import type { ChatSourceKind } from "@/lib/chat-links";
+import { buildChatHref, type ChatSourceKind } from "@/lib/chat-links";
 import { buildOrbitWorkHref } from "@/lib/orbit-links";
 import type {
   BoardItem,
   ConversationMessage,
   HumanLoopItem,
   InboxAction,
+  InboxBucketKey,
   InboxItem,
   InboxNavigationTarget,
   InboxPayload,
@@ -73,7 +74,7 @@ type OrbitDraft = {
   private: boolean;
 };
 
-type InboxTabKey = "inbox" | "chats" | "sources";
+type InboxFilterKey = InboxBucketKey;
 type MobileSurface = "list" | "chat";
 type ErgoChatContext = {
   eyebrow: string;
@@ -95,9 +96,14 @@ const EMPTY_ORBIT_DRAFT: OrbitDraft = {
   private: true,
 };
 
-const INBOX_TABS: Array<{ key: InboxTabKey; label: string }> = [
-  { key: "inbox", label: "Inbox" },
-  { key: "chats", label: "Chats" },
+const TRIAGE_FILTERS: Array<{ key: InboxFilterKey; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "review", label: "Review" },
+  { key: "blocked", label: "Blocked" },
+  { key: "stale", label: "Stale" },
+  { key: "approvals", label: "Approvals" },
+  { key: "mentions", label: "Mentions" },
+  { key: "agent", label: "Agent" },
   { key: "sources", label: "Sources" },
 ];
 
@@ -134,6 +140,22 @@ function attentionTone(item: InboxItem) {
     return "success" as const;
   }
   return "muted" as const;
+}
+
+function bucketTone(bucket: InboxBucketKey | undefined) {
+  if (bucket === "blocked") {
+    return "danger" as const;
+  }
+  if (bucket === "review" || bucket === "approvals") {
+    return "warning" as const;
+  }
+  if (bucket === "sources") {
+    return "success" as const;
+  }
+  if (bucket === "stale") {
+    return "muted" as const;
+  }
+  return "accent" as const;
 }
 
 function formatStateLabel(value: string | undefined | null) {
@@ -213,14 +235,26 @@ function buildBoardItemChatContext(item: BoardItem, orbit: OrbitPayload["orbit"]
   };
 }
 
-function itemMatchesTab(item: InboxItem, tab: InboxTabKey) {
-  if (tab === "inbox") {
+function itemMatchesFilter(item: InboxItem, filter: InboxFilterKey) {
+  if (item.kind === "briefing") {
+    return filter === "agent";
+  }
+  if (filter === "all") {
     return true;
   }
-  if (tab === "chats") {
-    return ["briefing", "briefing_chat", "chat", "mention", "dm", "clarification"].includes(item.kind);
-  }
-  return ["source", "artifact"].includes(item.kind);
+  return item.bucket === filter;
+}
+
+function itemBucketLabel(item: InboxItem) {
+  return item.reason_label || formatStateLabel(item.bucket || item.kind || "item");
+}
+
+function buildItemChatHref(item: InboxItem) {
+  return buildChatHref({
+    orbitId: item.orbit_id ?? item.navigation?.orbit_id ?? null,
+    issueId: item.navigation?.detail_kind === "native_issue" ? item.navigation.detail_id ?? null : null,
+    sourceKind: item.navigation?.detail_kind === "native_issue" ? "native_issue" : null,
+  });
 }
 
 function RecentOrbitSidebarContent({
@@ -301,26 +335,32 @@ function InboxRow({
       type="button"
       onClick={onClick}
       className={cx(
-        "w-full rounded-[16px] border px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 ease-productive hover:border-lineStrong hover:bg-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0 active:scale-[0.995]",
-        active
-          ? "border-lineStrong bg-panel shadow-[inset_0_0_0_1px_var(--aw-border-strong)]"
-          : "border-line bg-panelStrong",
+        "w-full border-b border-line px-3 py-2.5 text-left transition-[background-color,color] duration-200 ease-productive hover:bg-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusRing focus-visible:ring-offset-0",
+        active ? "bg-panel" : "bg-transparent",
       )}
     >
-      <div className="flex items-start gap-3">
-        <div className={cx("mt-1.5 flex h-2.5 w-2.5 shrink-0 rounded-full", item.unread ? "bg-accent/80" : "bg-line")} aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">
-            <span>{item.source_label || "Inbox"}</span>
-            <span className="h-1 w-1 rounded-full bg-faint/70" />
-            <span>{formatTimestamp(item.created_at)}</span>
-          </div>
-          <div className="mt-2 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{item.title}</p>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{item.preview}</p>
+      <div className="flex items-start gap-2.5">
+        <div className="flex min-w-0 flex-1 gap-2.5">
+          <div className={cx("mt-1.5 flex h-2 w-2 shrink-0 rounded-full", item.unread ? "bg-accent/80" : "bg-line")} aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-medium uppercase tracking-[0.14em] text-quiet">
+              <span>{itemBucketLabel(item)}</span>
+              <span className="h-1 w-1 rounded-full bg-faint/70" />
+              <span>{item.source_label || "Inbox"}</span>
+              <span className="h-1 w-1 rounded-full bg-faint/70" />
+              <span>{formatTimestamp(item.created_at)}</span>
             </div>
-            <StatusPill tone={attentionTone(item)}>{item.status_label}</StatusPill>
+            <div className="mt-1.5 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-medium tracking-[-0.02em] text-ink">{item.title}</p>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-quiet">{item.preview}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-end">
+            <StatusPill tone={item.bucket ? bucketTone(item.bucket) : attentionTone(item)}>{item.status_label}</StatusPill>
           </div>
         </div>
       </div>
@@ -332,10 +372,64 @@ function isHumanMessage(message: ConversationMessage) {
   return ["human", "user"].includes(String(message.author_kind || "").toLowerCase());
 }
 
+function NativeIssueQuickActions({
+  issue,
+  members,
+  updating,
+  onUpdate,
+}: {
+  issue: NativeOrbitIssue;
+  members: OrbitPayload["members"];
+  updating: boolean;
+  onUpdate: (payload: { status?: string; assignee_user_id?: string | null }) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={issue.status}
+        onChange={(event) => onUpdate({ status: event.target.value })}
+        disabled={updating}
+        className="rounded-chip border border-line bg-panel px-3 py-2 text-[12px] text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {[
+          "triage",
+          "backlog",
+          "planned",
+          "in_progress",
+          "in_review",
+          "ready_to_merge",
+          "done",
+          "canceled",
+        ].map((status) => (
+          <option key={status} value={status}>
+            {formatStateLabel(status)}
+          </option>
+        ))}
+      </select>
+      <select
+        value={issue.assignee_user_id || ""}
+        onChange={(event) => onUpdate({ assignee_user_id: event.target.value || null })}
+        disabled={updating}
+        className="rounded-chip border border-line bg-panel px-3 py-2 text-[12px] text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">Unassigned</option>
+        {members.map((member) => (
+          <option key={member.user_id} value={member.user_id}>
+            {member.display_name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ErgoConversation({
   activeScope,
   chatContext,
   selectedItem,
+  selectedIssue,
+  issueMembers,
+  issueUpdating,
   messages,
   humanLoopItems,
   loading,
@@ -349,6 +443,9 @@ function ErgoConversation({
   onInsertMention,
   onAction,
   onOpenContext,
+  onOpenSelectedChat,
+  onOpenSelectedWork,
+  onUpdateSelectedIssue,
   onSend,
   sending,
   attachmentInputRef,
@@ -356,6 +453,9 @@ function ErgoConversation({
   activeScope: InboxScope | null;
   chatContext: ErgoChatContext | null;
   selectedItem: InboxItem | null;
+  selectedIssue: NativeOrbitIssue | null;
+  issueMembers: OrbitPayload["members"];
+  issueUpdating: boolean;
   messages: ConversationMessage[];
   humanLoopItems: HumanLoopItem[];
   loading: boolean;
@@ -369,56 +469,99 @@ function ErgoConversation({
   onInsertMention: (token: string) => void;
   onAction: (action: InboxAction) => void;
   onOpenContext: () => void;
+  onOpenSelectedChat: () => void;
+  onOpenSelectedWork: () => void;
+  onUpdateSelectedIssue: (payload: { status?: string; assignee_user_id?: string | null }) => void;
   onSend: () => void;
   sending: boolean;
   attachmentInputRef: { current: HTMLInputElement | null };
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-line px-4 py-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="border-b border-line px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? "ERGO"}</p>
-            <p className="text-[11px] text-quiet">{activeScope?.repository_full_name ?? "Orbit context pending"}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? "ERGO"}</p>
+              {chatContext ? <StatusPill tone={chatContext.tone}>{chatContext.statusLabel}</StatusPill> : null}
+              {!chatContext && selectedItem ? (
+                <StatusPill tone={selectedItem.bucket ? bucketTone(selectedItem.bucket) : attentionTone(selectedItem)}>
+                  {itemBucketLabel(selectedItem)}
+                </StatusPill>
+              ) : null}
+            </div>
+            <p className="mt-1 text-[11px] text-quiet">{activeScope?.repository_full_name ?? "Orbit context pending"}</p>
           </div>
-          {chatContext ? <StatusPill tone={chatContext.tone}>{chatContext.statusLabel}</StatusPill> : null}
-          {!chatContext && selectedItem ? <StatusPill tone={attentionTone(selectedItem)}>{selectedItem.status_label}</StatusPill> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedIssue ? (
+              <NativeIssueQuickActions issue={selectedIssue} members={issueMembers} updating={issueUpdating} onUpdate={onUpdateSelectedIssue} />
+            ) : null}
+            {chatContext ? (
+              <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenContext}>
+                {chatContext.openLabel}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </GhostButton>
+            ) : selectedItem ? (
+              <>
+                <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenSelectedWork}>
+                  Open work
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </GhostButton>
+                <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenSelectedChat}>
+                  Open chat
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </GhostButton>
+              </>
+            ) : null}
+          </div>
         </div>
         {chatContext ? (
-          <div className="mt-2 flex flex-wrap items-start justify-between gap-3 border-t border-line pt-2">
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{chatContext.eyebrow}</p>
-              <p className="mt-1 truncate text-xs font-medium text-ink">{chatContext.title}</p>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{chatContext.detail}</p>
-              {chatContext.meta.length ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {chatContext.meta.map((item) => (
-                    <StatusPill key={`${chatContext.title}-${item}`} tone="muted">
-                      {item}
-                    </StatusPill>
+          <div className="mt-3 border-t border-line pt-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{chatContext.eyebrow}</p>
+            <p className="mt-1 truncate text-[13px] font-medium text-ink">{chatContext.title}</p>
+            <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-quiet">{chatContext.detail}</p>
+            {chatContext.meta.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {chatContext.meta.map((item) => (
+                  <StatusPill key={`${chatContext.title}-${item}`} tone="muted">
+                    {item}
+                  </StatusPill>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : selectedItem ? (
+          <div className="mt-3 border-t border-line pt-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-medium text-ink">{selectedItem.title}</p>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-quiet">{selectedItem.detail.summary}</p>
+              </div>
+              {selectedItem.detail.next_actions.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedItem.detail.next_actions.slice(0, 1).map((action) => (
+                    <GhostButton key={action.label} className="px-2.5 py-1.5 text-[11px]" onClick={() => onAction(action)}>
+                      {action.label}
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </GhostButton>
                   ))}
                 </div>
               ) : null}
             </div>
-            <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenContext}>
-              {chatContext.openLabel}
-              <ChevronRight className="h-3.5 w-3.5" />
-            </GhostButton>
-          </div>
-        ) : selectedItem ? (
-          <div className="mt-2 flex flex-wrap items-start justify-between gap-3 border-t border-line pt-2">
-            <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-ink">{selectedItem.title}</p>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{selectedItem.detail.summary}</p>
-            </div>
-            {selectedItem.detail.next_actions.length ? (
-              <div className="flex flex-wrap gap-2">
-                {selectedItem.detail.next_actions.slice(0, 2).map((action) => (
-                  <GhostButton key={action.label} className="px-2.5 py-1.5 text-[11px]" onClick={() => onAction(action)}>
-                    {action.label}
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </GhostButton>
-                ))}
+            {selectedIssue ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[
+                  selectedIssue.assignee_display_name ? `Owner ${selectedIssue.assignee_display_name}` : "Unassigned",
+                  selectedIssue.cycle_name || "No cycle",
+                  selectedIssue.is_blocked ? "Dependency risk" : null,
+                  selectedIssue.stale ? `${selectedIssue.stale_working_days}d stale` : null,
+                ]
+                  .filter(Boolean)
+                  .map((item) => (
+                    <StatusPill key={item} tone="muted">
+                      {item}
+                    </StatusPill>
+                  ))}
               </div>
             ) : null}
           </div>
@@ -485,7 +628,7 @@ function ErgoConversation({
       </ScrollPanel>
 
       <div className="border-t border-line px-4 py-2.5">
-        <div className="rounded-[18px] border border-lineStrong bg-panel px-4 py-3 shadow-[0_16px_34px_rgba(0,0,0,0.16)]">
+        <div className="border border-line bg-panel px-4 py-3">
           <div className="flex items-start gap-3">
             <div className="hidden rounded-[18px] border border-line bg-panelStrong p-2.5 text-quiet sm:flex">
               <Bot className="h-5 w-5" />
@@ -566,7 +709,7 @@ export function InboxScreen({
   const { mode: themeMode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<InboxPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<InboxTabKey>(surfaceMode === "chat" ? "chats" : "inbox");
+  const [activeFilter, setActiveFilter] = useState<InboxFilterKey>(surfaceMode === "chat" ? "agent" : "all");
   const [selectedItemId, setSelectedItemId] = useState<string>("briefing-ergo");
   const [composer, setComposer] = useState("");
   const [composerMode, setComposerMode] = useState<(typeof COMPOSER_MODES)[number]["key"]>("brief");
@@ -585,6 +728,9 @@ export function InboxScreen({
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadOverrides, setThreadOverrides] = useState<Record<string, string>>({});
   const [chatContext, setChatContext] = useState<ErgoChatContext | null>(null);
+  const [selectedIssue, setSelectedIssue] = useState<NativeOrbitIssue | null>(null);
+  const [selectedIssueMembers, setSelectedIssueMembers] = useState<OrbitPayload["members"]>([]);
+  const [issueUpdating, setIssueUpdating] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -608,7 +754,11 @@ export function InboxScreen({
       });
       setSelectedItemId((current) => {
         const preferred = preferredItemId ?? current;
-        return nextInbox.items.some((item) => item.id === preferred) ? preferred : nextInbox.briefing.id;
+        if (nextInbox.items.some((item) => item.id === preferred)) {
+          return preferred;
+        }
+        const firstTriageItem = nextInbox.items.find((item) => item.kind !== "briefing");
+        return firstTriageItem?.id ?? nextInbox.briefing.id;
       });
       if (preferences.theme_preference !== themeMode) {
         setMode(preferences.theme_preference);
@@ -640,6 +790,7 @@ export function InboxScreen({
     }
     setSelectedScopeId(contextOrbitId);
     setMobileSurface("chat");
+    setActiveFilter("agent");
   }, [contextOrbitId]);
 
   const ergoThreadId = activeScope ? threadOverrides[activeScope.orbit_id] ?? activeScope.ergo_thread_id ?? null : null;
@@ -758,8 +909,9 @@ export function InboxScreen({
     if (!payload) {
       return [] as InboxItem[];
     }
-    return payload.items.filter((item) => itemMatchesTab(item, activeTab));
-  }, [payload, activeTab]);
+    const visibleItems = payload.items.filter((item) => item.kind !== "briefing");
+    return visibleItems.filter((item) => itemMatchesFilter(item, activeFilter));
+  }, [payload, activeFilter]);
 
   useEffect(() => {
     if (!filteredItems.length) {
@@ -775,6 +927,34 @@ export function InboxScreen({
     [filteredItems, payload, selectedItemId],
   );
 
+  useEffect(() => {
+    if (!session || !selectedItem?.orbit_id || selectedItem.navigation?.detail_kind !== "native_issue" || !selectedItem.navigation.detail_id) {
+      setSelectedIssue(null);
+      setSelectedIssueMembers([]);
+      return;
+    }
+
+    let cancelled = false;
+    void fetchOrbit(session.token, selectedItem.orbit_id)
+      .then((orbitPayload) => {
+        if (cancelled) {
+          return;
+        }
+        setSelectedIssue(orbitPayload.native_issues.find((item) => item.id === selectedItem.navigation?.detail_id) ?? null);
+        setSelectedIssueMembers(orbitPayload.members ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedIssue(null);
+          setSelectedIssueMembers([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedItem, session]);
+
   const searchResults = useMemo(() => {
     if (!payload) {
       return [] as Array<{ key: string; label: string; detail: string; action: () => void }>;
@@ -789,7 +969,7 @@ export function InboxScreen({
         detail: item.source_label || item.preview,
         action: () => {
           setSelectedItemId(item.id);
-          setActiveTab(item.kind === "source" ? "sources" : "inbox");
+          setActiveFilter(item.bucket || (item.kind === "source" ? "sources" : "all"));
           setMobileSurface("chat");
         },
       }));
@@ -809,12 +989,12 @@ export function InboxScreen({
     if (!payload) {
       return <EmptyState detail="Loading activity…" />;
     }
-    const focusItems = payload.items.filter((item) => item.id !== payload.briefing.id).slice(0, 8);
+    const focusItems = payload.items.filter((item) => item.kind !== "briefing").slice(0, 8);
     if (!focusItems.length) {
       return (
         <EmptyState
           title="Inbox is quiet"
-          detail="Approvals, mentions, recent conversations, and source updates will surface here when they matter."
+          detail="Approvals, review requests, blocked work, and agent asks will surface here when they matter."
         />
       );
     }
@@ -823,10 +1003,10 @@ export function InboxScreen({
         {focusItems.map((item) => (
           <ListRow
             key={item.id}
-            eyebrow="Inbox item"
+            eyebrow={itemBucketLabel(item)}
             title={item.title}
             detail={item.preview}
-            trailing={<StatusPill tone={attentionTone(item)}>{item.status_label}</StatusPill>}
+            trailing={<StatusPill tone={item.bucket ? bucketTone(item.bucket) : attentionTone(item)}>{item.status_label}</StatusPill>}
             onClick={() => {
               setSelectedItemId(item.id);
               setMobileSurface("chat");
@@ -854,7 +1034,7 @@ export function InboxScreen({
         description:
           surfaceMode === "chat"
             ? "Find the right ERGO thread, conversation, or orbit without leaving the shell."
-            : "Find the right triage item, briefing, or orbit without leaving the shell.",
+            : "Find the right triage item, issue, or orbit without leaving the shell.",
         query: search,
         onQueryChange: setSearch,
         placeholder: surfaceMode === "chat" ? "Search chats or jump to an orbit" : "Search inbox or jump to an orbit",
@@ -1011,6 +1191,13 @@ export function InboxScreen({
     if (target.section === "chat" && target.orbit_id) {
       setSelectedScopeId(target.orbit_id);
       setMobileSurface("chat");
+      router.push(
+        buildChatHref({
+          orbitId: target.orbit_id,
+          issueId: target.detail_kind === "native_issue" ? target.detail_id ?? null : null,
+          sourceKind: target.detail_kind === "native_issue" ? "native_issue" : null,
+        }),
+      );
       return;
     }
 
@@ -1021,6 +1208,26 @@ export function InboxScreen({
 
     if (target.orbit_id) {
       await updateNavigation(session.token, { orbit_id: target.orbit_id, section: target.section }).catch(() => {});
+      if (target.detail_kind && target.detail_id) {
+        const orbitSection =
+          target.section === "issues" ||
+          target.section === "prs" ||
+          target.section === "workflow" ||
+          target.section === "codespaces" ||
+          target.section === "demos" ||
+          target.section === "chat"
+            ? target.section
+            : null;
+        router.push(
+          buildOrbitWorkHref({
+            orbitId: target.orbit_id,
+            section: orbitSection,
+            detailKind: target.detail_kind,
+            detailId: target.detail_id,
+          }),
+        );
+        return;
+      }
       router.push(`/app/orbits/${target.orbit_id}`);
       return;
     }
@@ -1030,10 +1237,52 @@ export function InboxScreen({
     }
   }
 
+  async function onUpdateSelectedIssue(payload: { status?: string; assignee_user_id?: string | null }) {
+    if (!session || !selectedItem?.orbit_id || selectedItem.navigation?.detail_kind !== "native_issue" || !selectedItem.navigation.detail_id) {
+      return;
+    }
+    setIssueUpdating(true);
+    setError(null);
+    try {
+      await updateOrbitIssue(session.token, selectedItem.orbit_id, selectedItem.navigation.detail_id, payload);
+      await reload(selectedItem.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update the selected issue.");
+    } finally {
+      setIssueUpdating(false);
+    }
+  }
+
   function onSelectItem(itemId: string) {
     setSelectedItemId(itemId);
     setMobileSurface("chat");
   }
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<InboxFilterKey, number> = {
+      all: 0,
+      review: 0,
+      blocked: 0,
+      stale: 0,
+      approvals: 0,
+      mentions: 0,
+      agent: 0,
+      sources: 0,
+    };
+    if (!payload) {
+      return counts;
+    }
+    for (const item of payload.items) {
+      if (item.kind === "briefing") {
+        continue;
+      }
+      counts.all += 1;
+      if (item.bucket && item.bucket in counts) {
+        counts[item.bucket] += 1;
+      }
+    }
+    return counts;
+  }, [payload]);
 
   if (!session || !payload) {
     return <ShellPageSkeleton mode="inbox" />;
@@ -1049,7 +1298,12 @@ export function InboxScreen({
             <div className={cx("flex min-w-[296px] flex-col border-r border-line", surfaceMode === "chat" ? "w-[296px]" : "w-[312px]")}>
               <div className="border-b border-line px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? (surfaceMode === "chat" ? "ERGO Chat" : "ERGO Inbox")}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? (surfaceMode === "chat" ? "ERGO Chat" : "Inbox")}</p>
+                    <p className="mt-1 text-[11px] text-quiet">
+                      {surfaceMode === "chat" ? "ERGO stays complementary to the selected work." : "Review, blockers, stale work, and agent asks."}
+                    </p>
+                  </div>
                   <GhostButton className="px-3 py-2 text-xs" onClick={() => setShowCreateOrbit(true)}>
                     <Plus className="h-3.5 w-3.5" />
                     Orbit
@@ -1093,33 +1347,34 @@ export function InboxScreen({
                     </div>
                   ) : null}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {INBOX_TABS.map((tab) => (
-                    <SelectionChip key={tab.key} active={activeTab === tab.key} onClick={() => setActiveTab(tab.key)}>
-                      {tab.label}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {TRIAGE_FILTERS.map((filter) => (
+                    <SelectionChip key={filter.key} active={activeFilter === filter.key} onClick={() => setActiveFilter(filter.key)}>
+                      {filter.label}
+                      <span className="text-faint">{filterCounts[filter.key]}</span>
                     </SelectionChip>
                   ))}
                 </div>
               </div>
 
-              <ScrollPanel className="flex-1 px-3 py-2.5">
-                <div className="space-y-2">
+              <ScrollPanel className="flex-1">
+                <div>
                   {filteredItems.length ? (
                     filteredItems.map((item) => <InboxRow key={item.id} item={item} active={item.id === selectedItem?.id} onClick={() => onSelectItem(item.id)} />)
-                  ) : activeTab === "sources" ? (
+                  ) : activeFilter === "sources" ? (
                     <EmptyState
                       title="No sources yet"
-                      detail="Artifacts, demos, and repo-backed context will show up here once ERGO has something operational to reference."
+                      detail="Artifacts and demos will show up here once the workspace emits new delivery context."
                       action={<GhostButton onClick={() => setShowCreateOrbit(true)}>Create orbit</GhostButton>}
                     />
                   ) : payload.scopes.length === 0 ? (
                     <EmptyState
                       title="Start your first workspace"
-                      detail="Inbox becomes useful once AutoWeave has at least one orbit to summarize, monitor, and route ERGO through."
+                      detail="Inbox becomes useful once AutoWeave has at least one orbit to triage and route through ERGO."
                       action={<ActionButton onClick={() => setShowCreateOrbit(true)}>Create orbit</ActionButton>}
                     />
                   ) : (
-                    <EmptyState title="No inbox items" detail="This filter is quiet right now. Switch tabs or send a new ERGO request." />
+                    <EmptyState title="No matching work" detail="This triage slice is quiet right now. Switch filters or open chat." />
                   )}
                 </div>
               </ScrollPanel>
@@ -1129,6 +1384,9 @@ export function InboxScreen({
               activeScope={activeScope}
               chatContext={chatContext}
               selectedItem={selectedItem}
+              selectedIssue={selectedIssue}
+              issueMembers={selectedIssueMembers}
+              issueUpdating={issueUpdating}
               messages={threadMessages}
               humanLoopItems={humanLoopItems}
               loading={threadLoading}
@@ -1142,6 +1400,9 @@ export function InboxScreen({
               onInsertMention={onInsertMention}
               onAction={onAction}
               onOpenContext={() => router.push(chatContext?.openHref || `/app/orbits/${activeScope?.orbit_id ?? ""}`)}
+              onOpenSelectedChat={() => router.push(selectedItem ? buildItemChatHref(selectedItem) : "/app/chat")}
+              onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
+              onUpdateSelectedIssue={onUpdateSelectedIssue}
               onSend={onComposerSubmit}
               sending={sendingComposer}
               attachmentInputRef={attachmentInputRef}
@@ -1159,7 +1420,7 @@ export function InboxScreen({
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {[
-                  { key: "list", label: "Inbox" },
+                  { key: "list", label: "Triage" },
                   { key: "chat", label: "Chat" },
                 ].map((surface) => (
                   <SelectionChip key={surface.key} active={mobileSurface === surface.key} onClick={() => setMobileSurface(surface.key as MobileSurface)}>
@@ -1202,16 +1463,17 @@ export function InboxScreen({
                       </div>
                     ) : null}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {INBOX_TABS.map((tab) => (
-                      <SelectionChip key={tab.key} active={activeTab === tab.key} onClick={() => setActiveTab(tab.key)}>
-                        {tab.label}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {TRIAGE_FILTERS.map((filter) => (
+                      <SelectionChip key={filter.key} active={activeFilter === filter.key} onClick={() => setActiveFilter(filter.key)}>
+                        {filter.label}
+                        <span className="text-faint">{filterCounts[filter.key]}</span>
                       </SelectionChip>
                     ))}
                   </div>
                 </div>
-                <ScrollPanel className="flex-1 px-3 py-2.5">
-                  <div className="space-y-2">
+                <ScrollPanel className="flex-1">
+                  <div>
                     {filteredItems.map((item) => (
                       <InboxRow key={item.id} item={item} active={item.id === selectedItem?.id} onClick={() => onSelectItem(item.id)} />
                     ))}
@@ -1225,6 +1487,9 @@ export function InboxScreen({
                 activeScope={activeScope}
                 chatContext={chatContext}
                 selectedItem={selectedItem}
+                selectedIssue={selectedIssue}
+                issueMembers={selectedIssueMembers}
+                issueUpdating={issueUpdating}
                 messages={threadMessages}
                 humanLoopItems={humanLoopItems}
                 loading={threadLoading}
@@ -1238,6 +1503,9 @@ export function InboxScreen({
                 onInsertMention={onInsertMention}
                 onAction={onAction}
                 onOpenContext={() => router.push(chatContext?.openHref || `/app/orbits/${activeScope?.orbit_id ?? ""}`)}
+                onOpenSelectedChat={() => router.push(selectedItem ? buildItemChatHref(selectedItem) : "/app/chat")}
+                onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
+                onUpdateSelectedIssue={onUpdateSelectedIssue}
                 onSend={onComposerSubmit}
                 sending={sendingComposer}
                 attachmentInputRef={attachmentInputRef}

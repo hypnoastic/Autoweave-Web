@@ -538,12 +538,14 @@ export type SavedViewsPayload = {
   views: SavedPlanningView[];
 };
 
+export type InboxBucketKey = "all" | "review" | "blocked" | "stale" | "approvals" | "mentions" | "agent" | "sources";
+
 export type InboxNavigationTarget = {
   orbit_id?: string | null;
   section: string;
   conversation_kind?: "channel" | "dm" | null;
   conversation_id?: string | null;
-  detail_kind?: "pr" | "issue" | null;
+  detail_kind?: "pr" | "issue" | "native_issue" | null;
   detail_id?: string | null;
 };
 
@@ -565,6 +567,8 @@ export type InboxDetail = {
 export type InboxItem = {
   id: string;
   kind: string;
+  bucket?: InboxBucketKey;
+  reason_label?: string | null;
   title: string;
   preview: string;
   source_label: string;
@@ -592,6 +596,12 @@ export type InboxPayload = {
   summary: {
     needs_attention: number;
     review_queue: number;
+    review_requests: number;
+    blocked_work: number;
+    stale_work: number;
+    approvals: number;
+    mentions: number;
+    agent_asks: number;
     active_sources: number;
     recent_chats: number;
     recent_orbits: number;

@@ -304,6 +304,67 @@ def test_saved_views_can_be_created_over_native_issue_filters(client):
     assert any(item["label"] == "High priority cycle work" for item in listed_payload["views"])
 
 
+def test_inbox_payload_prioritizes_native_issue_triage_buckets(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    blocker_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Land dependency tracking",
+            "detail": "This must close before the implementation issue can move.",
+            "priority": "high",
+            "status": "in_progress",
+        },
+        headers=headers,
+    )
+    assert blocker_response.status_code == 200
+    blocker_issue = blocker_response.json()
+
+    blocked_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Ship inbox quick actions",
+            "detail": "Blocked until the dependency issue lands.",
+            "priority": "high",
+            "status": "planned",
+            "assignee_user_id": user["id"],
+            "blocked_by_issue_ids": [blocker_issue["id"]],
+        },
+        headers=headers,
+    )
+    assert blocked_response.status_code == 200
+
+    review_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Review the triage surface",
+            "detail": "Waiting for review follow-up.",
+            "priority": "medium",
+            "status": "in_review",
+            "assignee_user_id": user["id"],
+        },
+        headers=headers,
+    )
+    assert review_response.status_code == 200
+    review_issue = review_response.json()
+
+    inbox = client.get("/api/inbox", headers=headers)
+    assert inbox.status_code == 200
+    payload = inbox.json()
+    assert payload["summary"]["review_requests"] == 1
+    assert payload["summary"]["blocked_work"] == 1
+
+    blocked_item = next(item for item in payload["items"] if item.get("bucket") == "blocked")
+    review_item = next(item for item in payload["items"] if item.get("bucket") == "review")
+
+    assert blocked_item["reason_label"] == "Blocked"
+    assert review_item["reason_label"] == "Review request"
+    assert review_item["navigation"]["detail_kind"] == "native_issue"
+    assert review_item["navigation"]["detail_id"] == review_issue["id"]
+
+
 def test_health_endpoint_allows_local_frontend_origin(client):
     response = client.options(
         "/api/health",

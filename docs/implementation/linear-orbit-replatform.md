@@ -13,14 +13,16 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Add a safe local auth bootstrap for Playwright so authenticated PM flows can be proven without typing GitHub secrets into the browser.
-- Reuse existing local users when the provided GitHub login already exists, including hyphenated logins from seeded dev data.
-- Keep the bootstrap strictly local/dev/test only and validate it against real authenticated routes on `3000`.
+- Rebuild Inbox as a triage-first workspace around review requests, blocked work, stale work, sources, and ERGO asks.
+- Keep the inbox dense and operational: no oversized containers, explicit bucket filters, inline native issue actions, and contextual chat/work deep links.
+- Validate the new inbox behavior against the live stack on `3000`, using the local dev-session bootstrap instead of browser-driven GitHub auth.
 
 ## Files Touched In This Slice
 - `backend/src/autoweave_web/api/app.py`
-- `backend/src/autoweave_web/schemas/api.py`
 - `backend/tests/test_api.py`
+- `frontend/components/inbox-screen.tsx`
+- `frontend/components/inbox-screen.test.tsx`
+- `frontend/lib/types.ts`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -54,12 +56,24 @@
 - `npm test -- orbit-workspace.test.tsx planning-screen.test.tsx`
 - `npm test`
 - `npm run build`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload or dev_session or native_issue or saved_views'`
+- `npm test -- inbox-screen.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend backend`
+- Browser validation:
+  - seeded a local session through `POST /api/auth/dev-session`
+  - verified authenticated `/app/inbox` on `3000`
+  - verified bucket filtering for blocked work
+  - verified inline native issue stage updates from the inbox workspace
+  - artifacts:
+    - `output/playwright/inbox-triage-screen.png`
+    - `output/playwright/inbox-triage-review-filter.png`
 - Browser validation status:
   - authenticated PM browser proof is now unblocked by the local auth bootstrap
-  - the next browser pass should target the triage-first inbox and cycle/view management flows
+  - the next browser pass should target cycle/view management flows
 
 ## Remaining Planned Slices
-- Rebuild Inbox as a triage-first surface around approvals, mentions, blocked work, stale work, and agent asks.
 - Strengthen cycles and saved views with editing, pinning, delete flows, and richer issue assignment controls.
 
 ## Slice Notes
@@ -69,9 +83,10 @@
 - Saved views now understand labels, stale work, hierarchy scope, and dependency risk instead of only status, priority, and cycle scope.
 - Orbit issues now support a denser board/list surface with compact search, owner/blocker/stale filters, and richer right-side detail editing.
 - `My Work` now exposes stale and dependency-aware native issue metadata instead of treating native issues like thin board cards.
+- Inbox now prioritizes review requests, blocked work, stale work, sources, and ERGO asks through explicit bucket metadata in the API and denser filter-driven rows in the UI.
+- Native issue triage items can be reassigned or moved between stages directly from the inbox workspace without leaving ERGO chat context.
 
 ## Remaining Known Gaps
-- Inbox is still not triage-first enough. It needs explicit review/approval/blocker/agent buckets and inline quick actions.
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle management UI yet.
 - Saved views do not yet support editing, deleting, pin ordering, or share semantics.
 - The orbit board currently supports stage and cycle updates from the detail panel only; drag/drop is intentionally deferred until the PM model stabilizes.

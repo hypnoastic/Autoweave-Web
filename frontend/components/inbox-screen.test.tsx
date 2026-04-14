@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   fetchPreferences: vi.fn(),
   readSession: vi.fn(),
   sendDmMessage: vi.fn(),
+  updateOrbitIssue: vi.fn(),
   updateNavigation: vi.fn(),
   updatePreferences: vi.fn(),
   writeSession: vi.fn(),
@@ -42,6 +43,12 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
     summary: {
       needs_attention: 3,
       review_queue: 1,
+      review_requests: 1,
+      blocked_work: 0,
+      stale_work: 0,
+      approvals: 0,
+      mentions: 1,
+      agent_asks: 0,
       active_sources: 1,
       recent_chats: 2,
       recent_orbits: 1,
@@ -49,6 +56,8 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
     briefing: {
       id: "briefing-ergo",
       kind: "briefing",
+      bucket: "agent",
+      reason_label: "Briefing",
       title: "ERGO briefing",
       preview: "Orbit One is the active ERGO scope for new Inbox questions.",
       source_label: "Orbit One",
@@ -75,6 +84,8 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
       {
         id: "briefing-ergo",
         kind: "briefing",
+        bucket: "agent",
+        reason_label: "Briefing",
         title: "ERGO briefing",
         preview: "Orbit One is the active ERGO scope for new Inbox questions.",
         source_label: "Orbit One",
@@ -97,6 +108,8 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
       {
         id: "notif_1",
         kind: "mention",
+        bucket: "mentions",
+        reason_label: "Mention",
         title: "Mentioned in workflow review",
         preview: "You were mentioned in the release review thread.",
         source_label: "Orbit One · Pull request · Mention",
@@ -119,6 +132,8 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
       {
         id: "artifact_1",
         kind: "source",
+        bucket: "sources",
+        reason_label: "Source",
         title: "Release notes draft",
         preview: "The latest release notes artifact is ready.",
         source_label: "Orbit One · octocat/orbit-one · Report",
@@ -220,11 +235,13 @@ describe("InboxScreen", () => {
         repo_private: true,
         default_branch: "main",
       },
+      members: [],
       native_issues: [],
       issues: [],
       prs: [],
     });
     api.updateNavigation.mockResolvedValue({});
+    api.updateOrbitIssue.mockResolvedValue({});
   });
 
   it("renders the decluttered ERGO inbox and keeps chat active when an item is selected", async () => {
@@ -242,13 +259,13 @@ describe("InboxScreen", () => {
     expect(screen.getAllByPlaceholderText("Message ERGO about this orbit").length).toBeGreaterThan(0);
   });
 
-  it("filters source items into the Sources tab", async () => {
+  it("filters source items into the Sources bucket", async () => {
     api.fetchInbox.mockResolvedValue(inboxPayload());
 
     renderInbox();
 
     await screen.findByText("I have current context on Orbit One.");
-    fireEvent.click(screen.getAllByRole("button", { name: "Sources" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sources/ })[0]);
 
     expect(screen.getAllByRole("button", { name: /Release notes draft/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Mentioned in workflow review/i })).not.toBeInTheDocument();
@@ -342,13 +359,27 @@ describe("InboxScreen", () => {
           source_kind: "manual",
           cycle_id: "cycle_1",
           cycle_name: "April stabilization",
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
           orbit_id: "orbit_1",
           orbit_name: "Orbit One",
           repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
       ],
+      members: [],
       issues: [],
       prs: [],
     });
@@ -363,5 +394,101 @@ describe("InboxScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Open orbit/i })[0]);
 
     expect(mockRouter.push).toHaveBeenCalledWith("/app/orbits/orbit_1?section=issues&detailKind=native_issue&detailId=pm_1");
+  });
+
+  it("updates the selected native issue directly from the triage workspace", async () => {
+    const reviewItem = {
+      id: "native-review-pm_1",
+      kind: "native_issue",
+      bucket: "review",
+      reason_label: "Review request",
+      title: "PM-1 · Review dense inbox layout",
+      preview: "Waiting for review follow-up.",
+      source_label: "Orbit One · octocat/orbit-one",
+      status_label: "In review",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" },
+      detail: {
+        summary: "Waiting for review follow-up.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open issue", navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, reviewItem] }))
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, { ...reviewItem, status_label: "Ready to merge" }] }));
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-one",
+        name: "Orbit One",
+        description: "Primary delivery orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      members: [
+        {
+          user_id: "user_1",
+          github_login: "octocat",
+          display_name: "Octo Cat",
+          role: "owner",
+          introduced: true,
+          avatar_url: null,
+        },
+      ],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Review dense inbox layout",
+          detail: "Waiting for review follow-up.",
+          status: "in_review",
+          priority: "medium",
+          source_kind: "manual",
+          cycle_id: null,
+          cycle_name: null,
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      issues: [],
+      prs: [],
+    });
+
+    renderInbox();
+
+    const statusSelect = await screen.findByDisplayValue("In review");
+    fireEvent.change(statusSelect, { target: { value: "ready_to_merge" } });
+
+    await waitFor(() =>
+      expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", {
+        status: "ready_to_merge",
+      }),
+    );
+    await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
   });
 });
