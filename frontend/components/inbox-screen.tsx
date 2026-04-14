@@ -17,6 +17,7 @@ import {
   useAuthenticatedShell,
   useAuthenticatedShellConfig,
 } from "@/components/authenticated-shell";
+import { NativeIssueTriageControls } from "@/components/native-issue-triage-controls";
 import { useTheme } from "@/components/theme-provider";
 import {
   ActionButton,
@@ -372,63 +373,13 @@ function isHumanMessage(message: ConversationMessage) {
   return ["human", "user"].includes(String(message.author_kind || "").toLowerCase());
 }
 
-function NativeIssueQuickActions({
-  issue,
-  members,
-  updating,
-  onUpdate,
-}: {
-  issue: NativeOrbitIssue;
-  members: OrbitPayload["members"];
-  updating: boolean;
-  onUpdate: (payload: { status?: string; assignee_user_id?: string | null }) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        value={issue.status}
-        onChange={(event) => onUpdate({ status: event.target.value })}
-        disabled={updating}
-        className="rounded-chip border border-line bg-panel px-3 py-2 text-[12px] text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {[
-          "triage",
-          "backlog",
-          "planned",
-          "in_progress",
-          "in_review",
-          "ready_to_merge",
-          "done",
-          "canceled",
-        ].map((status) => (
-          <option key={status} value={status}>
-            {formatStateLabel(status)}
-          </option>
-        ))}
-      </select>
-      <select
-        value={issue.assignee_user_id || ""}
-        onChange={(event) => onUpdate({ assignee_user_id: event.target.value || null })}
-        disabled={updating}
-        className="rounded-chip border border-line bg-panel px-3 py-2 text-[12px] text-ink outline-none transition-colors focus:border-lineStrong focus-visible:ring-2 focus-visible:ring-focusRing disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <option value="">Unassigned</option>
-        {members.map((member) => (
-          <option key={member.user_id} value={member.user_id}>
-            {member.display_name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
 function ErgoConversation({
   activeScope,
   chatContext,
   selectedItem,
   selectedIssue,
   issueMembers,
+  issueCycles,
   issueUpdating,
   messages,
   humanLoopItems,
@@ -455,6 +406,7 @@ function ErgoConversation({
   selectedItem: InboxItem | null;
   selectedIssue: NativeOrbitIssue | null;
   issueMembers: OrbitPayload["members"];
+  issueCycles: OrbitPayload["cycles"];
   issueUpdating: boolean;
   messages: ConversationMessage[];
   humanLoopItems: HumanLoopItem[];
@@ -471,7 +423,7 @@ function ErgoConversation({
   onOpenContext: () => void;
   onOpenSelectedChat: () => void;
   onOpenSelectedWork: () => void;
-  onUpdateSelectedIssue: (payload: { status?: string; assignee_user_id?: string | null }) => void;
+  onUpdateSelectedIssue: (payload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null }) => void;
   onSend: () => void;
   sending: boolean;
   attachmentInputRef: { current: HTMLInputElement | null };
@@ -494,7 +446,17 @@ function ErgoConversation({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {selectedIssue ? (
-              <NativeIssueQuickActions issue={selectedIssue} members={issueMembers} updating={issueUpdating} onUpdate={onUpdateSelectedIssue} />
+              <NativeIssueTriageControls
+                status={selectedIssue.status}
+                assigneeUserId={selectedIssue.assignee_user_id}
+                assigneeDisplayName={selectedIssue.assignee_display_name}
+                cycleId={selectedIssue.cycle_id}
+                cycleName={selectedIssue.cycle_name}
+                members={issueMembers}
+                cycles={issueCycles}
+                disabled={issueUpdating}
+                onUpdate={onUpdateSelectedIssue}
+              />
             ) : null}
             {chatContext ? (
               <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenContext}>
@@ -730,6 +692,7 @@ export function InboxScreen({
   const [chatContext, setChatContext] = useState<ErgoChatContext | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<NativeOrbitIssue | null>(null);
   const [selectedIssueMembers, setSelectedIssueMembers] = useState<OrbitPayload["members"]>([]);
+  const [selectedIssueCycles, setSelectedIssueCycles] = useState<OrbitPayload["cycles"]>([]);
   const [issueUpdating, setIssueUpdating] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
@@ -931,6 +894,7 @@ export function InboxScreen({
     if (!session || !selectedItem?.orbit_id || selectedItem.navigation?.detail_kind !== "native_issue" || !selectedItem.navigation.detail_id) {
       setSelectedIssue(null);
       setSelectedIssueMembers([]);
+      setSelectedIssueCycles([]);
       return;
     }
 
@@ -942,11 +906,13 @@ export function InboxScreen({
         }
         setSelectedIssue(orbitPayload.native_issues.find((item) => item.id === selectedItem.navigation?.detail_id) ?? null);
         setSelectedIssueMembers(orbitPayload.members ?? []);
+        setSelectedIssueCycles(orbitPayload.cycles ?? []);
       })
       .catch(() => {
         if (!cancelled) {
           setSelectedIssue(null);
           setSelectedIssueMembers([]);
+          setSelectedIssueCycles([]);
         }
       });
 
@@ -1237,7 +1203,7 @@ export function InboxScreen({
     }
   }
 
-  async function onUpdateSelectedIssue(payload: { status?: string; assignee_user_id?: string | null }) {
+  async function onUpdateSelectedIssue(payload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null }) {
     if (!session || !selectedItem?.orbit_id || selectedItem.navigation?.detail_kind !== "native_issue" || !selectedItem.navigation.detail_id) {
       return;
     }
@@ -1386,6 +1352,7 @@ export function InboxScreen({
               selectedItem={selectedItem}
               selectedIssue={selectedIssue}
               issueMembers={selectedIssueMembers}
+              issueCycles={selectedIssueCycles}
               issueUpdating={issueUpdating}
               messages={threadMessages}
               humanLoopItems={humanLoopItems}
@@ -1489,6 +1456,7 @@ export function InboxScreen({
                 selectedItem={selectedItem}
                 selectedIssue={selectedIssue}
                 issueMembers={selectedIssueMembers}
+                issueCycles={selectedIssueCycles}
                 issueUpdating={issueUpdating}
                 messages={threadMessages}
                 humanLoopItems={humanLoopItems}

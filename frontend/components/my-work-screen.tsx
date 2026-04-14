@@ -17,6 +17,7 @@ import {
   type AppShellConfig,
   useAuthenticatedShellConfig,
 } from "@/components/authenticated-shell";
+import { NativeIssueTriageControls } from "@/components/native-issue-triage-controls";
 import { useTheme } from "@/components/theme-provider";
 import {
   ActionButton,
@@ -32,10 +33,15 @@ import {
   StatusPill,
   SurfaceCard,
 } from "@/components/ui";
-import { AuthSessionError, fetchMyWork, fetchPreferences, readSession } from "@/lib/api";
+import { AuthSessionError, fetchMyWork, fetchOrbit, fetchPreferences, readSession, updateOrbitIssue } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import { buildChatHref } from "@/lib/chat-links";
-import type { BoardItem, MyWorkPayload, NotificationItem, WorkItemSummary } from "@/lib/types";
+import type { BoardItem, MyWorkPayload, NotificationItem, OrbitCycle, OrbitMember, WorkItemSummary } from "@/lib/types";
+
+type OrbitIssueContext = {
+  members: OrbitMember[];
+  cycles: OrbitCycle[];
+};
 
 function formatFreshness(value: string | undefined) {
   if (!value) {
@@ -126,11 +132,70 @@ function issueSupporting(item: BoardItem) {
   );
 }
 
+function NativeIssueQueueRow({
+  item,
+  issueContext,
+  issueContextReady,
+  updating,
+  fallbackOwner,
+  onChat,
+  onUpdate,
+}: {
+  item: BoardItem;
+  issueContext?: OrbitIssueContext;
+  issueContextReady: boolean;
+  updating: boolean;
+  fallbackOwner: { user_id: string; display_name?: string | null };
+  onChat: () => void;
+  onUpdate: (payload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null }) => void;
+}) {
+  const status = String(item.operational_status || item.state || "");
+
+  return (
+    <div className="rounded-pane border border-line bg-panelStrong px-4 py-3">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{item.repository_full_name || "Orbit issue"}</p>
+          <p className="truncate text-sm font-medium text-ink">{item.title}</p>
+          <p className="mt-1 text-xs leading-5 text-quiet">{issueDetail(item)}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-quiet">{issueSupporting(item)}</div>
+        </div>
+        <div className="shrink-0 pt-0.5">
+          <div className="flex flex-col items-end gap-2">
+            <StatusPill tone={boardTone(item)}>{status.replaceAll("_", " ")}</StatusPill>
+            <GhostButton className="px-3 py-1.5 text-xs" onClick={onChat}>
+              Chat
+            </GhostButton>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 border-t border-line pt-3">
+        <NativeIssueTriageControls
+          status={status}
+          assigneeUserId={item.assignee_user_id}
+          assigneeDisplayName={item.assignee_display_name}
+          cycleId={item.cycle_id}
+          cycleName={item.cycle_name}
+          members={issueContext?.members ?? []}
+          cycles={issueContext?.cycles ?? []}
+          fallbackOwner={fallbackOwner}
+          membersReady={issueContextReady}
+          cyclesReady={issueContextReady}
+          disabled={updating}
+          onUpdate={onUpdate}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function MyWorkScreen() {
   const router = useRouter();
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
   const [payload, setPayload] = useState<MyWorkPayload | null>(null);
+  const [issueContexts, setIssueContexts] = useState<Record<string, OrbitIssueContext>>({});
+  const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "needs-review" | "blocked" | "stale" | "agent">("all");
@@ -174,6 +239,10 @@ export function MyWorkScreen() {
   useEffect(() => {
     void reload();
   }, []);
+
+  useEffect(() => {
+    setIssueContexts({});
+  }, [session?.user.id]);
 
   const searchResults = useMemo(() => {
     if (!payload) {
@@ -249,6 +318,92 @@ export function MyWorkScreen() {
     }
     return payload.active_issues;
   }, [activeFilter, payload]);
+
+  const nativeIssueOrbitIds = useMemo(() => {
+    if (!payload) {
+      return [] as string[];
+    }
+    const orbitIds = new Set<string>();
+    for (const issue of payload.native_issues) {
+      if (issue.orbit_id) {
+        orbitIds.add(issue.orbit_id);
+      }
+    }
+    for (const item of [...payload.active_issues, ...payload.blocked_issues, ...payload.stale_issues, ...payload.review_queue]) {
+      if (item.source_kind === "native_issue" && item.orbit_id) {
+        orbitIds.add(item.orbit_id);
+      }
+    }
+    return Array.from(orbitIds);
+  }, [payload]);
+
+  useEffect(() => {
+    if (!session || !nativeIssueOrbitIds.length) {
+      return;
+    }
+    const missingOrbitIds = nativeIssueOrbitIds.filter((orbitId) => !issueContexts[orbitId]);
+    if (!missingOrbitIds.length) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      missingOrbitIds.map(async (orbitId) => {
+        try {
+          const orbitPayload = await fetchOrbit(session.token, orbitId);
+          return {
+            orbitId,
+            members: orbitPayload.members ?? [],
+            cycles: orbitPayload.cycles ?? [],
+          };
+        } catch {
+          return {
+            orbitId,
+            members: [],
+            cycles: [],
+          };
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      setIssueContexts((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          next[result.orbitId] = {
+            members: result.members,
+            cycles: result.cycles,
+          };
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [issueContexts, nativeIssueOrbitIds, session]);
+
+  async function onUpdateIssue(
+    item: BoardItem,
+    nextPayload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null },
+  ) {
+    if (!session || item.source_kind !== "native_issue" || !item.orbit_id) {
+      return;
+    }
+    setUpdatingIssueId(item.id);
+    setError(null);
+    try {
+      await updateOrbitIssue(session.token, item.orbit_id, item.id, nextPayload);
+      await reload();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update the selected issue.");
+    } finally {
+      setUpdatingIssueId(null);
+    }
+  }
 
   const shellConfig = useMemo<AppShellConfig>(() => ({
     mode: "dashboard",
@@ -402,23 +557,36 @@ export function MyWorkScreen() {
               <div className="space-y-2">
                 {filteredIssues.length ? (
                   filteredIssues.map((item) => (
-                    <ListRow
-                      key={item.id}
-                      eyebrow={item.repository_full_name || "Orbit issue"}
-                      title={item.title}
-                      detail={issueDetail(item)}
-                      supporting={issueSupporting(item)}
-                      trailing={
-                        <div className="flex flex-col items-end gap-2">
-                          <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
-                          {item.orbit_id ? (
-                            <GhostButton className="px-3 py-1.5 text-xs" onClick={() => router.push(issueChatHref(item))}>
-                              Chat
-                            </GhostButton>
-                          ) : null}
-                        </div>
-                      }
-                    />
+                    item.source_kind === "native_issue" ? (
+                      <NativeIssueQueueRow
+                        key={item.id}
+                        item={item}
+                        issueContext={item.orbit_id ? issueContexts[item.orbit_id] : undefined}
+                        issueContextReady={!item.orbit_id || Boolean(issueContexts[item.orbit_id])}
+                        updating={updatingIssueId === item.id}
+                        fallbackOwner={{ user_id: payload.me.id, display_name: payload.me.display_name }}
+                        onChat={() => router.push(issueChatHref(item))}
+                        onUpdate={(nextPayload) => void onUpdateIssue(item, nextPayload)}
+                      />
+                    ) : (
+                      <ListRow
+                        key={item.id}
+                        eyebrow={item.repository_full_name || "Orbit issue"}
+                        title={item.title}
+                        detail={issueDetail(item)}
+                        supporting={issueSupporting(item)}
+                        trailing={
+                          <div className="flex flex-col items-end gap-2">
+                            <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
+                            {item.orbit_id ? (
+                              <GhostButton className="px-3 py-1.5 text-xs" onClick={() => router.push(issueChatHref(item))}>
+                                Chat
+                              </GhostButton>
+                            ) : null}
+                          </div>
+                        }
+                      />
+                    )
                   ))
                 ) : (
                   <EmptyState title="No issues in this lane" detail="Once GitHub-linked issues and native PM work are active, the queue will fill here." />
@@ -474,25 +642,35 @@ export function MyWorkScreen() {
               <div className="space-y-2">
                 {payload.review_queue.length ? (
                   payload.review_queue.map((item) => (
-                    <ListRow
-                      key={item.id}
-                      eyebrow={item.source_kind === "native_issue" ? item.cycle_name || "Native review" : item.repository_full_name || "Repository review"}
-                      title={item.title}
-                      detail={item.source_kind === "native_issue" ? `PM-${item.number}` : `PR #${item.number}`}
-                      trailing={
-                        <div className="flex flex-col items-end gap-2">
-                          <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
-                          {item.orbit_id ? (
-                            <GhostButton
-                              className="px-3 py-1.5 text-xs"
-                              onClick={() => router.push(issueChatHref(item, item.source_kind === "native_issue" ? "issue" : "pr"))}
-                            >
-                              Chat
-                            </GhostButton>
-                          ) : null}
-                        </div>
-                      }
-                    />
+                    item.source_kind === "native_issue" ? (
+                      <NativeIssueQueueRow
+                        key={item.id}
+                        item={item}
+                        issueContext={item.orbit_id ? issueContexts[item.orbit_id] : undefined}
+                        issueContextReady={!item.orbit_id || Boolean(issueContexts[item.orbit_id])}
+                        updating={updatingIssueId === item.id}
+                        fallbackOwner={{ user_id: payload.me.id, display_name: payload.me.display_name }}
+                        onChat={() => router.push(issueChatHref(item, "issue"))}
+                        onUpdate={(nextPayload) => void onUpdateIssue(item, nextPayload)}
+                      />
+                    ) : (
+                      <ListRow
+                        key={item.id}
+                        eyebrow={item.repository_full_name || "Repository review"}
+                        title={item.title}
+                        detail={`PR #${item.number}`}
+                        trailing={
+                          <div className="flex flex-col items-end gap-2">
+                            <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
+                            {item.orbit_id ? (
+                              <GhostButton className="px-3 py-1.5 text-xs" onClick={() => router.push(issueChatHref(item, "pr"))}>
+                                Chat
+                              </GhostButton>
+                            ) : null}
+                          </div>
+                        }
+                      />
+                    )
                   ))
                 ) : (
                   <EmptyState title="Review queue is clear" detail="Open reviews and changes requests will return here automatically." />

@@ -13,14 +13,16 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Rebuild the orbit native-issue surface around denser filters and a stronger right-hand detail editor.
-- Let issue detail edit the actual planning record: title, detail, stage, priority, owner, and cycle in one place.
-- Keep browser proof anchored to a live local orbit so the detail pane is verified against real native issue payloads.
+- Broaden triage semantics so `Inbox` and `My Work` can move native issues without leaving their primary surfaces.
+- Keep owner, status, and cycle edits on one shared compact control strip so the PM shell does not splinter into surface-specific patterns.
+- Browser-proof both surfaces against a disposable local orbit and dev-session user on `3000`.
 
 ## Files Touched In This Slice
-- `frontend/components/ui.tsx`
-- `frontend/components/orbit-workspace.tsx`
-- `frontend/components/orbit-workspace.test.tsx`
+- `frontend/components/native-issue-triage-controls.tsx`
+- `frontend/components/inbox-screen.tsx`
+- `frontend/components/inbox-screen.test.tsx`
+- `frontend/components/my-work-screen.tsx`
+- `frontend/components/my-work-screen.test.tsx`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -97,10 +99,27 @@
   - artifacts:
     - `output/playwright/orbit-issues-filtered-surface.png`
     - `output/playwright/orbit-issue-detail-editor.png`
+- `npm test -- inbox-screen.test.tsx`
+- `npm test -- my-work-screen.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend`
+- Browser validation:
+  - seeded a fresh local session through `POST /api/auth/dev-session`
+  - created a disposable repo-less orbit plus two cycles and one native issue through the live local API
+  - verified authenticated `/app/my-work` on `3000`
+  - moved the native issue from `April stabilization` to `May launch`
+  - moved the same issue from `In progress` to `In review` and confirmed it surfaced in review pressure
+  - verified authenticated `/app/inbox` on `3000`
+  - confirmed the selected triage record exposed the same shared owner/status/cycle controls
+  - moved the issue from `In review` to `Ready to merge` directly from inbox
+  - artifacts:
+    - `output/playwright/my-work-inline-triage-controls.png`
+    - `output/playwright/inbox-inline-triage-controls.png`
 
 ## Remaining Planned Slices
-- Broaden triage semantics so inbox and my-work can move work between cycles and review stages without leaving their primary surfaces.
-- Tighten the native issue surface further with cycle moves and relation editing from denser inline flows instead of modal-heavy paths.
+- Tighten the native issue surface further with relation and hierarchy editing from denser inline flows instead of modal-heavy paths.
+- Add deeper triage operations for approvals, mentions, and stale work so inbox quick actions cover more than native issue records.
 
 ## Slice Notes
 - Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
@@ -117,6 +136,9 @@
 - Orbit issue filters now include priority, owner, and cycle selects instead of relying only on chips and search.
 - The native issue detail pane now edits the issue record directly with compact selects and structured fields instead of a long status/ownership chip wall.
 - Browser proof now covers live native issue record editing in addition to cycles, views, inbox, and my-work.
+- `Inbox` and `My Work` now share the same compact native issue triage strip for status, owner, and cycle changes.
+- `My Work` preloads the owning orbit context for native issues so inline controls stay accurate without inflating the `my-work` payload.
+- Browser proof now covers live inline triage from both the work queue and the inbox triage surface.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.

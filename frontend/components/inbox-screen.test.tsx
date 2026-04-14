@@ -444,6 +444,36 @@ describe("InboxScreen", () => {
           avatar_url: null,
         },
       ],
+      cycles: [
+        {
+          id: "cycle_1",
+          name: "April stabilization",
+          goal: "Hold the release line steady.",
+          status: "active",
+          starts_at: null,
+          ends_at: null,
+          issue_count: 1,
+          completed_count: 0,
+          active_count: 1,
+          review_count: 1,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: "cycle_2",
+          name: "May launch",
+          goal: "Prepare the launch cut.",
+          status: "planned",
+          starts_at: null,
+          ends_at: null,
+          issue_count: 0,
+          completed_count: 0,
+          active_count: 0,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
       native_issues: [
         {
           id: "pm_1",
@@ -490,5 +520,132 @@ describe("InboxScreen", () => {
       }),
     );
     await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("updates the selected issue cycle directly from the triage workspace", async () => {
+    const blockedItem = {
+      id: "native-blocked-pm_1",
+      kind: "native_issue",
+      bucket: "blocked",
+      reason_label: "Blocked work",
+      title: "PM-1 · Restore launch readiness",
+      preview: "Blocked until the issue moves into the next cycle.",
+      source_label: "Orbit One · octocat/orbit-one",
+      status_label: "Blocked",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" },
+      detail: {
+        summary: "Blocked until the issue moves into the next cycle.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open issue", navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, blockedItem] }))
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, { ...blockedItem, status_label: "Planned" }] }));
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-one",
+        name: "Orbit One",
+        description: "Primary delivery orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      members: [
+        {
+          user_id: "user_1",
+          github_login: "octocat",
+          display_name: "Octo Cat",
+          role: "owner",
+          introduced: true,
+          avatar_url: null,
+        },
+      ],
+      cycles: [
+        {
+          id: "cycle_1",
+          name: "April stabilization",
+          goal: "Hold the release line steady.",
+          status: "active",
+          starts_at: null,
+          ends_at: null,
+          issue_count: 1,
+          completed_count: 0,
+          active_count: 1,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id: "cycle_2",
+          name: "May launch",
+          goal: "Prepare the launch cut.",
+          status: "planned",
+          starts_at: null,
+          ends_at: null,
+          issue_count: 0,
+          completed_count: 0,
+          active_count: 0,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Restore launch readiness",
+          detail: "Blocked until the issue moves into the next cycle.",
+          status: "blocked",
+          priority: "high",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: true,
+          has_sub_issues: false,
+          stale: false,
+          stale_working_days: 0,
+          activity: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      issues: [],
+      prs: [],
+    });
+
+    renderInbox();
+
+    expect((await screen.findAllByText("PM-1 · Restore launch readiness")).length).toBeGreaterThan(0);
+    await screen.findByRole("option", { name: "May launch" });
+
+    fireEvent.change(screen.getByLabelText("Issue cycle"), { target: { value: "cycle_2" } });
+
+    await waitFor(() =>
+      expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", {
+        cycle_id: "cycle_2",
+      }),
+    );
   });
 });
