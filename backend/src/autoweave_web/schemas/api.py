@@ -36,6 +36,30 @@ class OrbitRepositoryConnectRequest(BaseModel):
     make_primary: bool = False
 
 
+class OrbitCycleCreateRequest(BaseModel):
+    name: str
+    goal: str | None = None
+    status: str = "active"
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class OrbitIssueCreateRequest(BaseModel):
+    title: str
+    detail: str | None = None
+    priority: str = "medium"
+    status: str = "triage"
+    cycle_id: str | None = None
+
+
+class OrbitIssueUpdateRequest(BaseModel):
+    title: str | None = None
+    detail: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    cycle_id: str | None = None
+
+
 class MessageCreateRequest(BaseModel):
     body: str
 
@@ -105,6 +129,19 @@ class DashboardPayload(BaseModel):
     notifications: list[dict]
 
 
+class MyWorkPayload(BaseModel):
+    me: dict
+    summary: dict = Field(default_factory=dict)
+    work_items: list[dict] = Field(default_factory=list)
+    active_issues: list[dict] = Field(default_factory=list)
+    blocked_issues: list[dict] = Field(default_factory=list)
+    review_queue: list[dict] = Field(default_factory=list)
+    approvals: list[dict] = Field(default_factory=list)
+    recent_orbits: list[dict] = Field(default_factory=list)
+    codespaces: list[dict] = Field(default_factory=list)
+    notifications: list[dict] = Field(default_factory=list)
+
+
 class InboxPayload(BaseModel):
     me: dict
     summary: dict = Field(default_factory=dict)
@@ -128,6 +165,8 @@ class OrbitPayload(BaseModel):
     workflow: dict
     prs: list[dict]
     issues: list[dict]
+    native_issues: list[dict] = Field(default_factory=list)
+    cycles: list[dict] = Field(default_factory=list)
     codespaces: list[dict]
     demos: list[dict]
     artifacts: list[dict] = Field(default_factory=list)

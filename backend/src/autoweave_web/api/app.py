@@ -11,7 +11,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,9 @@ from autoweave_web.models.entities import (
     NavigationState,
     Notification,
     Orbit,
+    OrbitCycle,
     OrbitInvite,
+    OrbitIssue,
     OrbitMembership,
     OrbitRepositoryBinding,
     MatrixRoomBinding,
@@ -57,8 +59,12 @@ from autoweave_web.schemas.api import (
     InboxPayload,
     InviteRequest,
     MessageCreateRequest,
+    MyWorkPayload,
     NavigationStateRequest,
+    OrbitCycleCreateRequest,
     OrbitCreateRequest,
+    OrbitIssueCreateRequest,
+    OrbitIssueUpdateRequest,
     OrbitMemberRoleUpdateRequest,
     OrbitRepositoryConnectRequest,
     OrbitPayload,
@@ -118,11 +124,22 @@ from autoweave_web.services.policy import (
     ORBIT_ROLE_OWNER,
     ORBIT_ROLE_VIEWER,
     normalize_orbit_role,
+    role_at_least,
 )
 from autoweave_web.services.runtime import RuntimeManager, slugify
 
 logger = logging.getLogger(__name__)
 ORBIT_HOT_READ_MESSAGE_LIMIT = 120
+ORBIT_ISSUE_STATUS_ORDER = (
+    "triage",
+    "backlog",
+    "planned",
+    "in_progress",
+    "in_review",
+    "ready_to_merge",
+    "done",
+    "canceled",
+)
 
 
 def create_app(
@@ -1112,6 +1129,56 @@ def create_app(
             "notifications": [_serialize_notification(item) for item in notifications[:8]],
         }
 
+    def _build_my_work_payload(user: User, db: Session) -> dict[str, Any]:
+        orbit_ids = [membership.orbit_id for membership in db.scalars(select(OrbitMembership).where(OrbitMembership.user_id == user.id)).all()]
+        orbits = db.scalars(select(Orbit).where(Orbit.id.in_(orbit_ids)).order_by(Orbit.created_at.desc())).all() if orbit_ids else []
+        work_items = db.scalars(select(WorkItem).where(WorkItem.orbit_id.in_(orbit_ids)).order_by(WorkItem.updated_at.desc())).all() if orbit_ids else []
+        issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id.in_(orbit_ids)).order_by(IssueSnapshot.updated_at.desc())).all() if orbit_ids else []
+        native_issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id.in_(orbit_ids)).order_by(OrbitIssue.updated_at.desc())).all() if orbit_ids else []
+        prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id.in_(orbit_ids)).order_by(PullRequestSnapshot.updated_at.desc())).all() if orbit_ids else []
+        codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id.in_(orbit_ids)).order_by(Codespace.created_at.desc())).all() if orbit_ids else []
+        notifications = notifications_for_user(db, user_id=user.id)
+
+        active_work_items = [
+            item
+            for item in work_items
+            if item.status in {"ready", "in_process", "in_review", "needs_input", "blocked"}
+        ]
+        active_issues = [item for item in issues if _normalize_issue_status(item) not in {"closed", "done", "resolved"}]
+        active_native_issues = [item for item in native_issues if _normalize_native_issue_status(item.status) not in {"done", "canceled"}]
+        blocked_issues = [item for item in issues if _normalize_issue_status(item) == "blocked"]
+        review_queue = [item for item in prs if _normalize_pull_request_status(item) in {"awaiting_review", "changes_requested"}]
+        native_review_queue = [item for item in native_issues if _normalize_native_issue_status(item.status) in {"in_review", "ready_to_merge"}]
+        approvals = [item for item in notifications if item.kind in {"approval", "clarification", "run_failed"}]
+        running_codespaces = [item for item in codespaces if item.status == "running"]
+
+        return {
+            "me": _serialize_user(user),
+            "summary": {
+                "active_work_items": len(active_work_items),
+                "active_issues": len(active_issues) + len(active_native_issues),
+                "blocked_issues": len(blocked_issues),
+                "review_queue": len(review_queue) + len(native_review_queue),
+                "approvals": len(approvals),
+                "running_codespaces": len(running_codespaces),
+                "recent_orbits": len(orbits[:6]),
+            },
+            "work_items": [_serialize_work_item(item) for item in active_work_items[:8]],
+            "active_issues": (
+                [_serialize_native_issue_as_board_item(db, item) for item in active_native_issues[:6]]
+                + [_serialize_issue(db, item) for item in active_issues[:10]]
+            )[:10],
+            "blocked_issues": [_serialize_issue(db, item) for item in blocked_issues[:8]],
+            "review_queue": (
+                [_serialize_native_issue_as_board_item(db, item) for item in native_review_queue[:4]]
+                + [_serialize_pull_request(db, item) for item in review_queue[:8]]
+            )[:8],
+            "approvals": [_serialize_notification(item) for item in approvals[:8]],
+            "recent_orbits": [_serialize_orbit(item) for item in orbits[:6]],
+            "codespaces": [_serialize_codespace(db, item) for item in codespaces[:6]],
+            "notifications": [_serialize_notification(item) for item in notifications[:12]],
+        }
+
     def _serialize_search_result(
         *,
         key: str,
@@ -1260,6 +1327,8 @@ def create_app(
             "operational_status": _normalize_pull_request_status(item),
             "linked_work_item_id": linked_work_item.id if linked_work_item is not None else None,
             "linked_workflow_run_id": linked_work_item.workflow_run_id if linked_work_item is not None else None,
+            "source_kind": "github_pr",
+            "orbit_id": item.orbit_id,
             **_repository_identity(db, item.repository_connection_id, item.metadata_json),
         }
 
@@ -1272,8 +1341,87 @@ def create_app(
             "url": item.url,
             "priority": item.priority,
             "operational_status": _normalize_issue_status(item),
+            "source_kind": "github_issue",
+            "orbit_id": item.orbit_id,
             **_repository_identity(db, item.repository_connection_id, item.metadata_json),
         }
+
+    def _normalize_native_issue_status(value: str | None) -> str:
+        normalized = str(value or "triage").strip().lower()
+        return normalized if normalized in ORBIT_ISSUE_STATUS_ORDER else "triage"
+
+    def _serialize_orbit_cycle(db: Session, item: OrbitCycle) -> dict[str, Any]:
+        issues = db.scalars(
+            select(OrbitIssue)
+            .where(OrbitIssue.orbit_id == item.orbit_id, OrbitIssue.cycle_id == item.id)
+            .order_by(OrbitIssue.updated_at.desc())
+        ).all()
+        completed_count = len([issue for issue in issues if _normalize_native_issue_status(issue.status) == "done"])
+        review_count = len([issue for issue in issues if _normalize_native_issue_status(issue.status) in {"in_review", "ready_to_merge"}])
+        return {
+            "id": item.id,
+            "name": item.name,
+            "goal": item.goal,
+            "status": item.status,
+            "starts_at": item.starts_at.isoformat() if item.starts_at else None,
+            "ends_at": item.ends_at.isoformat() if item.ends_at else None,
+            "issue_count": len(issues),
+            "completed_count": completed_count,
+            "active_count": len(issues) - completed_count,
+            "review_count": review_count,
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+        }
+
+    def _serialize_orbit_issue(db: Session, item: OrbitIssue) -> dict[str, Any]:
+        cycle = db.get(OrbitCycle, item.cycle_id) if item.cycle_id else None
+        assignee = db.get(User, item.assignee_user_id) if item.assignee_user_id else None
+        orbit = db.get(Orbit, item.orbit_id)
+        return {
+            "id": item.id,
+            "number": item.sequence_no,
+            "title": item.title,
+            "detail": item.detail,
+            "status": _normalize_native_issue_status(item.status),
+            "priority": item.priority,
+            "source_kind": item.source_kind,
+            "cycle_id": item.cycle_id,
+            "cycle_name": cycle.name if cycle else None,
+            "assignee_user_id": item.assignee_user_id,
+            "assignee_display_name": assignee.display_name if assignee else None,
+            "orbit_id": item.orbit_id,
+            "orbit_name": orbit.name if orbit else None,
+            "repository_connection_id": item.repository_connection_id,
+            **_repository_identity(db, item.repository_connection_id, None),
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+        }
+
+    def _serialize_native_issue_as_board_item(db: Session, item: OrbitIssue) -> dict[str, Any]:
+        serialized = _serialize_orbit_issue(db, item)
+        return {
+            "id": item.id,
+            "number": item.sequence_no,
+            "title": item.title,
+            "state": item.status,
+            "operational_status": item.status,
+            "url": "",
+            "priority": item.priority,
+            "branch_name": None,
+            "repository_id": serialized.get("repository_id"),
+            "repository_full_name": serialized.get("repository_full_name") or serialized.get("orbit_name"),
+            "repository_url": serialized.get("repository_url"),
+            "linked_work_item_id": None,
+            "linked_workflow_run_id": None,
+            "source_kind": "native_issue",
+            "orbit_id": item.orbit_id,
+            "cycle_id": item.cycle_id,
+            "cycle_name": serialized.get("cycle_name"),
+        }
+
+    def _next_orbit_issue_sequence(db: Session, orbit_id: str) -> int:
+        current = db.scalar(select(func.max(OrbitIssue.sequence_no)).where(OrbitIssue.orbit_id == orbit_id))
+        return int(current or 0) + 1
 
     def _mapped_work_item_status(run_payload: dict[str, Any]) -> str:
         status = str(run_payload.get("status") or "").strip().lower()
@@ -1930,6 +2078,8 @@ def create_app(
             .where(RuntimeRunProjection.orbit_id == orbit.id)
             .order_by(RuntimeRunProjection.updated_at.desc(), RuntimeRunProjection.created_at.desc())
         ).all()
+        cycles = db.scalars(select(OrbitCycle).where(OrbitCycle.orbit_id == orbit.id).order_by(OrbitCycle.updated_at.desc())).all()
+        native_issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id == orbit.id).order_by(OrbitIssue.updated_at.desc())).all()
         prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id).order_by(PullRequestSnapshot.updated_at.desc())).all()
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
@@ -2013,6 +2163,35 @@ def create_app(
                         detail=f"Run · {_format_state_label(projection.operator_status or projection.status)}",
                         section="workflow",
                         workflow_run_id=projection.workflow_run_id,
+                    )
+                )
+
+        for cycle in cycles:
+            if not matches(cycle.name, cycle.goal, cycle.status):
+                continue
+            results.append(
+                _serialize_search_result(
+                    key=f"cycle-{cycle.id}",
+                    kind="cycle",
+                    label=cycle.name,
+                    detail=f"Cycle · {_format_state_label(cycle.status)}",
+                    section="issues",
+                    metadata={"cycle_id": cycle.id},
+                )
+            )
+
+        for item in native_issues:
+            if matches(item.title, item.detail, item.priority, item.status):
+                results.append(
+                    _serialize_search_result(
+                        key=f"native-issue-{item.id}",
+                        kind="native_issue",
+                        label=item.title,
+                        detail=f"PM-{item.sequence_no} · {_format_state_label(item.status)}",
+                        section="issues",
+                        detail_kind="native_issue",
+                        detail_id=item.id,
+                        metadata={"cycle_id": item.cycle_id},
                     )
                 )
 
@@ -2268,7 +2447,16 @@ def create_app(
         if not _matrix_channel_bridge_enabled():
             return {"provider": "product", "enabled": False, "room_bindings": []}
         orbit = _orbit_for_member(db, orbit_id, user)
-        payload = matrix_provisioning.bootstrap_payload_for_orbit(db, orbit=orbit, user=user)
+        try:
+            payload = matrix_provisioning.bootstrap_payload_for_orbit(db, orbit=orbit, user=user)
+        except MatrixTransportError as exc:
+            logger.warning("Matrix bootstrap unavailable for orbit %s: %s", orbit.id, exc)
+            return {
+                "provider": "product",
+                "enabled": False,
+                "room_bindings": [],
+                "reason": "matrix_unavailable",
+            }
         db.commit()
         return {"enabled": True, **payload}
 
@@ -2322,6 +2510,10 @@ def create_app(
             codespaces=[_serialize_codespace(db, item) for item in codespaces[:6]],
             notifications=notifications,
         )
+
+    @app.get("/api/my-work", response_model=MyWorkPayload)
+    def my_work(user: User = Depends(current_user), db: Session = Depends(get_db)) -> MyWorkPayload:
+        return MyWorkPayload(**_build_my_work_payload(user, db))
 
     @app.get("/api/inbox", response_model=InboxPayload)
     def inbox(user: User = Depends(current_user), db: Session = Depends(get_db)) -> InboxPayload:
@@ -2690,6 +2882,22 @@ def create_app(
 
         prs: list[dict[str, Any]] = []
         issues: list[dict[str, Any]] = []
+        native_issues = [
+            _serialize_orbit_issue(db, item)
+            for item in db.scalars(
+                select(OrbitIssue)
+                .where(OrbitIssue.orbit_id == orbit.id)
+                .order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())
+            ).all()
+        ]
+        cycles = [
+            _serialize_orbit_cycle(db, item)
+            for item in db.scalars(
+                select(OrbitCycle)
+                .where(OrbitCycle.orbit_id == orbit.id)
+                .order_by(OrbitCycle.starts_at.desc(), OrbitCycle.created_at.desc())
+            ).all()
+        ]
         codespaces: list[dict[str, Any]] = []
         demos: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
@@ -2744,6 +2952,8 @@ def create_app(
             workflow=_workflow_hot_read(db, orbit),
             prs=prs,
             issues=issues,
+            native_issues=native_issues,
+            cycles=cycles,
             codespaces=codespaces,
             demos=demos,
             artifacts=artifacts,
@@ -2771,6 +2981,8 @@ def create_app(
         dms = db.scalars(select(DmThread).where(DmThread.orbit_id == orbit.id).order_by(DmThread.created_at)).all()
         prs = db.scalars(select(PullRequestSnapshot).where(PullRequestSnapshot.orbit_id == orbit.id).order_by(PullRequestSnapshot.updated_at.desc())).all()
         issues = db.scalars(select(IssueSnapshot).where(IssueSnapshot.orbit_id == orbit.id).order_by(IssueSnapshot.updated_at.desc())).all()
+        native_issues = db.scalars(select(OrbitIssue).where(OrbitIssue.orbit_id == orbit.id).order_by(OrbitIssue.updated_at.desc(), OrbitIssue.sequence_no.desc())).all()
+        cycles = db.scalars(select(OrbitCycle).where(OrbitCycle.orbit_id == orbit.id).order_by(OrbitCycle.starts_at.desc(), OrbitCycle.created_at.desc())).all()
         codespaces = db.scalars(select(Codespace).where(Codespace.orbit_id == orbit.id).order_by(Codespace.created_at.desc())).all()
         demos = db.scalars(select(Demo).where(Demo.orbit_id == orbit.id).order_by(Demo.created_at.desc())).all()
         workflow = _workflow_hot_read(db, orbit)
@@ -2819,11 +3031,137 @@ def create_app(
             workflow=workflow,
             prs=[_serialize_pull_request(db, item) for item in prs],
             issues=[_serialize_issue(db, item) for item in issues],
+            native_issues=[_serialize_orbit_issue(db, item) for item in native_issues],
+            cycles=[_serialize_orbit_cycle(db, item) for item in cycles],
             codespaces=[_serialize_codespace(db, item) for item in codespaces],
             demos=[_serialize_demo(db, item) for item in demos],
             artifacts=[_serialize_artifact(db, item) for item in orbit_artifacts[:16]],
             navigation=navigation.get_state(user.id),
         )
+
+    @app.post("/api/orbits/{orbit_id}/cycles")
+    def create_orbit_cycle(
+        orbit_id: str,
+        payload: OrbitCycleCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        if not role_at_least(permission_snapshot.orbit_role, ORBIT_ROLE_CONTRIBUTOR):
+            raise HTTPException(status_code=403, detail="Only contributors and above can create cycles.")
+        cycle = OrbitCycle(
+            orbit_id=orbit.id,
+            created_by_user_id=user.id,
+            name=payload.name.strip(),
+            goal=(payload.goal or "").strip() or None,
+            status=str(payload.status or "active").strip().lower() or "active",
+            starts_at=payload.starts_at,
+            ends_at=payload.ends_at,
+        )
+        db.add(cycle)
+        db.flush()
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="cycle.created",
+            target_kind="cycle",
+            target_id=cycle.id,
+            metadata_json={"name": cycle.name, "status": cycle.status},
+        )
+        db.commit()
+        return _serialize_orbit_cycle(db, cycle)
+
+    @app.post("/api/orbits/{orbit_id}/native-issues")
+    def create_native_orbit_issue(
+        orbit_id: str,
+        payload: OrbitIssueCreateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        if not role_at_least(permission_snapshot.orbit_role, ORBIT_ROLE_CONTRIBUTOR):
+            raise HTTPException(status_code=403, detail="Only contributors and above can create native issues.")
+        cycle = None
+        if payload.cycle_id:
+            cycle = db.get(OrbitCycle, payload.cycle_id)
+            if cycle is None or cycle.orbit_id != orbit.id:
+                raise HTTPException(status_code=404, detail="Cycle not found")
+        primary_repository = primary_repository_for_orbit(db, orbit)
+        issue = OrbitIssue(
+            orbit_id=orbit.id,
+            cycle_id=cycle.id if cycle else None,
+            created_by_user_id=user.id,
+            assignee_user_id=user.id,
+            repository_connection_id=primary_repository.id if primary_repository else None,
+            sequence_no=_next_orbit_issue_sequence(db, orbit.id),
+            title=payload.title.strip(),
+            detail=(payload.detail or "").strip() or None,
+            status=_normalize_native_issue_status(payload.status),
+            priority=str(payload.priority or "medium").strip().lower() or "medium",
+            source_kind="manual",
+        )
+        db.add(issue)
+        db.flush()
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="issue.created",
+            target_kind="native_issue",
+            target_id=issue.id,
+            metadata_json={"sequence_no": issue.sequence_no, "status": issue.status, "cycle_id": issue.cycle_id},
+        )
+        db.commit()
+        return _serialize_orbit_issue(db, issue)
+
+    @app.patch("/api/orbits/{orbit_id}/native-issues/{issue_id}")
+    def update_native_orbit_issue(
+        orbit_id: str,
+        issue_id: str,
+        payload: OrbitIssueUpdateRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        orbit = _orbit_for_member(db, orbit_id, user)
+        permission_snapshot = permission_snapshot_for_user(db, orbit_id=orbit.id, user_id=user.id)
+        if not role_at_least(permission_snapshot.orbit_role, ORBIT_ROLE_CONTRIBUTOR):
+            raise HTTPException(status_code=403, detail="Only contributors and above can update native issues.")
+        issue = db.get(OrbitIssue, issue_id)
+        if issue is None or issue.orbit_id != orbit.id:
+            raise HTTPException(status_code=404, detail="Native issue not found")
+        next_cycle = issue.cycle_id
+        if payload.cycle_id is not None:
+            if payload.cycle_id == "":
+                next_cycle = None
+            else:
+                cycle = db.get(OrbitCycle, payload.cycle_id)
+                if cycle is None or cycle.orbit_id != orbit.id:
+                    raise HTTPException(status_code=404, detail="Cycle not found")
+                next_cycle = cycle.id
+        if payload.title is not None:
+            issue.title = payload.title.strip() or issue.title
+        if payload.detail is not None:
+            issue.detail = payload.detail.strip() or None
+        if payload.priority is not None:
+            issue.priority = str(payload.priority or issue.priority).strip().lower() or issue.priority
+        if payload.status is not None:
+            issue.status = _normalize_native_issue_status(payload.status)
+        issue.cycle_id = next_cycle
+        issue.updated_at = utc_now()
+        record_audit_event(
+            db,
+            orbit_id=orbit.id,
+            actor_user_id=user.id,
+            action_type="issue.updated",
+            target_kind="native_issue",
+            target_id=issue.id,
+            metadata_json={"status": issue.status, "cycle_id": issue.cycle_id, "priority": issue.priority},
+        )
+        db.commit()
+        return _serialize_orbit_issue(db, issue)
 
     @app.get("/api/orbits/{orbit_id}/search")
     def orbit_search(

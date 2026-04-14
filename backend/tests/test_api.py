@@ -23,6 +23,7 @@ from autoweave_web.models.entities import (
     RepoGrant,
     RepositoryConnection,
 )
+from autoweave_web.services.matrix import MatrixTransportError
 from conftest import (
     FakeContainerOrchestrator,
     FakeGitHubGateway,
@@ -69,6 +70,64 @@ def test_login_create_orbit_and_dashboard(client):
     assert payload["me"]["github_login"] == user["github_login"]
     assert payload["recent_orbits"][0]["id"] == orbit["id"]
     assert client.app.state.navigation.get_state(user["id"]) == {"orbit_id": orbit["id"], "section": "chat"}
+
+
+def test_orbit_native_issue_and_cycle_flow_are_available_in_orbit_payload(client):
+    token, _user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    cycle_response = client.post(
+        f"/api/orbits/{orbit['id']}/cycles",
+        json={
+            "name": "April stabilization",
+            "goal": "Land the PM-first issue surface.",
+        },
+        headers=headers,
+    )
+    assert cycle_response.status_code == 200
+    cycle = cycle_response.json()
+    assert cycle["name"] == "April stabilization"
+    assert cycle["issue_count"] == 0
+
+    issue_response = client.post(
+        f"/api/orbits/{orbit['id']}/native-issues",
+        json={
+            "title": "Create the review queue lane",
+            "detail": "Track review work as a native orbit issue.",
+            "priority": "high",
+            "cycle_id": cycle["id"],
+        },
+        headers=headers,
+    )
+    assert issue_response.status_code == 200
+    issue = issue_response.json()
+    assert issue["number"] == 1
+    assert issue["cycle_id"] == cycle["id"]
+    assert issue["status"] == "triage"
+
+    update_response = client.patch(
+        f"/api/orbits/{orbit['id']}/native-issues/{issue['id']}",
+        json={"status": "in_review"},
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["status"] == "in_review"
+
+    orbit_payload = client.get(f"/api/orbits/{orbit['id']}", headers=headers)
+    assert orbit_payload.status_code == 200
+    payload = orbit_payload.json()
+    assert payload["cycles"][0]["id"] == cycle["id"]
+    assert payload["cycles"][0]["issue_count"] == 1
+    assert payload["native_issues"][0]["id"] == issue["id"]
+    assert payload["native_issues"][0]["status"] == "in_review"
+
+    my_work = client.get("/api/my-work", headers=headers)
+    assert my_work.status_code == 200
+    my_work_payload = my_work.json()
+    assert any(item["id"] == issue["id"] for item in my_work_payload["active_issues"])
+    assert any(item["id"] == issue["id"] for item in my_work_payload["review_queue"])
 
 
 def test_health_endpoint_allows_local_frontend_origin(client):
@@ -418,6 +477,58 @@ def test_matrix_flagged_channel_send_queues_transport_and_bootstrap(client):
         )
         assert retry.status_code == 200
         assert retry.json()["message"]["transport_state"] == "pending_remote"
+
+    Base.metadata.drop_all(bind=engine)
+    settings.feature_flags = original_flags
+
+
+def test_matrix_bootstrap_gracefully_disables_when_transport_is_unavailable(client):
+    reset_database_state()
+    settings = get_settings()
+    original_flags = settings.feature_flags
+    settings.feature_flags = (
+        f"{settings.feature_flags},ff_matrix_chat_backend_v1,ff_matrix_room_provisioning_v1,ff_matrix_sync_ingest_v1"
+    )
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    class FailingMatrixProvisioningService(FakeMatrixProvisioningService):
+        def bootstrap_payload_for_orbit(self, db, *, orbit, user):
+            raise MatrixTransportError("Matrix transport unavailable: connection failed")
+
+    github = FakeGitHubGateway()
+    runtime = FakeRuntimeManager(settings)
+    navigation = FakeNavigationStore()
+    containers = FakeContainerOrchestrator()
+    matrix_service = FakeMatrixService()
+    matrix_provisioning = FailingMatrixProvisioningService()
+    app = create_app(
+        settings=settings,
+        github=github,
+        runtime_manager=runtime,
+        navigation=navigation,
+        containers=containers,
+        matrix_service=matrix_service,
+        matrix_provisioning=matrix_provisioning,
+    )
+
+    with TestClient(app) as matrix_client:
+        token, _ = _login(matrix_client)
+        headers = {"Authorization": f"Bearer {token}"}
+        orbit = _create_orbit(matrix_client, headers)
+
+        bootstrap = matrix_client.get(
+            f"/api/chat/sync/bootstrap?orbit_id={orbit['id']}",
+            headers=headers,
+        )
+        assert bootstrap.status_code == 200
+        assert bootstrap.json() == {
+            "provider": "product",
+            "enabled": False,
+            "room_bindings": [],
+            "reason": "matrix_unavailable",
+        }
 
     Base.metadata.drop_all(bind=engine)
     settings.feature_flags = original_flags

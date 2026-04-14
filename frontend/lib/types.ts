@@ -226,6 +226,19 @@ export type WorkflowSnapshot = {
   runs: WorkflowRun[];
 };
 
+export type WorkItemSummary = {
+  id: string;
+  title: string;
+  status: string;
+  agent: string;
+  branch_name?: string | null;
+  draft_pr_url?: string | null;
+  demo_url?: string | null;
+  workflow_run_id?: string | null;
+  summary?: string | null;
+  updated_at: string;
+};
+
 export type BoardItem = {
   id: string;
   number: number;
@@ -240,6 +253,10 @@ export type BoardItem = {
   repository_url?: string | null;
   linked_work_item_id?: string | null;
   linked_workflow_run_id?: string | null;
+  source_kind?: string | null;
+  orbit_id?: string | null;
+  cycle_id?: string | null;
+  cycle_name?: string | null;
 };
 
 export type CodespaceSummary = {
@@ -324,10 +341,47 @@ export type OrbitSearchResult = {
   section: string;
   conversation_kind?: "channel" | "dm" | null;
   conversation_id?: string | null;
-  detail_kind?: "pr" | "issue" | null;
+  detail_kind?: "pr" | "issue" | "native_issue" | null;
   detail_id?: string | null;
   workflow_run_id?: string | null;
   metadata: Record<string, unknown>;
+};
+
+export type OrbitCycle = {
+  id: string;
+  name: string;
+  goal?: string | null;
+  status: string;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  issue_count: number;
+  completed_count: number;
+  active_count: number;
+  review_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NativeOrbitIssue = {
+  id: string;
+  number: number;
+  title: string;
+  detail?: string | null;
+  status: string;
+  priority: string;
+  source_kind: string;
+  cycle_id?: string | null;
+  cycle_name?: string | null;
+  assignee_user_id?: string | null;
+  assignee_display_name?: string | null;
+  orbit_id?: string | null;
+  orbit_name?: string | null;
+  repository_connection_id?: string | null;
+  repository_id?: string | null;
+  repository_full_name?: string | null;
+  repository_url?: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type OrbitPayload = {
@@ -343,6 +397,8 @@ export type OrbitPayload = {
   workflow: WorkflowSnapshot;
   prs: BoardItem[];
   issues: BoardItem[];
+  native_issues: NativeOrbitIssue[];
+  cycles: OrbitCycle[];
   codespaces: CodespaceSummary[];
   demos: DemoSummary[];
   artifacts: ArtifactSummary[];
@@ -353,10 +409,31 @@ export type OrbitPayload = {
 export type DashboardPayload = {
   me: UserSummary;
   recent_orbits: Orbit[];
-  priority_items: Array<Record<string, unknown>>;
+  priority_items: WorkItemSummary[];
   codespaces: CodespaceSummary[];
   notifications: Array<{ kind: string; label: string }>;
   preferences?: UserPreferences | null;
+};
+
+export type MyWorkPayload = {
+  me: UserSummary;
+  summary: {
+    active_work_items: number;
+    active_issues: number;
+    blocked_issues: number;
+    review_queue: number;
+    approvals: number;
+    running_codespaces: number;
+    recent_orbits: number;
+  };
+  work_items: WorkItemSummary[];
+  active_issues: BoardItem[];
+  blocked_issues: BoardItem[];
+  review_queue: BoardItem[];
+  approvals: NotificationItem[];
+  recent_orbits: Orbit[];
+  codespaces: CodespaceSummary[];
+  notifications: NotificationItem[];
 };
 
 export type InboxNavigationTarget = {

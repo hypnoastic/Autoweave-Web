@@ -292,6 +292,46 @@ class IssueSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class OrbitCycle(Base):
+    __tablename__ = "product_orbit_cycles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("cycle"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="active")
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class OrbitIssue(Base):
+    __tablename__ = "product_orbit_native_issues"
+    __table_args__ = (UniqueConstraint("orbit_id", "sequence_no", name="uq_product_orbit_native_issue_seq"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: generate_id("pmissue"))
+    orbit_id: Mapped[str] = mapped_column(ForeignKey("product_orbits.id"), index=True)
+    cycle_id: Mapped[str | None] = mapped_column(ForeignKey("product_orbit_cycles.id"), nullable=True, index=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("product_users.id"), index=True)
+    assignee_user_id: Mapped[str | None] = mapped_column(ForeignKey("product_users.id"), nullable=True, index=True)
+    repository_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_repository_connections.id"),
+        nullable=True,
+        index=True,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="triage")
+    priority: Mapped[str] = mapped_column(String(64), default="medium")
+    source_kind: Mapped[str] = mapped_column(String(64), default="manual")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class Codespace(Base):
     __tablename__ = "product_codespaces"
 

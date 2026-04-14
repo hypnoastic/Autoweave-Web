@@ -14,7 +14,10 @@ import type {
   GitHubAppStatus,
   HumanLoopItem,
   InboxPayload,
+  MyWorkPayload,
+  NativeOrbitIssue,
   Orbit,
+  OrbitCycle,
   OrbitPayload,
   OrbitSearchResult,
   Session,
@@ -147,6 +150,10 @@ export async function fetchDashboard(token: string) {
   return request<DashboardPayload>("/api/dashboard", {}, token);
 }
 
+export async function fetchMyWork(token: string) {
+  return request<MyWorkPayload>("/api/my-work", {}, token);
+}
+
 export async function fetchInbox(token: string) {
   return request<InboxPayload>("/api/inbox", {}, token);
 }
@@ -222,6 +229,31 @@ export async function sendOrbitMessage(token: string, orbitId: string, body: str
 
 export async function refreshPrsIssues(token: string, orbitId: string) {
   return request(`/api/orbits/${orbitId}/prs-issues/refresh`, { method: "POST" }, token);
+}
+
+export async function createOrbitCycle(
+  token: string,
+  orbitId: string,
+  payload: Record<string, unknown>,
+) {
+  return request<OrbitCycle>(`/api/orbits/${orbitId}/cycles`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function createOrbitIssue(
+  token: string,
+  orbitId: string,
+  payload: Record<string, unknown>,
+) {
+  return request<NativeOrbitIssue>(`/api/orbits/${orbitId}/native-issues`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function updateOrbitIssue(
+  token: string,
+  orbitId: string,
+  issueId: string,
+  payload: Record<string, unknown>,
+) {
+  return request<NativeOrbitIssue>(`/api/orbits/${orbitId}/native-issues/${issueId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
 }
 
 export async function fetchWorkflow(token: string, orbitId: string) {

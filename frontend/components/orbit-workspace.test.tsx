@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
   createChannel: vi.fn(),
   createCodespace: vi.fn(),
   createDmThread: vi.fn(),
+  createOrbitCycle: vi.fn(),
+  createOrbitIssue: vi.fn(),
   fetchGitHubAppStatus: vi.fn(),
   fetchChatSyncBootstrap: vi.fn(),
   fetchAvailableRepositories: vi.fn(),
@@ -28,6 +30,7 @@ const api = vi.hoisted(() => ({
   sendChannelMessage: vi.fn(),
   sendDmMessage: vi.fn(),
   setPrimaryOrbitRepository: vi.fn(),
+  updateOrbitIssue: vi.fn(),
   updatePreferences: vi.fn(),
   updateOrbitMemberRole: vi.fn(),
   updateNavigation: vi.fn(),
@@ -1808,5 +1811,161 @@ describe("OrbitWorkspace", () => {
 
     expect(await screen.findByText("Only orbit managers and owners can send invitations.")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("teammate@example.com")).not.toBeInTheDocument();
+  });
+
+  it("creates native issues and updates their stage inside the orbit issue surface", async () => {
+    api.readSession.mockReturnValue({
+      token: "session-token",
+      user: {
+        id: "user_1",
+        github_login: "octocat",
+        display_name: "Octo Cat",
+      },
+    });
+    api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-1",
+        name: "Orbit One",
+        description: "Test orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      repositories: [
+        {
+          id: "repo_1",
+          provider: "github",
+          full_name: "octocat/orbit-one",
+          owner_name: "octocat",
+          repo_name: "orbit-one",
+          is_private: true,
+          default_branch: "main",
+          status: "active",
+          health_state: "healthy",
+          is_primary: true,
+          binding_status: "active",
+        },
+      ],
+      members: [{ id: "user_1", user_id: "user_1", role: "owner", display_name: "Octo Cat", login: "octocat", is_self: true }],
+      channels: [{ id: "channel_1", slug: "general", name: "general" }],
+      direct_messages: [{ id: "dm_1", title: "ERGO", kind: "agent", participant: { login: "ERGO", display_name: "ERGO" } }],
+      messages: [],
+      human_loop_items: [],
+      notifications: [],
+      permissions: {
+        orbit_role: "owner",
+        repo_grants: { repo_1: "admin" },
+        can_manage_members: true,
+        can_manage_roles: true,
+        can_manage_settings: true,
+        can_manage_integrations: true,
+        can_bind_repo: true,
+        can_publish_artifact: true,
+      },
+      workflow: { status: "ok", selected_run_id: null, selected_run: null, runs: [] },
+      prs: [],
+      issues: [],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Model the issue board",
+          detail: "Keep planning inside the orbit shell.",
+          status: "triage",
+          priority: "high",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      cycles: [
+        {
+          id: "cycle_1",
+          name: "April stabilization",
+          goal: "Land PM-first work control.",
+          status: "active",
+          starts_at: new Date().toISOString(),
+          ends_at: new Date().toISOString(),
+          issue_count: 1,
+          completed_count: 0,
+          active_count: 1,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      codespaces: [],
+      demos: [],
+      artifacts: [],
+      navigation: { orbit_id: "orbit_1", section: "issues" },
+    });
+    api.createOrbitIssue.mockResolvedValue({
+      id: "pm_2",
+      number: 2,
+      title: "Create the approval lane",
+      detail: "Track approvals next to issue state.",
+      status: "triage",
+      priority: "medium",
+      source_kind: "manual",
+      cycle_id: "cycle_1",
+      cycle_name: "April stabilization",
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      repository_full_name: "octocat/orbit-one",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    api.updateOrbitIssue.mockResolvedValue({
+      id: "pm_1",
+      number: 1,
+      title: "Model the issue board",
+      detail: "Keep planning inside the orbit shell.",
+      status: "in_progress",
+      priority: "high",
+      source_kind: "manual",
+      cycle_id: "cycle_1",
+      cycle_name: "April stabilization",
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      repository_full_name: "octocat/orbit-one",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    api.updateNavigation.mockResolvedValue({});
+
+    renderOrbit();
+
+    expect(await screen.findByRole("button", { name: /PM-1 · Model the issue board/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /new issue/i }));
+    fireEvent.change(screen.getByPlaceholderText("Ship the approval queue cleanup"), { target: { value: "Create the approval lane" } });
+    fireEvent.change(screen.getByPlaceholderText("What needs to be built, why it matters, and any rollout constraints."), {
+      target: { value: "Track approvals next to issue state." },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "April stabilization" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /^Create issue$/i }));
+
+    await waitFor(() =>
+      expect(api.createOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", {
+        title: "Create the approval lane",
+        detail: "Track approvals next to issue state.",
+        priority: "medium",
+        cycle_id: "cycle_1",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /PM-1 · Model the issue board/i }));
+    fireEvent.click(screen.getByRole("button", { name: "In progress" }));
+
+    await waitFor(() =>
+      expect(api.updateOrbitIssue).toHaveBeenCalledWith("session-token", "orbit_1", "pm_1", { status: "in_progress" }),
+    );
   });
 });

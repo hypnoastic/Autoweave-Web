@@ -97,13 +97,16 @@ class MatrixService:
         headers: dict[str, str] = {}
         if access_token:
             headers["Authorization"] = f"Bearer {access_token}"
-        response = self._client.request(
-            method,
-            f"{base_url.rstrip('/')}{path}",
-            headers=headers,
-            json=json_body,
-            params=params,
-        )
+        try:
+            response = self._client.request(
+                method,
+                f"{base_url.rstrip('/')}{path}",
+                headers=headers,
+                json=json_body,
+                params=params,
+            )
+        except httpx.HTTPError as exc:
+            raise MatrixTransportError(f"Matrix transport unavailable: {exc}") from exc
         if response.status_code >= 400:
             raise MatrixTransportError(f"Matrix request failed ({response.status_code}): {response.text}")
         payload = response.json() if response.content else {}

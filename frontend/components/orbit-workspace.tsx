@@ -2,12 +2,12 @@
 
 import {
   Bug,
+  CalendarRange,
   ExternalLink,
   FileCode2,
   Files,
   Filter,
   GitPullRequest,
-  Inbox as InboxIcon,
   MailPlus,
   MessageSquare,
   Plus,
@@ -54,6 +54,8 @@ import {
   createChannel,
   createCodespace,
   createDmThread,
+  createOrbitCycle,
+  createOrbitIssue,
   fetchGitHubAppStatus,
   fetchChatSyncBootstrap,
   fetchAvailableRepositories,
@@ -72,9 +74,11 @@ import {
   sendChannelMessage,
   sendDmMessage,
   setPrimaryOrbitRepository,
+  updateOrbitIssue,
   updateNavigation,
   updateOrbitMemberRole,
 } from "@/lib/api";
+import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
 import type {
   AvailableRepository,
   BoardItem,
@@ -85,6 +89,7 @@ import type {
   GitHubAppStatus,
   HumanLoopItem,
   NotificationItem,
+  NativeOrbitIssue,
   OrbitPayload,
   OrbitSearchResult,
   Session,
@@ -95,12 +100,12 @@ import type {
 import { MatrixChatSyncAdapter, type ConversationSelection as MatrixConversationSelection } from "@/lib/chat-sync/matrix";
 
 const ORBIT_SECTIONS = [
-  { key: "chat", label: "Chat", icon: MessageSquare },
+  { key: "issues", label: "Issues", icon: Bug },
   { key: "workflow", label: "Workflow", icon: Workflow },
   { key: "prs", label: "PRs", icon: GitPullRequest },
-  { key: "issues", label: "Issues", icon: Bug },
   { key: "codespaces", label: "Codespaces", icon: FileCode2 },
   { key: "demos", label: "Artifacts", icon: Files },
+  { key: "chat", label: "Chat", icon: MessageSquare },
 ] as const;
 
 type OrbitSection = (typeof ORBIT_SECTIONS)[number]["key"];
@@ -117,13 +122,18 @@ type DetailPanel =
   | { kind: "task"; task: WorkflowTask }
   | { kind: "pr"; item: BoardItem }
   | { kind: "issue"; item: BoardItem }
+  | { kind: "native_issue"; item: NativeOrbitIssue }
   | null;
 
 type ChannelDraft = { name: string };
 type DmDraft = { targetUserId: string };
+type OrbitIssueDraft = { title: string; detail: string; priority: string; cycleId: string };
+type OrbitCycleDraft = { name: string; goal: string; startsAt: string; endsAt: string };
 
 const CHANNEL_DRAFT: ChannelDraft = { name: "" };
 const DM_DRAFT: DmDraft = { targetUserId: "" };
+const ORBIT_ISSUE_DRAFT: OrbitIssueDraft = { title: "", detail: "", priority: "medium", cycleId: "" };
+const ORBIT_CYCLE_DRAFT: OrbitCycleDraft = { name: "", goal: "", startsAt: "", endsAt: "" };
 const LOCAL_AGENT_PENDING_TIMEOUT_MS = 120_000;
 const SAVED_VIEWS: Array<{ key: SavedViewKey; label: string }> = [
   { key: "all", label: "All" },
@@ -190,16 +200,46 @@ function taskTone(state: string) {
 
 function boardTone(status: string | undefined) {
   const normalized = String(status || "").toLowerCase();
-  if (["completed", "merged", "closed"].includes(normalized)) {
+  if (["completed", "merged", "closed", "done"].includes(normalized)) {
     return "success" as const;
   }
   if (["blocked", "changes_requested"].includes(normalized)) {
     return "danger" as const;
   }
-  if (["awaiting_review", "in_review"].includes(normalized)) {
+  if (["awaiting_review", "in_review", "ready_to_merge"].includes(normalized)) {
     return "accent" as const;
   }
   return "muted" as const;
+}
+
+function nativeIssueColumns(items: NativeOrbitIssue[]) {
+  return [
+    {
+      key: "triage",
+      label: "Triage",
+      items: items.filter((item) => ["triage", "backlog"].includes(String(item.status || "").toLowerCase())),
+    },
+    {
+      key: "planned",
+      label: "Planned",
+      items: items.filter((item) => String(item.status || "").toLowerCase() === "planned"),
+    },
+    {
+      key: "in_progress",
+      label: "In progress",
+      items: items.filter((item) => String(item.status || "").toLowerCase() === "in_progress"),
+    },
+    {
+      key: "review",
+      label: "Review",
+      items: items.filter((item) => ["in_review", "ready_to_merge"].includes(String(item.status || "").toLowerCase())),
+    },
+    {
+      key: "done",
+      label: "Done",
+      items: items.filter((item) => ["done", "canceled"].includes(String(item.status || "").toLowerCase())),
+    },
+  ];
 }
 
 function OrbitSectionBar({
@@ -501,7 +541,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const { mode, setMode } = useTheme();
   const [session, setSession] = useState<Session | null>(readSession());
   const [payload, setPayload] = useState<OrbitPayload | null>(null);
-  const [section, setSection] = useState<OrbitSection>("chat");
+  const [section, setSection] = useState<OrbitSection>("issues");
   const [selectedConversation, setSelectedConversation] = useState<ConversationSelection | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
@@ -513,8 +553,12 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [showConnectRepository, setShowConnectRepository] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showStartDm, setShowStartDm] = useState(false);
+  const [showCreateIssue, setShowCreateIssue] = useState(false);
+  const [showCreateCycle, setShowCreateCycle] = useState(false);
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(CHANNEL_DRAFT);
   const [dmDraft, setDmDraft] = useState<DmDraft>(DM_DRAFT);
+  const [issueDraft, setIssueDraft] = useState<OrbitIssueDraft>(ORBIT_ISSUE_DRAFT);
+  const [cycleDraft, setCycleDraft] = useState<OrbitCycleDraft>(ORBIT_CYCLE_DRAFT);
   const [inviteEmail, setInviteEmail] = useState("");
   const [availableRepositories, setAvailableRepositories] = useState<AvailableRepository[]>([]);
   const [githubAppStatus, setGitHubAppStatus] = useState<GitHubAppStatus | null>(null);
@@ -530,13 +574,16 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
   const [codespaceMode, setCodespaceMode] = useState<"browse" | "open">("browse");
   const [creatingCodespace, setCreatingCodespace] = useState(false);
   const [publishingArtifact, setPublishingArtifact] = useState(false);
+  const [creatingIssue, setCreatingIssue] = useState(false);
+  const [creatingCycle, setCreatingCycle] = useState(false);
+  const [updatingNativeIssueId, setUpdatingNativeIssueId] = useState<string | null>(null);
   const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
   const [artifactMode, setArtifactMode] = useState<"browse" | "open">("browse");
   const [localAgentPending, setLocalAgentPending] = useState(false);
   const [localPendingConversation, setLocalPendingConversation] = useState<ConversationSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [localPendingSince, setLocalPendingSince] = useState<number | null>(null);
-  const previousContentSection = useRef<OrbitSection>("chat");
+  const previousContentSection = useRef<OrbitSection>("issues");
   const payloadRef = useRef<OrbitPayload | null>(null);
   const reloadRequestRef = useRef(0);
   const conversationRequestRef = useRef(0);
@@ -570,6 +617,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     payload?.codespaces.find((item) => item.id === activeCodespaceId) ?? payload?.codespaces[0] ?? null;
   const selectedArtifact =
     payload?.artifacts?.find((item) => item.id === activeArtifactId) ?? payload?.artifacts?.[0] ?? null;
+  const nativeIssues = payload?.native_issues ?? [];
+  const orbitCycles = payload?.cycles ?? [];
   const openHumanRequests = useMemo(
     () => Object.fromEntries((selectedRun?.human_requests ?? []).filter((request) => request.status === "open").map((request) => [request.id, request])),
     [selectedRun],
@@ -609,7 +658,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     setPayload(nextPayload);
     setError(null);
 
-    const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "chat";
+    const nextSection = (nextPayload.navigation?.section as OrbitSection | undefined) ?? section ?? "issues";
     if (nextSection && ORBIT_SECTIONS.some((item) => item.key === nextSection)) {
       setSection(nextSection);
       if (nextSection !== "codespaces") {
@@ -1422,13 +1471,7 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               }
           : undefined,
       items: [
-        {
-          key: "inbox",
-          label: "Inbox",
-          icon: InboxIcon,
-          active: false,
-          onSelect: () => router.push("/app"),
-        },
+        ...buildPrimaryShellItems(router, "orbits", { excludeKeys: ["chat"] }),
         ...ORBIT_SECTIONS.map(({ key, label, icon }) => ({
           key,
           label,
@@ -1645,6 +1688,14 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
       const item = payload?.issues.find((entry) => entry.id === result.detail_id);
       if (item) {
         setDetailPanel({ kind: "issue", item });
+        await onSectionChange("issues");
+        return;
+      }
+    }
+    if (result.section === "issues" && result.detail_kind === "native_issue" && result.detail_id) {
+      const item = nativeIssues.find((entry) => entry.id === result.detail_id);
+      if (item) {
+        setDetailPanel({ kind: "native_issue", item });
         await onSectionChange("issues");
         return;
       }
@@ -1928,6 +1979,78 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
     await reload(selectedConversation);
   }
 
+  async function onCreateNativeIssue() {
+    if (!session || !issueDraft.title.trim()) {
+      return;
+    }
+    setCreatingIssue(true);
+    try {
+      const created = await createOrbitIssue(session.token, orbitId, {
+        title: issueDraft.title.trim(),
+        detail: issueDraft.detail.trim() || null,
+        priority: issueDraft.priority,
+        cycle_id: issueDraft.cycleId || null,
+      });
+      setShowCreateIssue(false);
+      setIssueDraft(ORBIT_ISSUE_DRAFT);
+      await reload(selectedConversation);
+      setSection("issues");
+      setDetailPanel({ kind: "native_issue", item: created });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to create the native issue.");
+    } finally {
+      setCreatingIssue(false);
+    }
+  }
+
+  async function onCreateCycle() {
+    if (!session || !cycleDraft.name.trim()) {
+      return;
+    }
+    setCreatingCycle(true);
+    try {
+      await createOrbitCycle(session.token, orbitId, {
+        name: cycleDraft.name.trim(),
+        goal: cycleDraft.goal.trim() || null,
+        starts_at: cycleDraft.startsAt ? new Date(`${cycleDraft.startsAt}T00:00:00Z`).toISOString() : null,
+        ends_at: cycleDraft.endsAt ? new Date(`${cycleDraft.endsAt}T00:00:00Z`).toISOString() : null,
+      });
+      setShowCreateCycle(false);
+      setCycleDraft(ORBIT_CYCLE_DRAFT);
+      await reload(selectedConversation);
+      setSection("issues");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to create the cycle.");
+    } finally {
+      setCreatingCycle(false);
+    }
+  }
+
+  async function onUpdateNativeIssue(issueId: string, patch: Record<string, unknown>) {
+    if (!session) {
+      return;
+    }
+    setUpdatingNativeIssueId(issueId);
+    try {
+      const updated = await updateOrbitIssue(session.token, orbitId, issueId, patch);
+      setPayload((current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          native_issues: (current.native_issues ?? []).map((item) => (item.id === issueId ? updated : item)),
+        };
+      });
+      setDetailPanel({ kind: "native_issue", item: updated });
+      await reload(selectedConversation);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update the native issue.");
+    } finally {
+      setUpdatingNativeIssueId(null);
+    }
+  }
+
   const taskTimeline = detailPanel?.kind === "task" ? workflowTimeline(selectedRun, detailPanel.task) : [];
   const taskRequests =
     detailPanel?.kind === "task"
@@ -2099,18 +2222,92 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               <Panel className="flex min-h-0 flex-col overflow-hidden">
                 <OrbitSectionBar
                   label="Issues"
-                  detail="Tracked product and engineering work stays separate from review-ready pull requests."
+                  detail="Native orbit issues now hold stage, cycle, and ownership. GitHub issue sync stays visible as delivery context below."
                   actions={
                     <div className="flex items-center gap-2">
-                      <StatusPill tone="muted">{payload.issues.length}</StatusPill>
+                      <StatusPill tone="accent">{nativeIssues.length} native</StatusPill>
+                      <StatusPill tone="muted">{payload.issues.length} GitHub</StatusPill>
+                      <GhostButton onClick={() => setShowCreateCycle(true)}>
+                        <CalendarRange className="h-4 w-4" />
+                        New cycle
+                      </GhostButton>
+                      <ActionButton onClick={() => setShowCreateIssue(true)}>
+                        <Plus className="h-4 w-4" />
+                        New issue
+                      </ActionButton>
                       <GhostButton onClick={() => void onRefreshBoards()}>Sync GitHub</GhostButton>
                     </div>
                   }
                 />
                 <ScrollPanel className="flex-1 px-4 py-4">
                   <div className="space-y-4">
+                    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="grid min-h-0 gap-3 xl:grid-cols-5">
+                        {nativeIssueColumns(nativeIssues).map((column) => (
+                          <div key={column.key} className="flex min-h-[188px] flex-col rounded-[16px] border border-line bg-panelStrong p-3">
+                            <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
+                              <p className="text-sm font-medium text-ink">{column.label}</p>
+                              <StatusPill tone="muted">{column.items.length}</StatusPill>
+                            </div>
+                            <div className="mt-3 flex-1 space-y-2">
+                              {column.items.length ? (
+                                column.items.map((item) => (
+                                  <BoardCard
+                                    key={item.id}
+                                    title={`PM-${item.number} · ${item.title}`}
+                                    detail={[item.cycle_name || "No cycle", item.priority ? `Priority ${item.priority}` : null].filter(Boolean).join(" · ")}
+                                    tone={boardTone(item.status)}
+                                    label={formatStateLabel(item.status)}
+                                    onClick={() => setDetailPanel({ kind: "native_issue", item })}
+                                  />
+                                ))
+                              ) : (
+                                <div className="rounded-[12px] border border-dashed border-line bg-panel px-3 py-3 text-xs text-quiet">
+                                  No issues in this lane.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-3">
+                        <SurfaceCard className="bg-panelStrong">
+                          <p className="text-sm font-semibold text-ink">Cycle coverage</p>
+                          <p className="mt-2 text-sm text-quiet">
+                            Planning stays scoped to active delivery windows instead of hiding in chat threads or GitHub labels.
+                          </p>
+                        </SurfaceCard>
+                        {orbitCycles.length ? (
+                          orbitCycles.map((cycle) => (
+                            <ListRow
+                              key={cycle.id}
+                              eyebrow={cycle.status}
+                              title={cycle.name}
+                              detail={cycle.goal || "Cycle goal pending"}
+                              trailing={<StatusPill tone={cycle.review_count ? "accent" : "muted"}>{cycle.issue_count}</StatusPill>}
+                            />
+                          ))
+                        ) : (
+                          <EmptyState
+                            title="No active cycles"
+                            detail="Create a cycle to group the work currently planned for this orbit."
+                            className="bg-panel"
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[16px] border border-line bg-panelStrong">
+                      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-ink">GitHub issue sync</p>
+                          <p className="mt-1 text-xs text-quiet">External issue state remains visible as delivery context while native PM state becomes primary.</p>
+                        </div>
+                        <StatusPill tone="muted">{payload.issues.length}</StatusPill>
+                      </div>
+                      <div className="space-y-4 px-3 py-3">
                     {issueGroups(payload.issues).map((group) => (
-                        <div key={group.key} className="rounded-[16px] border border-line bg-panelStrong">
+                        <div key={group.key} className="rounded-[16px] border border-line bg-panel">
                           <div className="flex items-center justify-between border-b border-line px-4 py-3">
                             <p className="text-sm font-medium text-ink">{group.label}</p>
                             <StatusPill tone="muted">{group.items.length}</StatusPill>
@@ -2143,6 +2340,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                           </div>
                         </div>
                       ))}
+                      </div>
+                    </div>
                   </div>
                 </ScrollPanel>
               </Panel>
@@ -2372,6 +2571,8 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               ? "Readable task progression, requests, and context."
               : detailPanel?.kind === "pr"
                 ? "Pull request detail with GitHub handoff."
+                : detailPanel?.kind === "native_issue"
+                  ? "Native planning issue with stage and cycle control."
                 : detailPanel?.kind === "issue"
                   ? "Issue detail with status and GitHub handoff."
                   : undefined
@@ -2460,6 +2661,79 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               </a>
             </div>
           ) : null}
+
+          {detailPanel?.kind === "native_issue" ? (
+            <div className="space-y-5">
+              <SurfaceCard className="bg-panelStrong">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{detailPanel.item.title}</p>
+                    <p className="mt-1 text-xs text-quiet">PM-{detailPanel.item.number}</p>
+                  </div>
+                  <StatusPill tone={boardTone(detailPanel.item.status)}>{formatStateLabel(detailPanel.item.status)}</StatusPill>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <StatusPill tone="muted">{detailPanel.item.priority}</StatusPill>
+                  {detailPanel.item.cycle_name ? <StatusPill tone="accent">{detailPanel.item.cycle_name}</StatusPill> : <StatusPill tone="muted">No cycle</StatusPill>}
+                  {detailPanel.item.repository_full_name ? <StatusPill tone="muted">{detailPanel.item.repository_full_name}</StatusPill> : null}
+                </div>
+                <p className="mt-4 text-sm leading-6 text-quiet">
+                  {detailPanel.item.detail || "No additional planning context has been written for this issue yet."}
+                </p>
+              </SurfaceCard>
+
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Stage</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: "triage", label: "Triage" },
+                    { value: "planned", label: "Planned" },
+                    { value: "in_progress", label: "In progress" },
+                    { value: "in_review", label: "Review" },
+                    { value: "ready_to_merge", label: "Ready to merge" },
+                    { value: "done", label: "Done" },
+                  ].map((statusOption) => (
+                    <SelectionChip
+                      key={`${detailPanel.item.id}-${statusOption.value}`}
+                      active={detailPanel.item.status === statusOption.value}
+                      disabled={updatingNativeIssueId === detailPanel.item.id}
+                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { status: statusOption.value })}
+                    >
+                      {statusOption.label}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-quiet">Cycle</p>
+                <div className="flex flex-wrap gap-2">
+                  <SelectionChip
+                    active={!detailPanel.item.cycle_id}
+                    disabled={updatingNativeIssueId === detailPanel.item.id}
+                    onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { cycle_id: "" })}
+                  >
+                    No cycle
+                  </SelectionChip>
+                  {orbitCycles.map((cycle) => (
+                    <SelectionChip
+                      key={`${detailPanel.item.id}-${cycle.id}`}
+                      active={detailPanel.item.cycle_id === cycle.id}
+                      disabled={updatingNativeIssueId === detailPanel.item.id}
+                      onClick={() => void onUpdateNativeIssue(detailPanel.item.id, { cycle_id: cycle.id })}
+                    >
+                      {cycle.name}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+
+              <GhostButton onClick={() => void onSectionChange("chat")}>
+                <MessageSquare className="h-4 w-4" />
+                Open orbit chat
+              </GhostButton>
+            </div>
+          ) : null}
         </RightDetailPanel>
 
         <CenteredModal
@@ -2525,6 +2799,125 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
               active={dmDraft.targetUserId === "ERGO"}
               onClick={() => setDmDraft({ targetUserId: "ERGO" })}
             />
+          </div>
+        </CenteredModal>
+
+        <CenteredModal
+          open={showCreateIssue}
+          onClose={() => setShowCreateIssue(false)}
+          title="Create native issue"
+          description="Track orbit work inside AutoWeave first, then link delivery activity around it."
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <GhostButton onClick={() => setShowCreateIssue(false)}>Cancel</GhostButton>
+              <ActionButton onClick={() => void onCreateNativeIssue()} disabled={creatingIssue || !issueDraft.title.trim()}>
+                {creatingIssue ? "Creating…" : "Create issue"}
+              </ActionButton>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <label className="grid gap-2">
+              <FieldLabel>Title</FieldLabel>
+              <TextInput
+                value={issueDraft.title}
+                onChange={(event) => setIssueDraft((current) => ({ ...current, title: event.target.value }))}
+                placeholder="Ship the approval queue cleanup"
+              />
+            </label>
+            <label className="grid gap-2">
+              <FieldLabel>Context</FieldLabel>
+              <TextArea
+                value={issueDraft.detail}
+                onChange={(event) => setIssueDraft((current) => ({ ...current, detail: event.target.value }))}
+                placeholder="What needs to be built, why it matters, and any rollout constraints."
+              />
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <FieldLabel>Priority</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  {["low", "medium", "high", "urgent"].map((priority) => (
+                    <SelectionChip
+                      key={priority}
+                      active={issueDraft.priority === priority}
+                      onClick={() => setIssueDraft((current) => ({ ...current, priority }))}
+                    >
+                      {formatStateLabel(priority)}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <FieldLabel>Cycle</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  <SelectionChip active={!issueDraft.cycleId} onClick={() => setIssueDraft((current) => ({ ...current, cycleId: "" }))}>
+                    No cycle
+                  </SelectionChip>
+                  {orbitCycles.map((cycle) => (
+                    <SelectionChip
+                      key={cycle.id}
+                      active={issueDraft.cycleId === cycle.id}
+                      onClick={() => setIssueDraft((current) => ({ ...current, cycleId: cycle.id }))}
+                    >
+                      {cycle.name}
+                    </SelectionChip>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CenteredModal>
+
+        <CenteredModal
+          open={showCreateCycle}
+          onClose={() => setShowCreateCycle(false)}
+          title="Create cycle"
+          description="Group the next window of work into an explicit planning bucket."
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <GhostButton onClick={() => setShowCreateCycle(false)}>Cancel</GhostButton>
+              <ActionButton onClick={() => void onCreateCycle()} disabled={creatingCycle || !cycleDraft.name.trim()}>
+                {creatingCycle ? "Creating…" : "Create cycle"}
+              </ActionButton>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <label className="grid gap-2">
+              <FieldLabel>Name</FieldLabel>
+              <TextInput
+                value={cycleDraft.name}
+                onChange={(event) => setCycleDraft((current) => ({ ...current, name: event.target.value }))}
+                placeholder="April stabilization"
+              />
+            </label>
+            <label className="grid gap-2">
+              <FieldLabel>Goal</FieldLabel>
+              <TextArea
+                value={cycleDraft.goal}
+                onChange={(event) => setCycleDraft((current) => ({ ...current, goal: event.target.value }))}
+                placeholder="Land the PM-first shell and clear the release-review queue."
+              />
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-2">
+                <FieldLabel>Start date</FieldLabel>
+                <TextInput
+                  type="date"
+                  value={cycleDraft.startsAt}
+                  onChange={(event) => setCycleDraft((current) => ({ ...current, startsAt: event.target.value }))}
+                />
+              </label>
+              <label className="grid gap-2">
+                <FieldLabel>End date</FieldLabel>
+                <TextInput
+                  type="date"
+                  value={cycleDraft.endsAt}
+                  onChange={(event) => setCycleDraft((current) => ({ ...current, endsAt: event.target.value }))}
+                />
+              </label>
+            </div>
           </div>
         </CenteredModal>
 
