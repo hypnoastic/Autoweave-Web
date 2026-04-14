@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   createOrbit: vi.fn(),
   fetchDmThread: vi.fn(),
   fetchInbox: vi.fn(),
+  fetchOrbit: vi.fn(),
   fetchPreferences: vi.fn(),
   readSession: vi.fn(),
   sendDmMessage: vi.fn(),
@@ -184,12 +185,12 @@ function dmPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderInbox() {
+function renderInbox(props: Parameters<typeof InboxScreen>[0] = {}) {
   mockPathname = "/app";
   return render(
     <ThemeProvider>
       <AuthenticatedAppShell>
-        <InboxScreen />
+        <InboxScreen {...props} />
       </AuthenticatedAppShell>
     </ThemeProvider>,
   );
@@ -209,6 +210,20 @@ describe("InboxScreen", () => {
     });
     api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
     api.fetchDmThread.mockResolvedValue(dmPayload());
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-one",
+        name: "Orbit One",
+        description: "Primary delivery orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      native_issues: [],
+      issues: [],
+      prs: [],
+    });
     api.updateNavigation.mockResolvedValue({});
   });
 
@@ -302,5 +317,47 @@ describe("InboxScreen", () => {
     );
     expect(api.sendDmMessage).toHaveBeenCalledWith("session-token", "orbit_1", "dm_ergo_new", "Give me the latest release summary");
     await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("renders native issue context when chat is opened from a deep link", async () => {
+    api.fetchInbox.mockResolvedValue(inboxPayload());
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-one",
+        name: "Orbit One",
+        description: "Primary delivery orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Model the issue board",
+          detail: "Keep planning inside the orbit shell.",
+          status: "in_progress",
+          priority: "high",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      issues: [],
+      prs: [],
+    });
+
+    renderInbox({ mode: "chat", contextOrbitId: "orbit_1", contextIssueId: "pm_1", contextSourceKind: "native_issue" });
+
+    expect((await screen.findAllByText("PM-1 · Model the issue board")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Keep planning inside the orbit shell.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Open orbit/i }).length).toBeGreaterThan(0);
+    expect(api.fetchOrbit).toHaveBeenCalledWith("session-token", "orbit_1");
   });
 });

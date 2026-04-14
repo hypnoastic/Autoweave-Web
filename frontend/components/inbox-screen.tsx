@@ -41,13 +41,16 @@ import {
   createOrbit,
   fetchDmThread,
   fetchInbox,
+  fetchOrbit,
   fetchPreferences,
   readSession,
   sendDmMessage,
   updateNavigation,
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
+import type { ChatSourceKind } from "@/lib/chat-links";
 import type {
+  BoardItem,
   ConversationMessage,
   HumanLoopItem,
   InboxAction,
@@ -55,7 +58,9 @@ import type {
   InboxNavigationTarget,
   InboxPayload,
   InboxScope,
+  NativeOrbitIssue,
   Orbit,
+  OrbitPayload,
 } from "@/lib/types";
 
 type OrbitDraft = {
@@ -69,6 +74,16 @@ type OrbitDraft = {
 
 type InboxTabKey = "inbox" | "chats" | "sources";
 type MobileSurface = "list" | "chat";
+type ErgoChatContext = {
+  eyebrow: string;
+  title: string;
+  detail: string;
+  statusLabel: string;
+  tone: "accent" | "danger" | "muted" | "success" | "warning";
+  meta: string[];
+  openHref: string;
+  openLabel: string;
+};
 
 const EMPTY_ORBIT_DRAFT: OrbitDraft = {
   name: "",
@@ -118,6 +133,78 @@ function attentionTone(item: InboxItem) {
     return "success" as const;
   }
   return "muted" as const;
+}
+
+function formatStateLabel(value: string | undefined | null) {
+  const normalized = String(value || "").trim().replaceAll("_", " ");
+  if (!normalized) {
+    return "Unknown";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function workTone(value: string | undefined | null) {
+  const normalized = String(value || "").toLowerCase();
+  if (["blocked", "failed", "canceled"].includes(normalized)) {
+    return "danger" as const;
+  }
+  if (["done", "merged", "completed"].includes(normalized)) {
+    return "success" as const;
+  }
+  if (["in_review", "ready_to_merge", "awaiting_review"].includes(normalized)) {
+    return "warning" as const;
+  }
+  if (["in_progress", "planned", "triage"].includes(normalized)) {
+    return "accent" as const;
+  }
+  return "muted" as const;
+}
+
+function buildOrbitChatContext(scope: InboxScope | null): ErgoChatContext | null {
+  if (!scope) {
+    return null;
+  }
+  return {
+    eyebrow: "Orbit context",
+    title: scope.orbit_name,
+    detail: scope.repository_full_name || "Chat is scoped to this orbit even when the active issue link is absent.",
+    statusLabel: "Orbit",
+    tone: "muted",
+    meta: scope.repository_full_name ? [scope.repository_full_name] : [],
+    openHref: `/app/orbits/${scope.orbit_id}`,
+    openLabel: "Open orbit",
+  };
+}
+
+function buildNativeIssueChatContext(item: NativeOrbitIssue, orbit: OrbitPayload["orbit"]): ErgoChatContext {
+  return {
+    eyebrow: orbit.name,
+    title: `PM-${item.number} · ${item.title}`,
+    detail: item.detail || "Native planning issue routed into the dedicated ERGO chat surface.",
+    statusLabel: formatStateLabel(item.status),
+    tone: workTone(item.status),
+    meta: [item.cycle_name, item.priority ? `Priority ${item.priority}` : null, item.repository_full_name].filter(Boolean) as string[],
+    openHref: `/app/orbits/${orbit.id}`,
+    openLabel: "Open orbit",
+  };
+}
+
+function buildBoardItemChatContext(item: BoardItem, orbit: OrbitPayload["orbit"], sourceKind: ChatSourceKind): ErgoChatContext {
+  const prefix = sourceKind === "pr" ? "PR" : "Issue";
+  const status = String(item.operational_status || item.state || "");
+  return {
+    eyebrow: orbit.name,
+    title: `${prefix} #${item.number} · ${item.title}`,
+    detail:
+      [item.repository_full_name, item.branch_name ? `Branch ${item.branch_name}` : null]
+        .filter(Boolean)
+        .join(" · ") || "GitHub-linked delivery record routed into the ERGO chat surface.",
+    statusLabel: formatStateLabel(status),
+    tone: workTone(status),
+    meta: [item.priority ? `Priority ${item.priority}` : null, item.cycle_name, item.repository_full_name].filter(Boolean) as string[],
+    openHref: `/app/orbits/${orbit.id}`,
+    openLabel: "Open orbit",
+  };
 }
 
 function itemMatchesTab(item: InboxItem, tab: InboxTabKey) {
@@ -241,6 +328,7 @@ function isHumanMessage(message: ConversationMessage) {
 
 function ErgoConversation({
   activeScope,
+  chatContext,
   selectedItem,
   messages,
   humanLoopItems,
@@ -254,11 +342,13 @@ function ErgoConversation({
   onFilesSelected,
   onInsertMention,
   onAction,
+  onOpenContext,
   onSend,
   sending,
   attachmentInputRef,
 }: {
   activeScope: InboxScope | null;
+  chatContext: ErgoChatContext | null;
   selectedItem: InboxItem | null;
   messages: ConversationMessage[];
   humanLoopItems: HumanLoopItem[];
@@ -272,6 +362,7 @@ function ErgoConversation({
   onFilesSelected: (files: File[]) => void;
   onInsertMention: (token: string) => void;
   onAction: (action: InboxAction) => void;
+  onOpenContext: () => void;
   onSend: () => void;
   sending: boolean;
   attachmentInputRef: { current: HTMLInputElement | null };
@@ -284,9 +375,31 @@ function ErgoConversation({
             <p className="text-sm font-semibold tracking-[-0.02em] text-ink">{activeScope?.orbit_name ?? "ERGO"}</p>
             <p className="text-[11px] text-quiet">{activeScope?.repository_full_name ?? "Orbit context pending"}</p>
           </div>
-          {selectedItem ? <StatusPill tone={attentionTone(selectedItem)}>{selectedItem.status_label}</StatusPill> : null}
+          {chatContext ? <StatusPill tone={chatContext.tone}>{chatContext.statusLabel}</StatusPill> : null}
+          {!chatContext && selectedItem ? <StatusPill tone={attentionTone(selectedItem)}>{selectedItem.status_label}</StatusPill> : null}
         </div>
-        {selectedItem ? (
+        {chatContext ? (
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3 border-t border-line pt-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">{chatContext.eyebrow}</p>
+              <p className="mt-1 truncate text-xs font-medium text-ink">{chatContext.title}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-quiet">{chatContext.detail}</p>
+              {chatContext.meta.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {chatContext.meta.map((item) => (
+                    <StatusPill key={`${chatContext.title}-${item}`} tone="muted">
+                      {item}
+                    </StatusPill>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <GhostButton className="px-2.5 py-1.5 text-[11px]" onClick={onOpenContext}>
+              {chatContext.openLabel}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </GhostButton>
+          </div>
+        ) : selectedItem ? (
           <div className="mt-2 flex flex-wrap items-start justify-between gap-3 border-t border-line pt-2">
             <div className="min-w-0">
               <p className="truncate text-xs font-medium text-ink">{selectedItem.title}</p>
@@ -432,7 +545,17 @@ function ErgoConversation({
   );
 }
 
-export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | "chat" } = {}) {
+export function InboxScreen({
+  mode: surfaceMode = "inbox",
+  contextOrbitId,
+  contextIssueId,
+  contextSourceKind,
+}: {
+  mode?: "inbox" | "chat";
+  contextOrbitId?: string;
+  contextIssueId?: string;
+  contextSourceKind?: ChatSourceKind;
+} = {}) {
   const router = useRouter();
   const { mode: themeMode, setMode } = useTheme();
   const [session, setSession] = useState(readSession());
@@ -441,7 +564,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
   const [selectedItemId, setSelectedItemId] = useState<string>("briefing-ergo");
   const [composer, setComposer] = useState("");
   const [composerMode, setComposerMode] = useState<(typeof COMPOSER_MODES)[number]["key"]>("brief");
-  const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null);
+  const [selectedScopeId, setSelectedScopeId] = useState<string | null>(contextOrbitId ?? null);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showCreateOrbit, setShowCreateOrbit] = useState(false);
@@ -455,6 +578,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
   const [humanLoopItems, setHumanLoopItems] = useState<HumanLoopItem[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadOverrides, setThreadOverrides] = useState<Record<string, string>>({});
+  const [chatContext, setChatContext] = useState<ErgoChatContext | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -470,7 +594,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
       const [nextInbox, preferences] = await Promise.all([fetchInbox(nextSession.token), fetchPreferences(nextSession.token)]);
       setPayload(nextInbox);
       setSelectedScopeId((current) => {
-        const preferred = current ?? nextInbox.active_scope?.orbit_id ?? nextInbox.scopes[0]?.orbit_id ?? null;
+        const preferred = contextOrbitId ?? current ?? nextInbox.active_scope?.orbit_id ?? nextInbox.scopes[0]?.orbit_id ?? null;
         if (preferred && nextInbox.scopes.some((scope) => scope.orbit_id === preferred)) {
           return preferred;
         }
@@ -497,12 +621,20 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
 
   useEffect(() => {
     void reload();
-  }, [surfaceMode]);
+  }, [surfaceMode, contextOrbitId]);
 
   const activeScope = useMemo(
     () => payload?.scopes.find((scope) => scope.orbit_id === selectedScopeId) ?? payload?.active_scope ?? null,
     [payload, selectedScopeId],
   );
+
+  useEffect(() => {
+    if (!contextOrbitId) {
+      return;
+    }
+    setSelectedScopeId(contextOrbitId);
+    setMobileSurface("chat");
+  }, [contextOrbitId]);
 
   const ergoThreadId = activeScope ? threadOverrides[activeScope.orbit_id] ?? activeScope.ergo_thread_id ?? null : null;
 
@@ -553,6 +685,68 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
       cancelled = true;
     };
   }, [activeScope, ergoThreadId, session]);
+
+  useEffect(() => {
+    if (surfaceMode !== "chat") {
+      setChatContext(null);
+      return;
+    }
+    const fallbackContext = buildOrbitChatContext(payload?.scopes.find((scope) => scope.orbit_id === contextOrbitId) ?? activeScope);
+    if (!contextOrbitId) {
+      setChatContext(null);
+      return;
+    }
+    if (!contextIssueId || !session) {
+      setChatContext(fallbackContext);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchOrbit(session.token, contextOrbitId)
+      .then((orbitPayload) => {
+        if (cancelled) {
+          return;
+        }
+        const nativeIssue = orbitPayload.native_issues.find((item) => item.id === contextIssueId);
+        const issue = orbitPayload.issues.find((item) => item.id === contextIssueId);
+        const pr = orbitPayload.prs.find((item) => item.id === contextIssueId);
+
+        const nextContext =
+          contextSourceKind === "native_issue"
+            ? nativeIssue
+              ? buildNativeIssueChatContext(nativeIssue, orbitPayload.orbit)
+              : null
+            : contextSourceKind === "pr"
+              ? pr
+                ? buildBoardItemChatContext(pr, orbitPayload.orbit, "pr")
+                : null
+              : contextSourceKind === "issue"
+                ? issue
+                  ? buildBoardItemChatContext(issue, orbitPayload.orbit, "issue")
+                  : nativeIssue
+                    ? buildNativeIssueChatContext(nativeIssue, orbitPayload.orbit)
+                    : null
+                : nativeIssue
+                  ? buildNativeIssueChatContext(nativeIssue, orbitPayload.orbit)
+                  : issue
+                    ? buildBoardItemChatContext(issue, orbitPayload.orbit, "issue")
+                    : pr
+                      ? buildBoardItemChatContext(pr, orbitPayload.orbit, "pr")
+                      : null;
+
+        setChatContext(nextContext ?? fallbackContext);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChatContext(fallbackContext);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeScope, contextIssueId, contextOrbitId, contextSourceKind, payload, session, surfaceMode]);
 
   const filteredItems = useMemo(() => {
     if (!payload) {
@@ -927,6 +1121,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
 
             <ErgoConversation
               activeScope={activeScope}
+              chatContext={chatContext}
               selectedItem={selectedItem}
               messages={threadMessages}
               humanLoopItems={humanLoopItems}
@@ -940,6 +1135,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
               onFilesSelected={setStagedFiles}
               onInsertMention={onInsertMention}
               onAction={onAction}
+              onOpenContext={() => router.push(chatContext?.openHref || `/app/orbits/${activeScope?.orbit_id ?? ""}`)}
               onSend={onComposerSubmit}
               sending={sendingComposer}
               attachmentInputRef={attachmentInputRef}
@@ -1021,6 +1217,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
             {mobileSurface === "chat" ? (
               <ErgoConversation
                 activeScope={activeScope}
+                chatContext={chatContext}
                 selectedItem={selectedItem}
                 messages={threadMessages}
                 humanLoopItems={humanLoopItems}
@@ -1034,6 +1231,7 @@ export function InboxScreen({ mode: surfaceMode = "inbox" }: { mode?: "inbox" | 
                 onFilesSelected={setStagedFiles}
                 onInsertMention={onInsertMention}
                 onAction={onAction}
+                onOpenContext={() => router.push(chatContext?.openHref || `/app/orbits/${activeScope?.orbit_id ?? ""}`)}
                 onSend={onComposerSubmit}
                 sending={sendingComposer}
                 attachmentInputRef={attachmentInputRef}

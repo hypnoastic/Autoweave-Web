@@ -79,6 +79,7 @@ import {
   updateOrbitMemberRole,
 } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
+import { buildChatHref } from "@/lib/chat-links";
 import type {
   AvailableRepository,
   BoardItem,
@@ -2650,15 +2651,31 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </div>
               </SurfaceCard>
 
-              <a
-                href={detailPanel.item.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-chip border border-accent bg-accent px-4 py-2.5 text-sm font-medium text-accentContrast transition hover:opacity-90"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Open on GitHub
-              </a>
+              <div className="flex flex-wrap gap-2">
+                <GhostButton
+                  onClick={() =>
+                    router.push(
+                      buildChatHref({
+                        orbitId,
+                        issueId: detailPanel.item.id,
+                        sourceKind: detailPanel.kind === "pr" ? "pr" : "issue",
+                      }),
+                    )
+                  }
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Open in Chat
+                </GhostButton>
+                <a
+                  href={detailPanel.item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-chip border border-accent bg-accent px-4 py-2.5 text-sm font-medium text-accentContrast transition hover:opacity-90"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Open on GitHub
+                </a>
+              </div>
             </div>
           ) : null}
 
@@ -2728,9 +2745,19 @@ export function OrbitWorkspace({ orbitId }: { orbitId: string }) {
                 </div>
               </div>
 
-              <GhostButton onClick={() => void onSectionChange("chat")}>
+              <GhostButton
+                onClick={() =>
+                  router.push(
+                    buildChatHref({
+                      orbitId,
+                      issueId: detailPanel.item.id,
+                      sourceKind: "native_issue",
+                    }),
+                  )
+                }
+              >
                 <MessageSquare className="h-4 w-4" />
-                Open orbit chat
+                Open in Chat
               </GhostButton>
             </div>
           ) : null}

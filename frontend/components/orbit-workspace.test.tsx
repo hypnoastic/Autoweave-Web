@@ -1962,6 +1962,10 @@ describe("OrbitWorkspace", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /PM-1 · Model the issue board/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in Chat" }));
+
+    expect(mockRouter.push).toHaveBeenCalledWith("/app/chat?orbitId=orbit_1&issueId=pm_1&sourceKind=native_issue");
+
     fireEvent.click(screen.getByRole("button", { name: "In progress" }));
 
     await waitFor(() =>

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui";
 import { AuthSessionError, fetchMyWork, fetchPreferences, readSession } from "@/lib/api";
 import { buildPrimaryShellItems } from "@/lib/app-shell-nav";
+import { buildChatHref } from "@/lib/chat-links";
 import type { BoardItem, MyWorkPayload, NotificationItem, WorkItemSummary } from "@/lib/types";
 
 function formatFreshness(value: string | undefined) {
@@ -102,6 +103,14 @@ export function MyWorkScreen() {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "needs-review" | "blocked" | "agent">("all");
 
+  function issueChatHref(item: BoardItem, sourceKind?: "issue" | "pr") {
+    return buildChatHref({
+      orbitId: item.orbit_id,
+      issueId: item.id,
+      sourceKind: item.source_kind === "native_issue" ? "native_issue" : sourceKind ?? "issue",
+    });
+  }
+
   async function reload() {
     const nextSession = readSession();
     setSession(nextSession);
@@ -146,7 +155,7 @@ export function MyWorkScreen() {
         key: `issue-${item.id}`,
         label: item.title,
         detail: item.repository_full_name ? `Issue · ${item.repository_full_name}` : "Issue",
-        action: () => router.push("/app/orbits"),
+        action: () => router.push(item.orbit_id ? issueChatHref(item) : "/app/orbits"),
       }));
     const workMatches = payload.work_items
       .filter((item) => !term || `${item.title} ${item.summary ?? ""}`.toLowerCase().includes(term))
@@ -363,7 +372,16 @@ export function MyWorkScreen() {
                           ? `PM-${item.number} · ${item.cycle_name || item.repository_full_name || "Native issue"}`
                           : `#${item.number} · ${item.repository_full_name || "Issue queue"}`
                       }
-                      trailing={<StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>}
+                      trailing={
+                        <div className="flex flex-col items-end gap-2">
+                          <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
+                          {item.orbit_id ? (
+                            <GhostButton className="px-3 py-1.5 text-xs" onClick={() => router.push(issueChatHref(item))}>
+                              Chat
+                            </GhostButton>
+                          ) : null}
+                        </div>
+                      }
                     />
                   ))
                 ) : (
@@ -425,7 +443,19 @@ export function MyWorkScreen() {
                       eyebrow={item.source_kind === "native_issue" ? item.cycle_name || "Native review" : item.repository_full_name || "Repository review"}
                       title={item.title}
                       detail={item.source_kind === "native_issue" ? `PM-${item.number}` : `PR #${item.number}`}
-                      trailing={<StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>}
+                      trailing={
+                        <div className="flex flex-col items-end gap-2">
+                          <StatusPill tone={boardTone(item)}>{String(item.operational_status || item.state).replaceAll("_", " ")}</StatusPill>
+                          {item.orbit_id ? (
+                            <GhostButton
+                              className="px-3 py-1.5 text-xs"
+                              onClick={() => router.push(issueChatHref(item, item.source_kind === "native_issue" ? "issue" : "pr"))}
+                            >
+                              Chat
+                            </GhostButton>
+                          ) : null}
+                        </div>
+                      }
                     />
                   ))
                 ) : (
