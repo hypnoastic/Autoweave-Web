@@ -13,22 +13,14 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Expand the native issue model into a real PM object: assignee, labels, parent/sub-issues, dependency links, and richer issue detail.
-- Project `My Work`, saved views, and orbit issue surfaces from the native issue model instead of keeping them mostly status/cycle projections.
-- Add denser orbit issue filters and list/board switching before drag and drop is considered.
+- Add a safe local auth bootstrap for Playwright so authenticated PM flows can be proven without typing GitHub secrets into the browser.
+- Reuse existing local users when the provided GitHub login already exists, including hyphenated logins from seeded dev data.
+- Keep the bootstrap strictly local/dev/test only and validate it against real authenticated routes on `3000`.
 
 ## Files Touched In This Slice
 - `backend/src/autoweave_web/api/app.py`
-- `backend/src/autoweave_web/db/migrations.py`
-- `backend/src/autoweave_web/models/entities.py`
 - `backend/src/autoweave_web/schemas/api.py`
 - `backend/tests/test_api.py`
-- `frontend/components/my-work-screen.tsx`
-- `frontend/components/orbit-workspace.tsx`
-- `frontend/components/orbit-workspace.test.tsx`
-- `frontend/components/planning-screen.tsx`
-- `frontend/components/planning-screen.test.tsx`
-- `frontend/lib/types.ts`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -48,20 +40,31 @@
   - remaining known gaps
 
 ## Verification Log
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'dev_session or native_issue or saved_views'`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build backend`
+- Browser validation:
+  - seeded a local session through `POST /api/auth/dev-session`
+  - verified authenticated `/app/inbox`
+  - verified authenticated `/app/my-work`
+  - artifacts:
+    - `output/playwright/auth-dev-session-inbox.png`
+    - `output/playwright/auth-dev-session-my-work.png`
 - `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'native_issue or saved_views'`
 - `npm test -- orbit-workspace.test.tsx planning-screen.test.tsx`
 - `npm test`
 - `npm run build`
 - Browser validation status:
-  - authenticated PM browser proof is still blocked by the missing local auth harness slice
-  - current browser-safe proof remains limited to unauthenticated/public routes unless a manual session is restored
+  - authenticated PM browser proof is now unblocked by the local auth bootstrap
+  - the next browser pass should target the triage-first inbox and cycle/view management flows
 
 ## Remaining Planned Slices
 - Rebuild Inbox as a triage-first surface around approvals, mentions, blocked work, stale work, and agent asks.
 - Strengthen cycles and saved views with editing, pinning, delete flows, and richer issue assignment controls.
-- Add a safe local auth bootstrap for Playwright so authenticated PM flows can be proven end to end without typing secrets in the browser.
 
 ## Slice Notes
+- Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
+- The dev-session bootstrap reuses existing users when possible, including hyphenated GitHub logins, and returns a normal product session token.
 - Native issues now persist assignee, labels, one-parent hierarchy, dependency links, related links, duplicate links, stale-state calculation, and recent issue activity.
 - Saved views now understand labels, stale work, hierarchy scope, and dependency risk instead of only status, priority, and cycle scope.
 - Orbit issues now support a denser board/list surface with compact search, owner/blocker/stale filters, and richer right-side detail editing.
@@ -72,4 +75,4 @@
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle management UI yet.
 - Saved views do not yet support editing, deleting, pin ordering, or share semantics.
 - The orbit board currently supports stage and cycle updates from the detail panel only; drag/drop is intentionally deferred until the PM model stabilizes.
-- Browser-proof automation for authenticated PM flows still needs a safe local auth harness or an explicitly provided manual session.
+- Browser-proof automation now exists for authenticated flows, but there is still no dedicated local seed path for richer scenario setup beyond the current dev database.

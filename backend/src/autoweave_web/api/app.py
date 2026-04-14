@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import smtplib
 from datetime import datetime, timedelta
@@ -63,6 +64,7 @@ from autoweave_web.schemas.api import (
     GitHubTokenLoginRequest,
     InboxPayload,
     InviteRequest,
+    LocalSessionBootstrapRequest,
     MessageCreateRequest,
     MyWorkPayload,
     NavigationStateRequest,
@@ -3132,6 +3134,17 @@ def create_app(
             "package": runtime_manager.package_report(),
         }
 
+    def _issue_session_payload(db: Session, user: User) -> SessionPayload:
+        token = secrets.token_urlsafe(24)
+        session = SessionToken(
+            user_id=user.id,
+            token=token,
+            expires_at=utc_now() + timedelta(seconds=settings.session_ttl_seconds),
+        )
+        db.add(session)
+        db.commit()
+        return SessionPayload(token=token, user=_serialize_user(user))
+
     @app.get("/api/auth/github/url")
     def github_login_url() -> dict[str, Any]:
         if not settings.github_client_id:
@@ -3245,15 +3258,37 @@ def create_app(
             user.email = email or user.email
             user.avatar_url = github_user.get("avatar_url") or user.avatar_url
             user.display_name = github_user.get("name") or user.display_name
-        token = secrets.token_urlsafe(24)
-        session = SessionToken(
-            user_id=user.id,
-            token=token,
-            expires_at=utc_now() + timedelta(seconds=settings.session_ttl_seconds),
-        )
-        db.add(session)
-        db.commit()
-        return SessionPayload(token=token, user=_serialize_user(user))
+        return _issue_session_payload(db, user)
+
+    @app.post("/api/auth/dev-session", response_model=SessionPayload)
+    def local_dev_session_bootstrap(
+        payload: LocalSessionBootstrapRequest,
+        db: Session = Depends(get_db),
+    ) -> SessionPayload:
+        if settings.environment.strip().lower() not in {"development", "dev", "local", "test"}:
+            raise HTTPException(status_code=404, detail="Local session bootstrap is not enabled")
+        raw_login = str(payload.github_login or "").strip().lower()
+        login = re.sub(r"\s+", "_", raw_login) if raw_login else "playwright"
+        login = re.sub(r"[^a-z0-9_-]+", "_", login).strip("_-") or "playwright"
+        github_user_id = f"dev:{login}"
+        user = db.scalar(select(User).where(User.github_login == login))
+        if user is None:
+            user = User(
+                github_login=login,
+                github_user_id=github_user_id,
+                email=payload.email,
+                display_name=payload.display_name.strip() or login,
+                avatar_url=None,
+                access_token="dev-session",
+            )
+            db.add(user)
+            db.flush()
+        else:
+            user.github_user_id = user.github_user_id or github_user_id
+            user.email = payload.email or user.email
+            user.display_name = payload.display_name.strip() or user.display_name
+            user.access_token = "dev-session"
+        return _issue_session_payload(db, user)
 
     @app.post("/api/auth/github/exchange", response_model=SessionPayload)
     def github_exchange(code: str = Query(...), db: Session = Depends(get_db)) -> SessionPayload:

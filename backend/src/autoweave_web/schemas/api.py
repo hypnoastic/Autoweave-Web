@@ -9,6 +9,12 @@ class GitHubTokenLoginRequest(BaseModel):
     token: str = Field(min_length=10)
 
 
+class LocalSessionBootstrapRequest(BaseModel):
+    github_login: str = "playwright"
+    display_name: str = "Playwright User"
+    email: str | None = None
+
+
 class GitHubAppInstallationClaimRequest(BaseModel):
     installation_id: int
     state: str = Field(min_length=8)

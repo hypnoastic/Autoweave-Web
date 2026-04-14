@@ -72,6 +72,42 @@ def test_login_create_orbit_and_dashboard(client):
     assert client.app.state.navigation.get_state(user["id"]) == {"orbit_id": orbit["id"], "section": "chat"}
 
 
+def test_local_dev_session_bootstrap_creates_a_session_in_non_production_env(client):
+    response = client.post(
+        "/api/auth/dev-session",
+        json={
+            "github_login": "playwright_dev",
+            "display_name": "Playwright Dev",
+            "email": "playwright@example.com",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["token"]
+    assert payload["user"]["github_login"] == "playwright_dev"
+    assert payload["user"]["display_name"] == "Playwright Dev"
+
+
+def test_local_dev_session_bootstrap_reuses_existing_hyphenated_user_login(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    _create_orbit(client, headers)
+
+    response = client.post(
+        "/api/auth/dev-session",
+        json={
+            "github_login": user["github_login"],
+            "display_name": "Reused Dev Session",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["token"]
+    assert payload["user"]["id"] == user["id"]
+    assert payload["user"]["github_login"] == user["github_login"]
+    assert payload["user"]["display_name"] == "Reused Dev Session"
+
+
 def test_orbit_native_issue_and_cycle_flow_are_available_in_orbit_payload(client):
     token, _user = _login(client)
     headers = {"Authorization": f"Bearer {token}"}
