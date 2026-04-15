@@ -590,6 +590,7 @@ export type InboxNavigationTarget = {
   conversation_id?: string | null;
   detail_kind?: "pr" | "issue" | "native_issue" | null;
   detail_id?: string | null;
+  workflow_run_id?: string | null;
 };
 
 export type InboxAction = {

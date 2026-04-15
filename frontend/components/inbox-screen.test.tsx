@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   fetchDmThread: vi.fn(),
   fetchInbox: vi.fn(),
   fetchOrbit: vi.fn(),
+  fetchWorkflow: vi.fn(),
   fetchPreferences: vi.fn(),
   readSession: vi.fn(),
   resolveWorkflowApprovalRequest: vi.fn(),
@@ -229,6 +230,12 @@ describe("InboxScreen", () => {
     });
     api.fetchPreferences.mockResolvedValue({ theme_preference: "system" });
     api.fetchDmThread.mockResolvedValue(dmPayload());
+    api.fetchWorkflow.mockResolvedValue({
+      status: "ok",
+      selected_run_id: null,
+      selected_run: null,
+      runs: [],
+    });
     api.fetchOrbit.mockResolvedValue({
       orbit: {
         id: "orbit_1",
@@ -785,6 +792,134 @@ describe("InboxScreen", () => {
     );
     await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith("session-token", "notif_clarification_1"));
     await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("loads live workflow context for inbox records and opens the exact workflow run", async () => {
+    const clarificationItem = {
+      id: "notif_clarification_context",
+      kind: "agent_ask",
+      bucket: "agent",
+      reason_label: "Agent ask",
+      title: "Clarification needed",
+      preview: "ERGO needs a concrete answer before it can continue.",
+      source_label: "Orbit One · Clarification",
+      status_label: "Open",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "workflow", workflow_run_id: "run_42" },
+      action_context: {
+        workflow_run_id: "run_42",
+        request_id: "human_42",
+        request_kind: "clarification",
+      },
+      detail: {
+        summary: "ERGO needs a concrete answer before it can continue.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open workflow", navigation: { orbit_id: "orbit_1", section: "workflow", workflow_run_id: "run_42" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox.mockResolvedValue(inboxPayload({ items: [inboxPayload().briefing, clarificationItem] }));
+    api.fetchWorkflow.mockResolvedValue({
+      status: "ok",
+      selected_run_id: "run_42",
+      selected_run: {
+        id: "run_42",
+        title: "Review workflow shell",
+        status: "running",
+        operator_status: "waiting_for_human",
+        operator_summary: "ERGO is waiting on a scope answer.",
+        execution_status: "waiting_for_human",
+        execution_summary: "Waiting for clarification.",
+        tasks: [
+          {
+            id: "task_scope",
+            task_key: "scope_definition",
+            title: "Scope definition",
+            assigned_role: "manager",
+            state: "waiting_for_human",
+            description: "Define the initial workflow surface.",
+          },
+        ],
+        events: [
+          {
+            id: "event_1",
+            event_type: "note",
+            source: "runtime",
+            message: "Waiting on a final clarification before execution continues.",
+            sequence_no: 1,
+          },
+        ],
+        human_requests: [
+          {
+            id: "human_42",
+            task_id: "task_scope",
+            task_key: "scope_definition",
+            status: "open",
+            question: "Which workflow fields should ship in the first pass?",
+          },
+        ],
+        approval_requests: [],
+      },
+      runs: [
+        {
+          id: "run_42",
+          title: "Review workflow shell",
+          status: "running",
+          operator_status: "waiting_for_human",
+          operator_summary: "ERGO is waiting on a scope answer.",
+          execution_status: "waiting_for_human",
+          execution_summary: "Waiting for clarification.",
+          tasks: [
+            {
+              id: "task_scope",
+              task_key: "scope_definition",
+              title: "Scope definition",
+              assigned_role: "manager",
+              state: "waiting_for_human",
+              description: "Define the initial workflow surface.",
+            },
+          ],
+          events: [
+            {
+              id: "event_1",
+              event_type: "note",
+              source: "runtime",
+              message: "Waiting on a final clarification before execution continues.",
+              sequence_no: 1,
+            },
+          ],
+          human_requests: [
+            {
+              id: "human_42",
+              task_id: "task_scope",
+              task_key: "scope_definition",
+              status: "open",
+              question: "Which workflow fields should ship in the first pass?",
+            },
+          ],
+          approval_requests: [],
+        },
+      ],
+    });
+
+    renderInbox();
+
+    expect((await screen.findAllByText("Workflow context")).length).toBeGreaterThan(0);
+    expect(api.fetchWorkflow).toHaveBeenCalledWith("session-token", "orbit_1");
+    expect(screen.getAllByText("Which workflow fields should ship in the first pass?").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Waiting on a final clarification before execution continues.").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Open work" })[0]);
+
+    await waitFor(() =>
+      expect(mockRouter.push).toHaveBeenCalledWith("/app/orbits/orbit_1?section=workflow&workflowRunId=run_42"),
+    );
   });
 
   it("resolves approval asks from the agent bucket", async () => {

@@ -13,15 +13,19 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Expand `Inbox` quick actions beyond approvals, mentions, and stale work into clarification, run-failed, and review-request records.
-- Keep the interaction dense: answer clarifications inline, and prime ERGO recovery or review prompts without leaving the inbox workspace.
-- Browser-proof the new triage actions against seeded live records on `3000`.
+- Turn workflow-backed inbox records into real workflow entry points instead of generic chat handoffs.
+- Surface live workflow run context inline for clarification and failed-run records inside `Inbox`.
+- Deep-link `Open workflow` into the exact `workflowRunId` so orbit workflow opens on the same run the inbox record references.
 
 ## Files Touched In This Slice
 - `backend/src/autoweave_web/api/app.py`
 - `backend/tests/test_api.py`
+- `frontend/app/app/orbits/[orbitId]/page.tsx`
 - `frontend/components/inbox-screen.tsx`
 - `frontend/components/inbox-screen.test.tsx`
+- `frontend/components/orbit-workspace.tsx`
+- `frontend/lib/orbit-links.ts`
+- `frontend/lib/types.ts`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -148,10 +152,25 @@
     - `output/playwright/inbox-clarification-answer-browser-proof.png`
     - `output/playwright/inbox-run-failed-browser-proof.png`
     - `output/playwright/inbox-review-followup-browser-proof.png`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload_exposes_action_context_for_approvals_and_mentions or inbox_payload_surfaces_workflow_actions_for_human_loops_and_failed_runs or notifications_can_be_marked_read_directly or inbox_payload_prioritizes_native_issue_triage_buckets'`
+- `npm test -- inbox-screen.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend backend`
+- Browser validation:
+  - seeded a disposable dev session through `POST /api/auth/dev-session`
+  - created a disposable orbit through the live local API
+  - verified authenticated `/app/inbox` on `3000`
+  - confirmed the selected workflow-backed inbox record rendered live run context inline inside the inbox detail pane
+  - followed `Open workflow` into `/app/orbits/{orbitId}?section=workflow&workflowRunId=...`
+  - confirmed orbit workflow opened on the exact referenced run instead of the generic orbit route
+  - artifacts:
+    - `output/playwright/inbox-workflow-context-browser-proof.png`
+    - `output/playwright/inbox-exact-workflow-run-browser-proof.png`
 
 ## Remaining Planned Slices
 - Tighten the native issue surface further with relation and hierarchy editing from denser inline flows instead of modal-heavy paths.
-- Extend non-issue triage from prompt-priming into denser workflow actions for failed runs and clarifications where the backend supports safe resolution paths.
+- Add denser inline relation and hierarchy editing so issue dependency management matches the inbox/workflow density now in place.
 
 ## Slice Notes
 - Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
@@ -180,6 +199,10 @@
 - PR review records now seed a scoped ERGO review-summary prompt directly into the active inbox composer.
 - Approval asks inside the agent bucket now resolve through the same inline quick-action model used by approval-bucket records.
 - Browser proof now covers live clarification answers plus run-failed and review-summary prompt priming on the local stack.
+- Workflow-backed inbox records now load the live workflow snapshot for the referenced run instead of showing only static inbox metadata.
+- The inbox detail pane now surfaces run status, operator summary, failed-task count, request context, and the latest workflow event for clarification and failed-run records.
+- Inbox navigation and orbit routing now preserve `workflowRunId`, so `Open workflow` lands on the exact run the inbox item references.
+- Browser proof now covers both inline workflow context inside inbox and the exact-run transition into the orbit workflow board.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.
@@ -187,4 +210,4 @@
 - Relation and hierarchy editing still rely on modal pickers instead of the denser inline controls now used for title, owner, stage, and cycle.
 - The orbit board still does not support drag/drop; that remains intentionally deferred until the PM model stabilizes.
 - Browser-proof automation now exists for authenticated flows, but richer seeded PM scenarios still depend on manual API setup rather than a dedicated fixture endpoint.
-- Inbox quick actions now cover approvals, mentions, stale work, clarification responses, run-failed recovery prompts, and review-summary prompts, but failed runs and clarifications still lack deeper workflow-native resolution controls beyond those dense inbox actions.
+- Inbox quick actions now cover approvals, mentions, stale work, clarification responses, run-failed recovery prompts, review-summary prompts, and exact workflow-run navigation, but failed runs still do not have a backend-supported retry/resume action from inbox.

@@ -23,6 +23,7 @@ export default async function OrbitPage({
       initialSection={routeContext.section ?? undefined}
       initialDetailKind={routeContext.detailKind ?? undefined}
       initialDetailId={routeContext.detailId ?? undefined}
+      initialWorkflowRunId={routeContext.workflowRunId ?? undefined}
     />
   );
 }

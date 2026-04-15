@@ -571,6 +571,8 @@ def test_inbox_payload_exposes_action_context_for_approvals_and_mentions(client)
     assert approval_item["action_context"]["workflow_run_id"] == "run_1"
     assert approval_item["action_context"]["request_id"] == "approval_1"
     assert approval_item["action_context"]["request_kind"] == "approval"
+    assert approval_item["navigation"]["workflow_run_id"] == "run_1"
+    assert approval_item["detail"]["next_actions"][0]["navigation"]["workflow_run_id"] == "run_1"
     assert mention_item["action_context"]["notification_id"]
 
 
@@ -622,6 +624,12 @@ def test_inbox_payload_surfaces_workflow_actions_for_human_loops_and_failed_runs
 
     assert [action["label"] for action in clarification_item["detail"]["next_actions"]] == ["Open workflow", "Open chat"]
     assert [action["label"] for action in failed_run_item["detail"]["next_actions"]] == ["Open workflow", "Open chat"]
+    assert clarification_item["navigation"]["section"] == "workflow"
+    assert clarification_item["navigation"]["workflow_run_id"] == "run_clarify_1"
+    assert clarification_item["detail"]["next_actions"][0]["navigation"]["workflow_run_id"] == "run_clarify_1"
+    assert failed_run_item["navigation"]["section"] == "workflow"
+    assert failed_run_item["navigation"]["workflow_run_id"] == "run_failed_1"
+    assert failed_run_item["detail"]["next_actions"][0]["navigation"]["workflow_run_id"] == "run_failed_1"
 
 
 def test_notifications_can_be_marked_read_directly(client):

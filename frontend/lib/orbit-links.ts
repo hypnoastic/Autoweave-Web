@@ -15,11 +15,13 @@ export function buildOrbitWorkHref({
   section,
   detailKind,
   detailId,
+  workflowRunId,
 }: {
   orbitId: string;
   section?: OrbitSectionKind | null;
   detailKind?: OrbitDetailKind | null;
   detailId?: string | null;
+  workflowRunId?: string | null;
 }) {
   const params = new URLSearchParams();
   if (section) {
@@ -29,6 +31,9 @@ export function buildOrbitWorkHref({
     params.set("detailKind", detailKind);
     params.set("detailId", detailId);
   }
+  if (workflowRunId) {
+    params.set("workflowRunId", workflowRunId);
+  }
   const query = params.toString();
   return query ? `/app/orbits/${orbitId}?${query}` : `/app/orbits/${orbitId}`;
 }
@@ -37,10 +42,12 @@ export function parseOrbitRouteContext(searchParams: SearchParamReader | null | 
   section: OrbitSectionKind | null;
   detailKind: OrbitDetailKind | null;
   detailId: string | null;
+  workflowRunId: string | null;
 } {
   const rawSection = searchParams?.get("section")?.trim() || null;
   const rawDetailKind = searchParams?.get("detailKind")?.trim() || null;
   const detailId = searchParams?.get("detailId")?.trim() || null;
+  const workflowRunId = searchParams?.get("workflowRunId")?.trim() || null;
 
   return {
     section: rawSection && ORBIT_SECTIONS.has(rawSection as OrbitSectionKind) ? (rawSection as OrbitSectionKind) : null,
@@ -49,5 +56,6 @@ export function parseOrbitRouteContext(searchParams: SearchParamReader | null | 
         ? (rawDetailKind as OrbitDetailKind)
         : null,
     detailId: detailId && rawDetailKind ? detailId : null,
+    workflowRunId,
   };
 }

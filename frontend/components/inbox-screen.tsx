@@ -45,6 +45,7 @@ import {
   fetchDmThread,
   fetchInbox,
   fetchOrbit,
+  fetchWorkflow,
   fetchPreferences,
   readSession,
   sendDmMessage,
@@ -67,6 +68,8 @@ import type {
   NativeOrbitIssue,
   Orbit,
   OrbitPayload,
+  WorkflowRequest,
+  WorkflowRun,
 } from "@/lib/types";
 
 type OrbitDraft = {
@@ -283,6 +286,44 @@ function buildReviewFollowUpPrompt(item: InboxItem, issue: NativeOrbitIssue | nu
   return `ERGO, summarize the review state for ${item.title} and the next reviewer-facing action needed to unblock it.`;
 }
 
+function workflowRequestForItem(run: WorkflowRun | null, item: InboxItem | null) {
+  if (!run || !item?.action_context?.request_id) {
+    return null;
+  }
+  if (item.action_context.request_kind === "clarification") {
+    return run.human_requests.find((request) => request.id === item.action_context?.request_id) ?? null;
+  }
+  if (item.action_context.request_kind === "approval") {
+    return run.approval_requests.find((request) => request.id === item.action_context?.request_id) ?? null;
+  }
+  return null;
+}
+
+function workflowFocusTask(run: WorkflowRun | null, request: WorkflowRequest | null) {
+  if (!run) {
+    return null;
+  }
+  if (request?.task_id) {
+    return run.tasks.find((task) => task.id === request.task_id) ?? null;
+  }
+  return (
+    run.tasks.find((task) => ["failed", "blocked", "waiting_for_human", "waiting_for_approval"].includes(task.state))
+    ?? run.tasks[0]
+    ?? null
+  );
+}
+
+function workflowLatestEvent(run: WorkflowRun | null) {
+  if (!run?.events?.length) {
+    return null;
+  }
+  return [...run.events]
+    .sort((left, right) => (right.sequence_no ?? 0) - (left.sequence_no ?? 0))
+    .find((event) => Boolean(event.message))
+    ?? run.events[run.events.length - 1]
+    ?? null;
+}
+
 function RecentOrbitSidebarContent({
   scopes,
   onSelectOrbit,
@@ -403,6 +444,9 @@ function ErgoConversation({
   chatContext,
   selectedItem,
   selectedIssue,
+  selectedWorkflowRun,
+  selectedWorkflowLoading,
+  selectedWorkflowError,
   issueMembers,
   issueCycles,
   issueUpdating,
@@ -439,6 +483,9 @@ function ErgoConversation({
   chatContext: ErgoChatContext | null;
   selectedItem: InboxItem | null;
   selectedIssue: NativeOrbitIssue | null;
+  selectedWorkflowRun: WorkflowRun | null;
+  selectedWorkflowLoading: boolean;
+  selectedWorkflowError: string | null;
   issueMembers: OrbitPayload["members"];
   issueCycles: OrbitPayload["cycles"];
   issueUpdating: boolean;
@@ -496,6 +543,10 @@ function ErgoConversation({
       selectedItem.orbit_id &&
       (selectedIssue || selectedItem.kind === "pr" || selectedItem.kind === "native_issue"),
   );
+  const selectedWorkflowRequest = workflowRequestForItem(selectedWorkflowRun, selectedItem);
+  const selectedWorkflowTask = workflowFocusTask(selectedWorkflowRun, selectedWorkflowRequest);
+  const selectedWorkflowEvent = workflowLatestEvent(selectedWorkflowRun);
+  const failedTaskCount = (selectedWorkflowRun?.tasks ?? []).filter((task) => ["failed", "blocked"].includes(task.state)).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -646,6 +697,70 @@ function ErgoConversation({
                     Ask ERGO for review summary
                   </GhostButton>
                 ) : null}
+              </div>
+            ) : null}
+            {selectedItem.action_context?.workflow_run_id ? (
+              <div className="mt-3 rounded-[14px] border border-line bg-panel px-3 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Workflow context</p>
+                    <p className="mt-1 text-[13px] font-medium text-ink">
+                      {selectedWorkflowRun?.title || selectedItem.action_context.workflow_run_id}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedWorkflowLoading ? <StatusPill tone="muted">Loading</StatusPill> : null}
+                    {selectedWorkflowRun ? (
+                      <>
+                        <StatusPill tone={workTone(selectedWorkflowRun.operator_status)}>
+                          {formatStateLabel(selectedWorkflowRun.operator_status)}
+                        </StatusPill>
+                        <StatusPill tone={workTone(selectedWorkflowRun.execution_status)}>
+                          {formatStateLabel(selectedWorkflowRun.execution_status)}
+                        </StatusPill>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                {selectedWorkflowError ? (
+                  <p className="mt-2 text-[12px] leading-5 text-danger">{selectedWorkflowError}</p>
+                ) : null}
+                {selectedWorkflowRun ? (
+                  <>
+                    <p className="mt-2 text-[12px] leading-5 text-quiet">
+                      {selectedWorkflowRun.operator_summary || selectedWorkflowRun.execution_summary || "Workflow state is available for this inbox record."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <StatusPill tone="muted">Run {selectedWorkflowRun.id}</StatusPill>
+                      <StatusPill tone={failedTaskCount ? "danger" : "muted"}>
+                        {failedTaskCount ? `${failedTaskCount} blocked or failed` : "No blocked tasks"}
+                      </StatusPill>
+                      {selectedWorkflowTask ? <StatusPill tone={workTone(selectedWorkflowTask.state)}>{selectedWorkflowTask.title || selectedWorkflowTask.task_key}</StatusPill> : null}
+                    </div>
+                    {selectedWorkflowRequest ? (
+                      <div className="mt-3 rounded-[12px] border border-line bg-panelStrong px-3 py-2.5">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">
+                          {formatStateLabel(selectedItem.action_context?.request_kind)}
+                        </p>
+                        <p className="mt-1 text-[12px] leading-5 text-ink">
+                          {selectedWorkflowRequest.question || selectedWorkflowRequest.reason || selectedItem.detail.summary}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedWorkflowTask?.task_key ? <StatusPill tone="muted">{selectedWorkflowTask.task_key}</StatusPill> : null}
+                          <StatusPill tone={workTone(selectedWorkflowRequest.status)}>{formatStateLabel(selectedWorkflowRequest.status)}</StatusPill>
+                        </div>
+                      </div>
+                    ) : null}
+                    {selectedWorkflowEvent?.message ? (
+                      <div className="mt-3 rounded-[12px] border border-line bg-panelStrong px-3 py-2.5">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-quiet">Recent event</p>
+                        <p className="mt-1 text-[12px] leading-5 text-ink">{selectedWorkflowEvent.message}</p>
+                      </div>
+                    ) : null}
+                  </>
+                ) : selectedWorkflowLoading ? null : (
+                  <p className="mt-2 text-[12px] leading-5 text-quiet">Workflow detail will appear here when the run snapshot is available.</p>
+                )}
               </div>
             ) : null}
           </div>
@@ -813,6 +928,9 @@ export function InboxScreen({
   const [threadOverrides, setThreadOverrides] = useState<Record<string, string>>({});
   const [chatContext, setChatContext] = useState<ErgoChatContext | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<NativeOrbitIssue | null>(null);
+  const [selectedWorkflowRun, setSelectedWorkflowRun] = useState<WorkflowRun | null>(null);
+  const [selectedWorkflowLoading, setSelectedWorkflowLoading] = useState(false);
+  const [selectedWorkflowError, setSelectedWorkflowError] = useState<string | null>(null);
   const [selectedIssueMembers, setSelectedIssueMembers] = useState<OrbitPayload["members"]>([]);
   const [selectedIssueCycles, setSelectedIssueCycles] = useState<OrbitPayload["cycles"]>([]);
   const [issueUpdating, setIssueUpdating] = useState(false);
@@ -1037,6 +1155,50 @@ export function InboxScreen({
           setSelectedIssue(null);
           setSelectedIssueMembers([]);
           setSelectedIssueCycles([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedItem, session]);
+
+  useEffect(() => {
+    const workflowRunId = selectedItem?.action_context?.workflow_run_id?.trim();
+    if (!session || !selectedItem?.orbit_id || !workflowRunId) {
+      setSelectedWorkflowRun(null);
+      setSelectedWorkflowLoading(false);
+      setSelectedWorkflowError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedWorkflowLoading(true);
+    setSelectedWorkflowError(null);
+
+    void fetchWorkflow(session.token, selectedItem.orbit_id)
+      .then((workflow) => {
+        if (cancelled) {
+          return;
+        }
+        const matchingRun =
+          workflow.runs.find((run) => run.id === workflowRunId)
+          ?? (workflow.selected_run?.id === workflowRunId ? workflow.selected_run : null)
+          ?? null;
+        setSelectedWorkflowRun(matchingRun);
+        if (!matchingRun) {
+          setSelectedWorkflowError("The latest workflow snapshot does not include this run yet.");
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setSelectedWorkflowRun(null);
+          setSelectedWorkflowError(nextError instanceof Error ? nextError.message : "Unable to load workflow context.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSelectedWorkflowLoading(false);
         }
       });
 
@@ -1302,22 +1464,23 @@ export function InboxScreen({
 
     if (target.orbit_id) {
       await updateNavigation(session.token, { orbit_id: target.orbit_id, section: target.section }).catch(() => {});
-      if (target.detail_kind && target.detail_id) {
-        const orbitSection =
-          target.section === "issues" ||
-          target.section === "prs" ||
-          target.section === "workflow" ||
-          target.section === "codespaces" ||
-          target.section === "demos" ||
-          target.section === "chat"
-            ? target.section
-            : null;
+      const orbitSection =
+        target.section === "issues" ||
+        target.section === "prs" ||
+        target.section === "workflow" ||
+        target.section === "codespaces" ||
+        target.section === "demos" ||
+        target.section === "chat"
+          ? target.section
+          : null;
+      if (orbitSection) {
         router.push(
           buildOrbitWorkHref({
             orbitId: target.orbit_id,
             section: orbitSection,
             detailKind: target.detail_kind,
             detailId: target.detail_id,
+            workflowRunId: target.workflow_run_id,
           }),
         );
         return;
@@ -1587,6 +1750,9 @@ export function InboxScreen({
               chatContext={chatContext}
               selectedItem={selectedItem}
               selectedIssue={selectedIssue}
+              selectedWorkflowRun={selectedWorkflowRun}
+              selectedWorkflowLoading={selectedWorkflowLoading}
+              selectedWorkflowError={selectedWorkflowError}
               issueMembers={selectedIssueMembers}
               issueCycles={selectedIssueCycles}
               issueUpdating={issueUpdating}
@@ -1700,6 +1866,9 @@ export function InboxScreen({
                 chatContext={chatContext}
                 selectedItem={selectedItem}
                 selectedIssue={selectedIssue}
+                selectedWorkflowRun={selectedWorkflowRun}
+                selectedWorkflowLoading={selectedWorkflowLoading}
+                selectedWorkflowError={selectedWorkflowError}
                 issueMembers={selectedIssueMembers}
                 issueCycles={selectedIssueCycles}
                 issueUpdating={issueUpdating}

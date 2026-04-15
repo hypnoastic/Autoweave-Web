@@ -648,11 +648,13 @@ export function OrbitWorkspace({
   initialSection,
   initialDetailKind,
   initialDetailId,
+  initialWorkflowRunId,
 }: {
   orbitId: string;
   initialSection?: OrbitSection;
   initialDetailKind?: OrbitDetailKind;
   initialDetailId?: string;
+  initialWorkflowRunId?: string;
 }) {
   const router = useRouter();
   const { closeNotifications, closeSearch, openNotifications, openSearch, searchOpen } = useAuthenticatedShell();
@@ -693,6 +695,7 @@ export function OrbitWorkspace({
   const [repositorySearch, setRepositorySearch] = useState("");
   const [loadingAvailableRepositories, setLoadingAvailableRepositories] = useState(false);
   const [workflowAnswers, setWorkflowAnswers] = useState<Record<string, string>>({});
+  const [selectedWorkflowRunId, setSelectedWorkflowRunId] = useState<string | null>(initialWorkflowRunId ?? null);
   const [leftSearch, setLeftSearch] = useState("");
   const [remoteCommandResults, setRemoteCommandResults] = useState<OrbitSearchResult[]>([]);
   const [loadingCommandResults, setLoadingCommandResults] = useState(false);
@@ -726,7 +729,19 @@ export function OrbitWorkspace({
     setShowOrbitSettings(true);
   }
 
-  const selectedRun = payload?.workflow.selected_run ?? payload?.workflow.runs?.[0] ?? null;
+  const selectedRun = useMemo(() => {
+    if (!payload?.workflow) {
+      return null;
+    }
+    const requestedRunId = String(selectedWorkflowRunId || "").trim();
+    if (requestedRunId) {
+      const requestedRun = payload.workflow.runs.find((run) => run.id === requestedRunId);
+      if (requestedRun) {
+        return requestedRun;
+      }
+    }
+    return payload.workflow.selected_run ?? payload.workflow.runs?.[0] ?? null;
+  }, [payload, selectedWorkflowRunId]);
   const selectedRunId = String(selectedRun?.id ?? "").trim();
   const workflowActive = isActiveRun(selectedRun);
   const workflowPendingInConversation = conversationMatchesRun(selectedRun, selectedConversation) && workflowActive;
@@ -834,6 +849,25 @@ export function OrbitWorkspace({
     () => Object.fromEntries((selectedRun?.approval_requests ?? []).filter((request) => request.status === "requested").map((request) => [request.id, request])),
     [selectedRun],
   );
+
+  useEffect(() => {
+    setSelectedWorkflowRunId(initialWorkflowRunId ?? null);
+  }, [initialWorkflowRunId]);
+
+  useEffect(() => {
+    if (!payload?.workflow?.runs?.length) {
+      if (selectedWorkflowRunId) {
+        setSelectedWorkflowRunId(null);
+      }
+      return;
+    }
+    if (!selectedWorkflowRunId) {
+      return;
+    }
+    if (!payload.workflow.runs.some((run) => run.id === selectedWorkflowRunId)) {
+      setSelectedWorkflowRunId(null);
+    }
+  }, [payload?.workflow?.runs, selectedWorkflowRunId]);
 
   useEffect(() => {
     if (initialRouteHandledRef.current || !payload) {

@@ -618,6 +618,7 @@ def create_app(
         conversation_id: str | None = None,
         detail_kind: str | None = None,
         detail_id: str | None = None,
+        workflow_run_id: str | None = None,
     ) -> dict[str, Any]:
         return {
             "orbit_id": orbit_id,
@@ -626,6 +627,7 @@ def create_app(
             "conversation_id": conversation_id,
             "detail_kind": detail_kind,
             "detail_id": detail_id,
+            "workflow_run_id": workflow_run_id,
         }
 
     def _inbox_action(
@@ -928,7 +930,11 @@ def create_app(
                     created_at=notification.created_at.isoformat(),
                     orbit_id=orbit.id if orbit is not None else None,
                     orbit_name=orbit.name if orbit is not None else None,
-                    navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section="workflow"),
+                    navigation_target=_inbox_navigation(
+                        orbit_id=orbit.id if orbit is not None else None,
+                        section="workflow",
+                        workflow_run_id=str(notification.metadata_json.get("workflow_run_id") or ""),
+                    ),
                     action_context={
                         "notification_id": notification.id,
                         "workflow_run_id": str(notification.metadata_json.get("workflow_run_id") or ""),
@@ -951,6 +957,7 @@ def create_app(
                                 navigation_target=_inbox_navigation(
                                     orbit_id=orbit.id if orbit is not None else None,
                                     section="workflow",
+                                    workflow_run_id=str(notification.metadata_json.get("workflow_run_id") or ""),
                                 ),
                             ),
                             _inbox_action(
@@ -1032,9 +1039,10 @@ def create_app(
                     orbit_name=orbit.name if orbit else None,
                     navigation_target=_inbox_navigation(
                         orbit_id=orbit.id if orbit else None,
-                        section="chat",
+                        section="workflow" if item.workflow_run_id else "chat",
                         conversation_kind="dm" if item.source_dm_thread_id else "channel" if item.source_channel_id else None,
                         conversation_id=item.source_dm_thread_id or item.source_channel_id,
+                        workflow_run_id=item.workflow_run_id,
                     ),
                     action_context={
                         "workflow_run_id": item.workflow_run_id,
@@ -1057,6 +1065,7 @@ def create_app(
                                 navigation_target=_inbox_navigation(
                                     orbit_id=orbit.id if orbit else None,
                                     section="workflow",
+                                    workflow_run_id=item.workflow_run_id,
                                 ),
                             ),
                             _inbox_action(
@@ -1094,7 +1103,11 @@ def create_app(
                     created_at=notification.created_at.isoformat(),
                     orbit_id=orbit.id if orbit is not None else None,
                     orbit_name=orbit.name if orbit is not None else None,
-                    navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section="chat"),
+                    navigation_target=_inbox_navigation(
+                        orbit_id=orbit.id if orbit is not None else None,
+                        section="workflow" if str(notification.metadata_json.get("workflow_run_id") or "").strip() else "chat",
+                        workflow_run_id=str(notification.metadata_json.get("workflow_run_id") or ""),
+                    ),
                     action_context={
                         "notification_id": notification.id,
                         "workflow_run_id": str(notification.metadata_json.get("workflow_run_id") or ""),
@@ -1119,6 +1132,7 @@ def create_app(
                                         navigation_target=_inbox_navigation(
                                             orbit_id=orbit.id if orbit is not None else None,
                                             section="workflow",
+                                            workflow_run_id=str(notification.metadata_json.get("workflow_run_id") or ""),
                                         ),
                                     )
                                 ]
