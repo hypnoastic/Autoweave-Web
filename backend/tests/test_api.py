@@ -23,6 +23,7 @@ from autoweave_web.models.entities import (
     PullRequestSnapshot,
     RepoGrant,
     RepositoryConnection,
+    RuntimeHumanLoopItem,
 )
 from autoweave_web.services.matrix import MatrixTransportError
 from conftest import (
@@ -571,6 +572,56 @@ def test_inbox_payload_exposes_action_context_for_approvals_and_mentions(client)
     assert approval_item["action_context"]["request_id"] == "approval_1"
     assert approval_item["action_context"]["request_kind"] == "approval"
     assert mention_item["action_context"]["notification_id"]
+
+
+def test_inbox_payload_surfaces_workflow_actions_for_human_loops_and_failed_runs(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    with OrmSession(get_engine()) as db:
+        db.add(
+            RuntimeHumanLoopItem(
+                orbit_id=orbit["id"],
+                workflow_run_id="run_clarify_1",
+                work_item_id=None,
+                request_kind="clarification",
+                request_id="clarify_1",
+                task_id="task_scope",
+                task_key="scope_definition",
+                status="open",
+                title="Clarification needed",
+                detail="Which workflow fields should ship in the first pass?",
+            )
+        )
+        db.add(
+            Notification(
+                user_id=user["id"],
+                orbit_id=orbit["id"],
+                kind="run_failed",
+                title="ERGO run failed",
+                detail="The rollout planning run failed after schema reconciliation.",
+                status="unread",
+                source_kind="workflow_run",
+                source_id="run_failed_1",
+                metadata_json={"workflow_run_id": "run_failed_1"},
+            )
+        )
+        db.commit()
+
+    inbox = client.get("/api/inbox", headers=headers)
+    assert inbox.status_code == 200
+    payload = inbox.json()
+
+    clarification_item = next(
+        item for item in payload["items"] if (item.get("action_context") or {}).get("request_id") == "clarify_1"
+    )
+    failed_run_item = next(
+        item for item in payload["items"] if (item.get("action_context") or {}).get("request_kind") == "run_failed"
+    )
+
+    assert [action["label"] for action in clarification_item["detail"]["next_actions"]] == ["Open workflow", "Open chat"]
+    assert [action["label"] for action in failed_run_item["detail"]["next_actions"]] == ["Open workflow", "Open chat"]
 
 
 def test_notifications_can_be_marked_read_directly(client):

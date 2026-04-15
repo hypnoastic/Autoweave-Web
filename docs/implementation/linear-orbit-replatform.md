@@ -13,16 +13,15 @@
 - Main technical constraint: backend tests are still not a hard merge gate until the Python `docker` dependency problem is resolved or isolated.
 
 ## Active Slice
-- Broaden triage semantics so `Inbox` and `My Work` can move native issues without leaving their primary surfaces.
-- Keep owner, status, and cycle edits on one shared compact control strip so the PM shell does not splinter into surface-specific patterns.
-- Browser-proof both surfaces against a disposable local orbit and dev-session user on `3000`.
+- Expand `Inbox` quick actions beyond approvals, mentions, and stale work into clarification, run-failed, and review-request records.
+- Keep the interaction dense: answer clarifications inline, and prime ERGO recovery or review prompts without leaving the inbox workspace.
+- Browser-proof the new triage actions against seeded live records on `3000`.
 
 ## Files Touched In This Slice
-- `frontend/components/native-issue-triage-controls.tsx`
+- `backend/src/autoweave_web/api/app.py`
+- `backend/tests/test_api.py`
 - `frontend/components/inbox-screen.tsx`
 - `frontend/components/inbox-screen.test.tsx`
-- `frontend/components/my-work-screen.tsx`
-- `frontend/components/my-work-screen.test.tsx`
 - `docs/implementation/linear-orbit-replatform.md`
 
 ## Commit And Push Guidelines
@@ -116,7 +115,7 @@
   - artifacts:
     - `output/playwright/my-work-inline-triage-controls.png`
     - `output/playwright/inbox-inline-triage-controls.png`
-- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload_exposes_action_context_for_approvals_and_mentions or notifications_can_be_marked_read_directly or inbox_payload_prioritizes_native_issue_triage_buckets'`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload_exposes_action_context_for_approvals_and_mentions or inbox_payload_surfaces_workflow_actions_for_human_loops_and_failed_runs or notifications_can_be_marked_read_directly or inbox_payload_prioritizes_native_issue_triage_buckets'`
 - `npm test -- inbox-screen.test.tsx`
 - `npm test`
 - `npm run build`
@@ -133,10 +132,26 @@
   - artifacts:
     - `output/playwright/inbox-approval-browser-proof.png`
     - `output/playwright/inbox-stale-followup-browser-proof.png`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload_exposes_action_context_for_approvals_and_mentions or inbox_payload_surfaces_workflow_actions_for_human_loops_and_failed_runs or notifications_can_be_marked_read_directly or inbox_payload_prioritizes_native_issue_triage_buckets'`
+- `npm test -- inbox-screen.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend backend`
+- Browser validation:
+  - reused a seeded dev session from `POST /api/auth/dev-session`
+  - inserted clarification, run-failed, and PR-review triage records against the live Postgres-backed workspace
+  - verified authenticated `/app/inbox` on `3000`
+  - answered a live clarification request directly from the inbox detail surface
+  - primed a run-failed recovery prompt into the ERGO composer from the selected record
+  - primed a PR review-summary prompt into the ERGO composer from the selected review record
+  - artifacts:
+    - `output/playwright/inbox-clarification-answer-browser-proof.png`
+    - `output/playwright/inbox-run-failed-browser-proof.png`
+    - `output/playwright/inbox-review-followup-browser-proof.png`
 
 ## Remaining Planned Slices
 - Tighten the native issue surface further with relation and hierarchy editing from denser inline flows instead of modal-heavy paths.
-- Expand inbox quick actions from approvals, mentions, and stale work into run-failed, clarification, and review-request records with the same dense inline model.
+- Extend non-issue triage from prompt-priming into denser workflow actions for failed runs and clarifications where the backend supports safe resolution paths.
 
 ## Slice Notes
 - Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
@@ -160,6 +175,11 @@
 - The inbox payload now carries explicit `action_context` metadata for approval and mention records, including workflow request linkage where needed.
 - Operators can now mark mention notifications read, resolve approval requests, and seed a stale-issue ERGO follow-up prompt directly from the inbox surface.
 - Browser proof now covers real mention-read, stale follow-up, and approval-resolution flows on the live local stack.
+- Clarification records can now be answered directly from the inbox detail surface without routing users into a separate workflow view first.
+- Run-failed records now seed a scoped ERGO recovery-plan prompt directly into the active inbox composer.
+- PR review records now seed a scoped ERGO review-summary prompt directly into the active inbox composer.
+- Approval asks inside the agent bucket now resolve through the same inline quick-action model used by approval-bucket records.
+- Browser proof now covers live clarification answers plus run-failed and review-summary prompt priming on the local stack.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.
@@ -167,4 +187,4 @@
 - Relation and hierarchy editing still rely on modal pickers instead of the denser inline controls now used for title, owner, stage, and cycle.
 - The orbit board still does not support drag/drop; that remains intentionally deferred until the PM model stabilizes.
 - Browser-proof automation now exists for authenticated flows, but richer seeded PM scenarios still depend on manual API setup rather than a dedicated fixture endpoint.
-- Inbox quick actions currently cover approvals, mentions, and stale native issues, but run-failed and clarification records still open as context-only records without one-click inline resolution paths.
+- Inbox quick actions now cover approvals, mentions, stale work, clarification responses, run-failed recovery prompts, and review-summary prompts, but failed runs and clarifications still lack deeper workflow-native resolution controls beyond those dense inbox actions.

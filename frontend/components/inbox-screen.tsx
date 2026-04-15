@@ -37,6 +37,7 @@ import {
 } from "@/components/ui";
 import {
   AuthSessionError,
+  answerWorkflowHumanRequest,
   markNotificationRead,
   createDmThread,
   createOrbit,
@@ -270,6 +271,18 @@ function buildIssueFollowUpPrompt(issue: NativeOrbitIssue, bucket: InboxBucketKe
   return `ERGO, summarize the next decision for PM-${issue.number} "${issue.title}" and what should move next.`;
 }
 
+function buildRunFailureFollowUpPrompt(item: InboxItem) {
+  const runId = item.action_context?.workflow_run_id?.trim();
+  return `ERGO, "${item.title}" indicates ${runId ? `workflow run ${runId}` : "a workflow run"} failed. Summarize the failure cause, immediate risk, and the shortest recovery plan.`;
+}
+
+function buildReviewFollowUpPrompt(item: InboxItem, issue: NativeOrbitIssue | null) {
+  if (issue) {
+    return `ERGO, PM-${issue.number} "${issue.title}" is ${formatStateLabel(issue.status).toLowerCase()}${issue.cycle_name ? ` in ${issue.cycle_name}` : ""}. Summarize the review risk and the next decision before merge.`;
+  }
+  return `ERGO, summarize the review state for ${item.title} and the next reviewer-facing action needed to unblock it.`;
+}
+
 function RecentOrbitSidebarContent({
   scopes,
   onSelectOrbit,
@@ -410,8 +423,13 @@ function ErgoConversation({
   onOpenSelectedWork,
   onUpdateSelectedIssue,
   onResolveSelectedApproval,
+  clarificationResponse,
+  onClarificationResponseChange,
+  onAnswerSelectedClarification,
   onMarkSelectedItemRead,
   onPrimeSelectedIssueFollowUp,
+  onPrimeSelectedRunFailureFollowUp,
+  onPrimeSelectedReviewFollowUp,
   onSend,
   sending,
   itemActionPending,
@@ -441,21 +459,43 @@ function ErgoConversation({
   onOpenSelectedWork: () => void;
   onUpdateSelectedIssue: (payload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null }) => void;
   onResolveSelectedApproval: (approved: boolean) => void;
+  clarificationResponse: string;
+  onClarificationResponseChange: (value: string) => void;
+  onAnswerSelectedClarification: () => void;
   onMarkSelectedItemRead: () => void;
   onPrimeSelectedIssueFollowUp: () => void;
+  onPrimeSelectedRunFailureFollowUp: () => void;
+  onPrimeSelectedReviewFollowUp: () => void;
   onSend: () => void;
   sending: boolean;
   itemActionPending: boolean;
   attachmentInputRef: { current: HTMLInputElement | null };
 }) {
   const canResolveApproval = Boolean(
-    selectedItem?.bucket === "approvals" &&
-      selectedItem.orbit_id &&
+    selectedItem?.orbit_id &&
+      selectedItem.action_context?.request_kind === "approval" &&
       selectedItem.action_context?.workflow_run_id &&
       selectedItem.action_context?.request_id,
   );
-  const canMarkRead = Boolean(selectedItem?.kind === "mention" && selectedItem.unread && selectedItem.action_context?.notification_id);
+  const canAnswerClarification = Boolean(
+    selectedItem?.orbit_id &&
+      selectedItem.action_context?.request_kind === "clarification" &&
+      selectedItem.action_context?.workflow_run_id &&
+      selectedItem.action_context?.request_id,
+  );
+  const canMarkRead = Boolean(
+    selectedItem?.unread &&
+      selectedItem.action_context?.notification_id &&
+      !canResolveApproval &&
+      !canAnswerClarification,
+  );
   const canPrimeIssueFollowUp = Boolean(selectedIssue && selectedItem?.bucket === "stale");
+  const canPrimeRunFailureFollowUp = Boolean(selectedItem?.orbit_id && selectedItem.action_context?.request_kind === "run_failed");
+  const canPrimeReviewFollowUp = Boolean(
+    selectedItem?.bucket === "review" &&
+      selectedItem.orbit_id &&
+      (selectedIssue || selectedItem.kind === "pr" || selectedItem.kind === "native_issue"),
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -555,7 +595,7 @@ function ErgoConversation({
                   ))}
               </div>
             ) : null}
-            {canResolveApproval || canMarkRead || canPrimeIssueFollowUp ? (
+            {canResolveApproval || canAnswerClarification || canMarkRead || canPrimeIssueFollowUp || canPrimeRunFailureFollowUp || canPrimeReviewFollowUp ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {canResolveApproval ? (
                   <>
@@ -567,6 +607,25 @@ function ErgoConversation({
                     </GhostButton>
                   </>
                 ) : null}
+                {canAnswerClarification ? (
+                  <div className="flex min-w-[min(100%,26rem)] flex-1 flex-col gap-2">
+                    <TextArea
+                      className="min-h-[84px] bg-panelStrong"
+                      placeholder="Answer ERGO directly from Inbox"
+                      value={clarificationResponse}
+                      onChange={(event) => onClarificationResponseChange(event.target.value)}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton
+                        className="px-3 py-2 text-xs"
+                        onClick={onAnswerSelectedClarification}
+                        disabled={itemActionPending || !clarificationResponse.trim()}
+                      >
+                        {itemActionPending ? "Working…" : "Send answer"}
+                      </ActionButton>
+                    </div>
+                  </div>
+                ) : null}
                 {canMarkRead ? (
                   <GhostButton className="px-3 py-2 text-xs" onClick={onMarkSelectedItemRead} disabled={itemActionPending}>
                     {itemActionPending ? "Working…" : "Mark read"}
@@ -575,6 +634,16 @@ function ErgoConversation({
                 {canPrimeIssueFollowUp ? (
                   <GhostButton className="px-3 py-2 text-xs" onClick={onPrimeSelectedIssueFollowUp} disabled={itemActionPending}>
                     Ask ERGO for update
+                  </GhostButton>
+                ) : null}
+                {canPrimeRunFailureFollowUp ? (
+                  <GhostButton className="px-3 py-2 text-xs" onClick={onPrimeSelectedRunFailureFollowUp} disabled={itemActionPending}>
+                    Ask ERGO for recovery plan
+                  </GhostButton>
+                ) : null}
+                {canPrimeReviewFollowUp ? (
+                  <GhostButton className="px-3 py-2 text-xs" onClick={onPrimeSelectedReviewFollowUp} disabled={itemActionPending}>
+                    Ask ERGO for review summary
                   </GhostButton>
                 ) : null}
               </div>
@@ -748,6 +817,7 @@ export function InboxScreen({
   const [selectedIssueCycles, setSelectedIssueCycles] = useState<OrbitPayload["cycles"]>([]);
   const [issueUpdating, setIssueUpdating] = useState(false);
   const [selectedItemActionPending, setSelectedItemActionPending] = useState(false);
+  const [clarificationResponse, setClarificationResponse] = useState("");
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -974,6 +1044,10 @@ export function InboxScreen({
       cancelled = true;
     };
   }, [selectedItem, session]);
+
+  useEffect(() => {
+    setClarificationResponse("");
+  }, [selectedItem?.id]);
 
   const searchResults = useMemo(() => {
     if (!payload) {
@@ -1277,7 +1351,7 @@ export function InboxScreen({
     if (
       !session ||
       !selectedItem?.orbit_id ||
-      selectedItem.bucket !== "approvals" ||
+      selectedItem.action_context?.request_kind !== "approval" ||
       !selectedItem.action_context?.workflow_run_id ||
       !selectedItem.action_context.request_id
     ) {
@@ -1297,6 +1371,37 @@ export function InboxScreen({
       await reload(selectedItem.id);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to resolve the selected approval.");
+    } finally {
+      setSelectedItemActionPending(false);
+    }
+  }
+
+  async function onAnswerSelectedClarification() {
+    if (
+      !session ||
+      !selectedItem?.orbit_id ||
+      selectedItem.action_context?.request_kind !== "clarification" ||
+      !selectedItem.action_context.workflow_run_id ||
+      !selectedItem.action_context.request_id ||
+      !clarificationResponse.trim()
+    ) {
+      return;
+    }
+    setSelectedItemActionPending(true);
+    setError(null);
+    try {
+      await answerWorkflowHumanRequest(session.token, selectedItem.orbit_id, {
+        workflow_run_id: selectedItem.action_context.workflow_run_id,
+        request_id: selectedItem.action_context.request_id,
+        answer_text: clarificationResponse.trim(),
+      });
+      if (selectedItem.action_context.notification_id) {
+        await markNotificationRead(session.token, selectedItem.action_context.notification_id).catch(() => {});
+      }
+      setClarificationResponse("");
+      await reload(selectedItem.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to answer the selected clarification.");
     } finally {
       setSelectedItemActionPending(false);
     }
@@ -1328,6 +1433,26 @@ export function InboxScreen({
     setMobileSurface("chat");
     setComposerMode("triage");
     setComposer(buildIssueFollowUpPrompt(selectedIssue, selectedItem?.bucket));
+  }
+
+  function onPrimeSelectedRunFailureFollowUp() {
+    if (!selectedItem?.orbit_id) {
+      return;
+    }
+    setSelectedScopeId(selectedItem.orbit_id);
+    setMobileSurface("chat");
+    setComposerMode("triage");
+    setComposer(buildRunFailureFollowUpPrompt(selectedItem));
+  }
+
+  function onPrimeSelectedReviewFollowUp() {
+    if (!selectedItem?.orbit_id) {
+      return;
+    }
+    setSelectedScopeId(selectedItem.orbit_id);
+    setMobileSurface("chat");
+    setComposerMode("triage");
+    setComposer(buildReviewFollowUpPrompt(selectedItem, selectedIssue));
   }
 
   function onSelectItem(itemId: string) {
@@ -1482,8 +1607,13 @@ export function InboxScreen({
               onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
               onUpdateSelectedIssue={onUpdateSelectedIssue}
               onResolveSelectedApproval={onResolveSelectedApproval}
+              clarificationResponse={clarificationResponse}
+              onClarificationResponseChange={setClarificationResponse}
+              onAnswerSelectedClarification={onAnswerSelectedClarification}
               onMarkSelectedItemRead={onMarkSelectedItemRead}
               onPrimeSelectedIssueFollowUp={onPrimeSelectedIssueFollowUp}
+              onPrimeSelectedRunFailureFollowUp={onPrimeSelectedRunFailureFollowUp}
+              onPrimeSelectedReviewFollowUp={onPrimeSelectedReviewFollowUp}
               onSend={onComposerSubmit}
               sending={sendingComposer}
               itemActionPending={selectedItemActionPending}
@@ -1590,8 +1720,13 @@ export function InboxScreen({
                 onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
                 onUpdateSelectedIssue={onUpdateSelectedIssue}
                 onResolveSelectedApproval={onResolveSelectedApproval}
+                clarificationResponse={clarificationResponse}
+                onClarificationResponseChange={setClarificationResponse}
+                onAnswerSelectedClarification={onAnswerSelectedClarification}
                 onMarkSelectedItemRead={onMarkSelectedItemRead}
                 onPrimeSelectedIssueFollowUp={onPrimeSelectedIssueFollowUp}
+                onPrimeSelectedRunFailureFollowUp={onPrimeSelectedRunFailureFollowUp}
+                onPrimeSelectedReviewFollowUp={onPrimeSelectedReviewFollowUp}
                 onSend={onComposerSubmit}
                 sending={sendingComposer}
                 itemActionPending={selectedItemActionPending}

@@ -1053,6 +1053,13 @@ def create_app(
                         ],
                         next_actions=[
                             _inbox_action(
+                                "Open workflow",
+                                navigation_target=_inbox_navigation(
+                                    orbit_id=orbit.id if orbit else None,
+                                    section="workflow",
+                                ),
+                            ),
+                            _inbox_action(
                                 "Open chat",
                                 navigation_target=_inbox_navigation(
                                     orbit_id=orbit.id if orbit else None,
@@ -1105,13 +1112,26 @@ def create_app(
                             {"label": "Source", "value": repository_name or notification.source_kind},
                         ],
                         next_actions=[
+                            *(
+                                [
+                                    _inbox_action(
+                                        "Open workflow",
+                                        navigation_target=_inbox_navigation(
+                                            orbit_id=orbit.id if orbit is not None else None,
+                                            section="workflow",
+                                        ),
+                                    )
+                                ]
+                                if str(notification.metadata_json.get("workflow_run_id") or "").strip()
+                                else []
+                            ),
                             _inbox_action(
                                 "Open chat",
                                 navigation_target=_inbox_navigation(
                                     orbit_id=orbit.id if orbit is not None else None,
                                     section="chat",
                                 ),
-                            )
+                            ),
                         ],
                         metadata=[{"label": "Created", "value": notification.created_at.isoformat()}],
                     ),

@@ -5,6 +5,7 @@ import { InboxScreen } from "@/components/inbox-screen";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const api = vi.hoisted(() => ({
+  answerWorkflowHumanRequest: vi.fn(),
   markNotificationRead: vi.fn(),
   createDmThread: vi.fn(),
   createOrbit: vi.fn(),
@@ -245,6 +246,7 @@ describe("InboxScreen", () => {
     });
     api.updateNavigation.mockResolvedValue({});
     api.updateOrbitIssue.mockResolvedValue({});
+    api.answerWorkflowHumanRequest.mockResolvedValue({});
     api.resolveWorkflowApprovalRequest.mockResolvedValue({});
     api.markNotificationRead.mockResolvedValue({});
   });
@@ -729,6 +731,184 @@ describe("InboxScreen", () => {
     );
     await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith("session-token", "notif_approval_1"));
     await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("answers clarifications directly from the inbox workspace", async () => {
+    const clarificationItem = {
+      id: "notif_clarification_1",
+      kind: "agent_ask",
+      bucket: "agent",
+      reason_label: "Agent ask",
+      title: "Clarification needed",
+      preview: "ERGO needs a concrete answer before it can continue.",
+      source_label: "Orbit One · Clarification",
+      status_label: "Open",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+      action_context: {
+        notification_id: "notif_clarification_1",
+        workflow_run_id: "run_2",
+        request_id: "human_1",
+        request_kind: "clarification",
+      },
+      detail: {
+        summary: "ERGO needs a concrete answer before it can continue.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open workflow", navigation: { orbit_id: "orbit_1", section: "workflow" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, clarificationItem] }))
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing] }));
+
+    renderInbox();
+
+    expect((await screen.findAllByText("ERGO needs a concrete answer before it can continue.")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getAllByPlaceholderText("Answer ERGO directly from Inbox")[0], {
+      target: { value: "Use timestamps, user actions, and the resulting state transition." },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Send answer" })[0]);
+
+    await waitFor(() =>
+      expect(api.answerWorkflowHumanRequest).toHaveBeenCalledWith("session-token", "orbit_1", {
+        workflow_run_id: "run_2",
+        request_id: "human_1",
+        answer_text: "Use timestamps, user actions, and the resulting state transition.",
+      }),
+    );
+    await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith("session-token", "notif_clarification_1"));
+    await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("resolves approval asks from the agent bucket", async () => {
+    const approvalAsk = {
+      id: "human-loop-approval_1",
+      kind: "agent_ask",
+      bucket: "agent",
+      reason_label: "Agent ask",
+      title: "Release signoff",
+      preview: "ERGO is paused until a release approval is recorded.",
+      source_label: "Orbit One · Approval",
+      status_label: "Open",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+      action_context: {
+        workflow_run_id: "run_3",
+        request_id: "approval_ask_1",
+        request_kind: "approval",
+      },
+      detail: {
+        summary: "ERGO is paused until a release approval is recorded.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open workflow", navigation: { orbit_id: "orbit_1", section: "workflow" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, approvalAsk] }))
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing] }));
+
+    renderInbox();
+
+    expect((await screen.findAllByText("ERGO is paused until a release approval is recorded.")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[0]);
+
+    await waitFor(() =>
+      expect(api.resolveWorkflowApprovalRequest).toHaveBeenCalledWith("session-token", "orbit_1", {
+        workflow_run_id: "run_3",
+        request_id: "approval_ask_1",
+        approved: true,
+      }),
+    );
+  });
+
+  it("primes a run-failed recovery prompt directly from the inbox workspace", async () => {
+    const failedRunItem = {
+      id: "notif_run_failed_1",
+      kind: "agent_ask",
+      bucket: "agent",
+      reason_label: "Agent ask",
+      title: "ERGO run failed",
+      preview: "A workflow run failed and needs a recovery plan.",
+      source_label: "Orbit One · octocat/orbit-one",
+      status_label: "Run failed",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "chat" },
+      action_context: {
+        notification_id: "notif_run_failed_1",
+        workflow_run_id: "run_9",
+        request_id: "run_9",
+        request_kind: "run_failed",
+      },
+      detail: {
+        summary: "A workflow run failed and needs a recovery plan.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open workflow", navigation: { orbit_id: "orbit_1", section: "workflow" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox.mockResolvedValue(inboxPayload({ items: [inboxPayload().briefing, failedRunItem] }));
+
+    renderInbox();
+
+    expect((await screen.findAllByText("A workflow run failed and needs a recovery plan.")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "Ask ERGO for recovery plan" })[0]);
+
+    expect(screen.getAllByDisplayValue(/workflow run run_9 failed/i).length).toBeGreaterThan(0);
+  });
+
+  it("primes review follow-up prompts for PR review items", async () => {
+    const reviewItem = {
+      id: "pr_17",
+      kind: "pr",
+      bucket: "review",
+      reason_label: "PR review",
+      title: "PR #17 · Review queue cleanup",
+      preview: "Changes requested and waiting on review follow-up.",
+      source_label: "Orbit One · octocat/orbit-one · Pull request",
+      status_label: "Changes requested",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "prs", detail_kind: "pr", detail_id: "pr_17" },
+      detail: {
+        summary: "Review queue cleanup is waiting on reviewer follow-up.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open PR", navigation: { orbit_id: "orbit_1", section: "prs", detail_kind: "pr", detail_id: "pr_17" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox.mockResolvedValue(inboxPayload({ items: [inboxPayload().briefing, reviewItem] }));
+
+    renderInbox();
+
+    expect((await screen.findAllByText("Review queue cleanup is waiting on reviewer follow-up.")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "Ask ERGO for review summary" })[0]);
+
+    expect(screen.getAllByDisplayValue(/PR #17/i).length).toBeGreaterThan(0);
   });
 
   it("primes a stale-issue ERGO follow-up directly from the inbox workspace", async () => {
