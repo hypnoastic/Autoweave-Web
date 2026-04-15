@@ -5,6 +5,7 @@ import { InboxScreen } from "@/components/inbox-screen";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const api = vi.hoisted(() => ({
+  markNotificationRead: vi.fn(),
   createDmThread: vi.fn(),
   createOrbit: vi.fn(),
   fetchDmThread: vi.fn(),
@@ -12,6 +13,7 @@ const api = vi.hoisted(() => ({
   fetchOrbit: vi.fn(),
   fetchPreferences: vi.fn(),
   readSession: vi.fn(),
+  resolveWorkflowApprovalRequest: vi.fn(),
   sendDmMessage: vi.fn(),
   updateOrbitIssue: vi.fn(),
   updateNavigation: vi.fn(),
@@ -120,6 +122,7 @@ function inboxPayload(overrides: Record<string, unknown> = {}) {
         orbit_id: "orbit_1",
         orbit_name: "Orbit One",
         navigation: { orbit_id: "orbit_1", section: "chat" },
+        action_context: { notification_id: "notif_1" },
         detail: {
           summary: "You were mentioned in a review conversation.",
           key_context: [{ label: "Type", value: "Mention" }],
@@ -242,6 +245,8 @@ describe("InboxScreen", () => {
     });
     api.updateNavigation.mockResolvedValue({});
     api.updateOrbitIssue.mockResolvedValue({});
+    api.resolveWorkflowApprovalRequest.mockResolvedValue({});
+    api.markNotificationRead.mockResolvedValue({});
   });
 
   it("renders the decluttered ERGO inbox and keeps chat active when an item is selected", async () => {
@@ -647,5 +652,187 @@ describe("InboxScreen", () => {
         cycle_id: "cycle_2",
       }),
     );
+  });
+
+  it("marks mentions as read directly from the triage workspace", async () => {
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload())
+      .mockResolvedValueOnce(
+        inboxPayload({
+          items: [
+            inboxPayload().briefing,
+            {
+              ...inboxPayload().items[1],
+              unread: false,
+              status_label: "Read",
+              action_context: { notification_id: "notif_1" },
+            },
+          ],
+        }),
+      );
+
+    renderInbox();
+
+    expect(await screen.findByText("You were mentioned in a review conversation.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mark read" }));
+
+    await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith("session-token", "notif_1"));
+    await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("resolves approvals directly from the inbox workspace", async () => {
+    const approvalItem = {
+      id: "notif_approval_1",
+      kind: "approval",
+      bucket: "approvals",
+      reason_label: "Approval",
+      title: "Release signoff",
+      preview: "Human approval is required before the release can continue.",
+      source_label: "Orbit One · octocat/orbit-one",
+      status_label: "Needs approval",
+      attention: "high",
+      unread: true,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "workflow" },
+      action_context: {
+        notification_id: "notif_approval_1",
+        workflow_run_id: "run_1",
+        request_id: "approval_1",
+        request_kind: "approval",
+      },
+      detail: {
+        summary: "Release signoff requires a human decision before execution can continue.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open workflow", navigation: { orbit_id: "orbit_1", section: "workflow" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing, approvalItem] }))
+      .mockResolvedValueOnce(inboxPayload({ items: [inboxPayload().briefing] }));
+
+    renderInbox();
+
+    expect(await screen.findByText("Release signoff requires a human decision before execution can continue.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(api.resolveWorkflowApprovalRequest).toHaveBeenCalledWith("session-token", "orbit_1", {
+        workflow_run_id: "run_1",
+        request_id: "approval_1",
+        approved: true,
+      }),
+    );
+    await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith("session-token", "notif_approval_1"));
+    await waitFor(() => expect(api.fetchInbox).toHaveBeenCalledTimes(2));
+  });
+
+  it("primes a stale-issue ERGO follow-up directly from the inbox workspace", async () => {
+    const staleItem = {
+      id: "native-stale-pm_1",
+      kind: "native_issue",
+      bucket: "stale",
+      reason_label: "Stale",
+      title: "PM-1 · Follow up on stale issue",
+      preview: "This issue has gone quiet.",
+      source_label: "Orbit One · octocat/orbit-one",
+      status_label: "4d stale",
+      attention: "normal",
+      unread: false,
+      created_at: new Date().toISOString(),
+      orbit_id: "orbit_1",
+      orbit_name: "Orbit One",
+      navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" },
+      detail: {
+        summary: "This issue needs a fresh update or a stage change.",
+        key_context: [],
+        related_entities: [],
+        next_actions: [{ label: "Open issue", navigation: { orbit_id: "orbit_1", section: "issues", detail_kind: "native_issue", detail_id: "pm_1" } }],
+        metadata: [],
+        conversation_excerpt: [],
+      },
+    };
+    api.fetchInbox.mockResolvedValue(inboxPayload({ items: [inboxPayload().briefing, staleItem] }));
+    api.fetchOrbit.mockResolvedValue({
+      orbit: {
+        id: "orbit_1",
+        slug: "orbit-one",
+        name: "Orbit One",
+        description: "Primary delivery orbit",
+        repo_full_name: "octocat/orbit-one",
+        repo_private: true,
+        default_branch: "main",
+      },
+      members: [
+        {
+          user_id: "user_1",
+          github_login: "octocat",
+          display_name: "Octo Cat",
+          role: "owner",
+          introduced: true,
+          avatar_url: null,
+        },
+      ],
+      cycles: [
+        {
+          id: "cycle_1",
+          name: "April stabilization",
+          goal: "Hold the release line steady.",
+          status: "active",
+          starts_at: null,
+          ends_at: null,
+          issue_count: 1,
+          completed_count: 0,
+          active_count: 1,
+          review_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      native_issues: [
+        {
+          id: "pm_1",
+          number: 1,
+          title: "Follow up on stale issue",
+          detail: "This issue needs a fresh update or a stage change.",
+          status: "planned",
+          priority: "medium",
+          source_kind: "manual",
+          cycle_id: "cycle_1",
+          cycle_name: "April stabilization",
+          assignee_user_id: "user_1",
+          assignee_display_name: "Octo Cat",
+          orbit_id: "orbit_1",
+          orbit_name: "Orbit One",
+          repository_full_name: "octocat/orbit-one",
+          labels: [],
+          parent_issue_id: null,
+          parent_issue: null,
+          sub_issues: [],
+          relations: { blocked_by: [], blocking: [], related: [], duplicate: [] },
+          relation_counts: { blocked_by: 0, blocking: 0, related: 0, duplicate: 0 },
+          is_blocked: false,
+          has_sub_issues: false,
+          stale: true,
+          stale_working_days: 4,
+          activity: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      issues: [],
+      prs: [],
+    });
+
+    renderInbox();
+
+    expect(await screen.findByText("This issue needs a fresh update or a stage change.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ask ERGO for update" }));
+
+    expect(screen.getAllByDisplayValue(/has been stale for 4 working days/i).length).toBeGreaterThan(0);
   });
 });

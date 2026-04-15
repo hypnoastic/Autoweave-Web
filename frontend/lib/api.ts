@@ -16,6 +16,7 @@ import type {
   InboxPayload,
   MyWorkPayload,
   NativeOrbitIssue,
+  NotificationItem,
   Orbit,
   OrbitCycle,
   OrbitPayload,
@@ -309,6 +310,10 @@ export async function resolveWorkflowApprovalRequest(
   payload: Record<string, unknown>,
 ) {
   return request(`/api/orbits/${orbitId}/workflow/approval-requests/resolve`, { method: "POST", body: JSON.stringify(payload) }, token);
+}
+
+export async function markNotificationRead(token: string, notificationId: string) {
+  return request<NotificationItem>(`/api/notifications/${notificationId}/read`, { method: "POST" }, token);
 }
 
 export async function fetchDmThread(token: string, orbitId: string, threadId: string) {

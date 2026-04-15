@@ -18,6 +18,7 @@ from autoweave_web.models.entities import (
     IntegrationInstallation,
     MatrixMessageLink,
     Message,
+    Notification,
     OrbitRepositoryBinding,
     PullRequestSnapshot,
     RepoGrant,
@@ -523,6 +524,85 @@ def test_inbox_payload_prioritizes_native_issue_triage_buckets(client):
     assert review_item["reason_label"] == "Review request"
     assert review_item["navigation"]["detail_kind"] == "native_issue"
     assert review_item["navigation"]["detail_id"] == review_issue["id"]
+
+
+def test_inbox_payload_exposes_action_context_for_approvals_and_mentions(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    with OrmSession(get_engine()) as db:
+        db.add(
+            Notification(
+                user_id=user["id"],
+                orbit_id=orbit["id"],
+                kind="approval",
+                title="Release signoff",
+                detail="A human approval is required before the workflow can continue.",
+                status="unread",
+                source_kind="approval",
+                source_id="approval_1",
+                metadata_json={"workflow_run_id": "run_1"},
+            )
+        )
+        db.add(
+            Notification(
+                user_id=user["id"],
+                orbit_id=orbit["id"],
+                kind="mention",
+                title="Mentioned in release review",
+                detail="You were mentioned in a release thread.",
+                status="unread",
+                source_kind="message",
+                source_id="msg_1",
+                metadata_json={"repository_full_name": "octocat/orbit-control"},
+            )
+        )
+        db.commit()
+
+    inbox = client.get("/api/inbox", headers=headers)
+    assert inbox.status_code == 200
+    payload = inbox.json()
+
+    approval_item = next(item for item in payload["items"] if item["kind"] == "approval")
+    mention_item = next(item for item in payload["items"] if item["kind"] == "mention")
+
+    assert approval_item["action_context"]["workflow_run_id"] == "run_1"
+    assert approval_item["action_context"]["request_id"] == "approval_1"
+    assert approval_item["action_context"]["request_kind"] == "approval"
+    assert mention_item["action_context"]["notification_id"]
+
+
+def test_notifications_can_be_marked_read_directly(client):
+    token, user = _login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    orbit = _create_orbit(client, headers)
+
+    with OrmSession(get_engine()) as db:
+        notification = Notification(
+            user_id=user["id"],
+            orbit_id=orbit["id"],
+            kind="mention",
+            title="Mentioned in release review",
+            detail="You were mentioned in a release thread.",
+            status="unread",
+            source_kind="message",
+            source_id="msg_1",
+            metadata_json={"repository_full_name": "octocat/orbit-control"},
+        )
+        db.add(notification)
+        db.commit()
+        notification_id = notification.id
+
+    mark_read = client.post(f"/api/notifications/{notification_id}/read", headers=headers)
+    assert mark_read.status_code == 200
+    assert mark_read.json()["status"] == "read"
+
+    with OrmSession(get_engine()) as db:
+        persisted = db.get(Notification, notification_id)
+        assert persisted is not None
+        assert persisted.status == "read"
+        assert persisted.read_at is not None
 
 
 def test_health_endpoint_allows_local_frontend_origin(client):

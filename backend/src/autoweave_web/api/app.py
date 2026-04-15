@@ -674,6 +674,7 @@ def create_app(
         orbit_id: str | None,
         orbit_name: str | None,
         navigation_target: dict[str, Any] | None,
+        action_context: dict[str, Any] | None = None,
         detail: dict[str, Any],
     ) -> dict[str, Any]:
         return {
@@ -691,6 +692,7 @@ def create_app(
             "orbit_id": orbit_id,
             "orbit_name": orbit_name,
             "navigation": navigation_target,
+            "action_context": action_context,
             "detail": detail,
         }
 
@@ -927,6 +929,12 @@ def create_app(
                     orbit_id=orbit.id if orbit is not None else None,
                     orbit_name=orbit.name if orbit is not None else None,
                     navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section="workflow"),
+                    action_context={
+                        "notification_id": notification.id,
+                        "workflow_run_id": str(notification.metadata_json.get("workflow_run_id") or ""),
+                        "request_id": notification.source_id,
+                        "request_kind": "approval",
+                    },
                     detail=_inbox_detail(
                         summary=detail_summary,
                         key_context=[
@@ -980,6 +988,7 @@ def create_app(
                     orbit_id=orbit.id if orbit is not None else None,
                     orbit_name=orbit.name if orbit is not None else None,
                     navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section="chat"),
+                    action_context={"notification_id": notification.id},
                     detail=_inbox_detail(
                         summary=notification.detail or f"You were mentioned in {orbit.name if orbit is not None else 'the workspace'}.",
                         key_context=[
@@ -1027,6 +1036,11 @@ def create_app(
                         conversation_kind="dm" if item.source_dm_thread_id else "channel" if item.source_channel_id else None,
                         conversation_id=item.source_dm_thread_id or item.source_channel_id,
                     ),
+                    action_context={
+                        "workflow_run_id": item.workflow_run_id,
+                        "request_id": item.request_id,
+                        "request_kind": item.request_kind,
+                    },
                     detail=_inbox_detail(
                         summary=item.detail or "ERGO has paused for human input.",
                         key_context=[
@@ -1074,6 +1088,12 @@ def create_app(
                     orbit_id=orbit.id if orbit is not None else None,
                     orbit_name=orbit.name if orbit is not None else None,
                     navigation_target=_inbox_navigation(orbit_id=orbit.id if orbit is not None else None, section="chat"),
+                    action_context={
+                        "notification_id": notification.id,
+                        "workflow_run_id": str(notification.metadata_json.get("workflow_run_id") or ""),
+                        "request_id": notification.source_id,
+                        "request_kind": notification.kind,
+                    },
                     detail=_inbox_detail(
                         summary=notification.detail or f"{notification.title} needs an ERGO follow-up.",
                         key_context=[
@@ -3781,6 +3801,21 @@ def create_app(
     @app.get("/api/me")
     def me(user: User = Depends(current_user)) -> dict[str, Any]:
         return _serialize_user(user)
+
+    @app.post("/api/notifications/{notification_id}/read")
+    def mark_notification_read_endpoint(
+        notification_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        notification = db.get(Notification, notification_id)
+        if notification is None or notification.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        if notification.status != "read":
+            notification.status = "read"
+            notification.read_at = utc_now()
+            db.commit()
+        return _serialize_notification(notification)
 
     @app.get("/api/chat/sync/bootstrap")
     def chat_sync_bootstrap(

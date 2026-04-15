@@ -37,8 +37,10 @@ import {
 } from "@/components/ui";
 import {
   AuthSessionError,
+  markNotificationRead,
   createDmThread,
   createOrbit,
+  resolveWorkflowApprovalRequest,
   fetchDmThread,
   fetchInbox,
   fetchOrbit,
@@ -258,6 +260,16 @@ function buildItemChatHref(item: InboxItem) {
   });
 }
 
+function buildIssueFollowUpPrompt(issue: NativeOrbitIssue, bucket: InboxBucketKey | undefined) {
+  if (bucket === "stale") {
+    return `ERGO, PM-${issue.number} "${issue.title}" has been stale for ${issue.stale_working_days} working day${issue.stale_working_days === 1 ? "" : "s"}${issue.cycle_name ? ` in ${issue.cycle_name}` : ""}. Summarize what stalled and the next concrete move.`;
+  }
+  if (bucket === "blocked") {
+    return `ERGO, PM-${issue.number} "${issue.title}" is blocked${issue.cycle_name ? ` in ${issue.cycle_name}` : ""}. Summarize the blocker chain and what should move next.`;
+  }
+  return `ERGO, summarize the next decision for PM-${issue.number} "${issue.title}" and what should move next.`;
+}
+
 function RecentOrbitSidebarContent({
   scopes,
   onSelectOrbit,
@@ -397,8 +409,12 @@ function ErgoConversation({
   onOpenSelectedChat,
   onOpenSelectedWork,
   onUpdateSelectedIssue,
+  onResolveSelectedApproval,
+  onMarkSelectedItemRead,
+  onPrimeSelectedIssueFollowUp,
   onSend,
   sending,
+  itemActionPending,
   attachmentInputRef,
 }: {
   activeScope: InboxScope | null;
@@ -424,10 +440,23 @@ function ErgoConversation({
   onOpenSelectedChat: () => void;
   onOpenSelectedWork: () => void;
   onUpdateSelectedIssue: (payload: { status?: string; assignee_user_id?: string | null; cycle_id?: string | null }) => void;
+  onResolveSelectedApproval: (approved: boolean) => void;
+  onMarkSelectedItemRead: () => void;
+  onPrimeSelectedIssueFollowUp: () => void;
   onSend: () => void;
   sending: boolean;
+  itemActionPending: boolean;
   attachmentInputRef: { current: HTMLInputElement | null };
 }) {
+  const canResolveApproval = Boolean(
+    selectedItem?.bucket === "approvals" &&
+      selectedItem.orbit_id &&
+      selectedItem.action_context?.workflow_run_id &&
+      selectedItem.action_context?.request_id,
+  );
+  const canMarkRead = Boolean(selectedItem?.kind === "mention" && selectedItem.unread && selectedItem.action_context?.notification_id);
+  const canPrimeIssueFollowUp = Boolean(selectedIssue && selectedItem?.bucket === "stale");
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-line px-4 py-3">
@@ -524,6 +553,30 @@ function ErgoConversation({
                       {item}
                     </StatusPill>
                   ))}
+              </div>
+            ) : null}
+            {canResolveApproval || canMarkRead || canPrimeIssueFollowUp ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {canResolveApproval ? (
+                  <>
+                    <ActionButton className="px-3 py-2 text-xs" onClick={() => onResolveSelectedApproval(true)} disabled={itemActionPending}>
+                      {itemActionPending ? "Working…" : "Approve"}
+                    </ActionButton>
+                    <GhostButton className="px-3 py-2 text-xs" onClick={() => onResolveSelectedApproval(false)} disabled={itemActionPending}>
+                      Reject
+                    </GhostButton>
+                  </>
+                ) : null}
+                {canMarkRead ? (
+                  <GhostButton className="px-3 py-2 text-xs" onClick={onMarkSelectedItemRead} disabled={itemActionPending}>
+                    {itemActionPending ? "Working…" : "Mark read"}
+                  </GhostButton>
+                ) : null}
+                {canPrimeIssueFollowUp ? (
+                  <GhostButton className="px-3 py-2 text-xs" onClick={onPrimeSelectedIssueFollowUp} disabled={itemActionPending}>
+                    Ask ERGO for update
+                  </GhostButton>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -694,6 +747,7 @@ export function InboxScreen({
   const [selectedIssueMembers, setSelectedIssueMembers] = useState<OrbitPayload["members"]>([]);
   const [selectedIssueCycles, setSelectedIssueCycles] = useState<OrbitPayload["cycles"]>([]);
   const [issueUpdating, setIssueUpdating] = useState(false);
+  const [selectedItemActionPending, setSelectedItemActionPending] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1219,6 +1273,63 @@ export function InboxScreen({
     }
   }
 
+  async function onResolveSelectedApproval(approved: boolean) {
+    if (
+      !session ||
+      !selectedItem?.orbit_id ||
+      selectedItem.bucket !== "approvals" ||
+      !selectedItem.action_context?.workflow_run_id ||
+      !selectedItem.action_context.request_id
+    ) {
+      return;
+    }
+    setSelectedItemActionPending(true);
+    setError(null);
+    try {
+      await resolveWorkflowApprovalRequest(session.token, selectedItem.orbit_id, {
+        workflow_run_id: selectedItem.action_context.workflow_run_id,
+        request_id: selectedItem.action_context.request_id,
+        approved,
+      });
+      if (selectedItem.action_context.notification_id) {
+        await markNotificationRead(session.token, selectedItem.action_context.notification_id).catch(() => {});
+      }
+      await reload(selectedItem.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to resolve the selected approval.");
+    } finally {
+      setSelectedItemActionPending(false);
+    }
+  }
+
+  async function onMarkSelectedItemRead() {
+    if (!session || !selectedItem?.action_context?.notification_id) {
+      return;
+    }
+    setSelectedItemActionPending(true);
+    setError(null);
+    try {
+      await markNotificationRead(session.token, selectedItem.action_context.notification_id);
+      await reload(selectedItem.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to update the selected inbox item.");
+    } finally {
+      setSelectedItemActionPending(false);
+    }
+  }
+
+  function onPrimeSelectedIssueFollowUp() {
+    if (!selectedIssue) {
+      return;
+    }
+    if (selectedItem?.orbit_id) {
+      setSelectedScopeId(selectedItem.orbit_id);
+    }
+    setMobileSurface("chat");
+    setComposerMode("triage");
+    setComposer(buildIssueFollowUpPrompt(selectedIssue, selectedItem?.bucket));
+  }
+
   function onSelectItem(itemId: string) {
     setSelectedItemId(itemId);
     setMobileSurface("chat");
@@ -1370,8 +1481,12 @@ export function InboxScreen({
               onOpenSelectedChat={() => router.push(selectedItem ? buildItemChatHref(selectedItem) : "/app/chat")}
               onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
               onUpdateSelectedIssue={onUpdateSelectedIssue}
+              onResolveSelectedApproval={onResolveSelectedApproval}
+              onMarkSelectedItemRead={onMarkSelectedItemRead}
+              onPrimeSelectedIssueFollowUp={onPrimeSelectedIssueFollowUp}
               onSend={onComposerSubmit}
               sending={sendingComposer}
+              itemActionPending={selectedItemActionPending}
               attachmentInputRef={attachmentInputRef}
             />
           </div>
@@ -1474,8 +1589,12 @@ export function InboxScreen({
                 onOpenSelectedChat={() => router.push(selectedItem ? buildItemChatHref(selectedItem) : "/app/chat")}
                 onOpenSelectedWork={() => void openNavigationTarget(selectedItem?.navigation ?? { orbit_id: activeScope?.orbit_id ?? null, section: "chat" })}
                 onUpdateSelectedIssue={onUpdateSelectedIssue}
+                onResolveSelectedApproval={onResolveSelectedApproval}
+                onMarkSelectedItemRead={onMarkSelectedItemRead}
+                onPrimeSelectedIssueFollowUp={onPrimeSelectedIssueFollowUp}
                 onSend={onComposerSubmit}
                 sending={sendingComposer}
+                itemActionPending={selectedItemActionPending}
                 attachmentInputRef={attachmentInputRef}
               />
             ) : null}

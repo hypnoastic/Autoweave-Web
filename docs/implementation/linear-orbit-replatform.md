@@ -116,10 +116,27 @@
   - artifacts:
     - `output/playwright/my-work-inline-triage-controls.png`
     - `output/playwright/inbox-inline-triage-controls.png`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_api.py -k 'inbox_payload_exposes_action_context_for_approvals_and_mentions or notifications_can_be_marked_read_directly or inbox_payload_prioritizes_native_issue_triage_buckets'`
+- `npm test -- inbox-screen.test.tsx`
+- `npm test`
+- `npm run build`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build backend`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build frontend`
+- Browser validation:
+  - seeded a fresh local session through `POST /api/auth/dev-session`
+  - created a repo-less validation orbit and stale native issue through the live local API
+  - inserted mention and approval triage records against the live Postgres-backed workspace
+  - verified authenticated `/app/inbox` on `3000`
+  - marked a mention record read directly from the inbox detail surface
+  - primed a stale native issue follow-up into the ERGO composer directly from inbox
+  - resolved a live approval record through the inbox detail quick action
+  - artifacts:
+    - `output/playwright/inbox-approval-browser-proof.png`
+    - `output/playwright/inbox-stale-followup-browser-proof.png`
 
 ## Remaining Planned Slices
 - Tighten the native issue surface further with relation and hierarchy editing from denser inline flows instead of modal-heavy paths.
-- Add deeper triage operations for approvals, mentions, and stale work so inbox quick actions cover more than native issue records.
+- Expand inbox quick actions from approvals, mentions, and stale work into run-failed, clarification, and review-request records with the same dense inline model.
 
 ## Slice Notes
 - Local Playwright auth now works against real seeded workspace data instead of forcing browser automation through GitHub OAuth.
@@ -139,6 +156,10 @@
 - `Inbox` and `My Work` now share the same compact native issue triage strip for status, owner, and cycle changes.
 - `My Work` preloads the owning orbit context for native issues so inline controls stay accurate without inflating the `my-work` payload.
 - Browser proof now covers live inline triage from both the work queue and the inbox triage surface.
+- Inbox triage records for approvals, mentions, and stale native issues now expose direct quick actions instead of forcing users into orbit detail or generic chat first.
+- The inbox payload now carries explicit `action_context` metadata for approval and mention records, including workflow request linkage where needed.
+- Operators can now mark mention notifications read, resolve approval requests, and seed a stale-issue ERGO follow-up prompt directly from the inbox surface.
+- Browser proof now covers real mention-read, stale follow-up, and approval-resolution flows on the live local stack.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.
@@ -146,3 +167,4 @@
 - Relation and hierarchy editing still rely on modal pickers instead of the denser inline controls now used for title, owner, stage, and cycle.
 - The orbit board still does not support drag/drop; that remains intentionally deferred until the PM model stabilizes.
 - Browser-proof automation now exists for authenticated flows, but richer seeded PM scenarios still depend on manual API setup rather than a dedicated fixture endpoint.
+- Inbox quick actions currently cover approvals, mentions, and stale native issues, but run-failed and clarification records still open as context-only records without one-click inline resolution paths.

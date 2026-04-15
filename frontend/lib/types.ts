@@ -607,6 +607,13 @@ export type InboxDetail = {
   conversation_excerpt: Array<{ author: string; body: string; created_at: string }>;
 };
 
+export type InboxItemActionContext = {
+  notification_id?: string | null;
+  workflow_run_id?: string | null;
+  request_id?: string | null;
+  request_kind?: string | null;
+};
+
 export type InboxItem = {
   id: string;
   kind: string;
@@ -622,6 +629,7 @@ export type InboxItem = {
   orbit_id?: string | null;
   orbit_name?: string | null;
   navigation?: InboxNavigationTarget | null;
+  action_context?: InboxItemActionContext | null;
   detail: InboxDetail;
 };
 
