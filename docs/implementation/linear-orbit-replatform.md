@@ -167,6 +167,37 @@
   - artifacts:
     - `output/playwright/inbox-workflow-context-browser-proof.png`
     - `output/playwright/inbox-exact-workflow-run-browser-proof.png`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest -q` in `Autoweave Web/backend`
+- `uv run --extra dev pytest -q` in `Autoweave Library`
+- `npm test`
+- `npm run build`
+- `AUTOWEAVE_WEB_STACK_SMOKE=1 ./.venv/bin/python -m pytest tests/test_stack_smoke.py -q`
+- Browser validation:
+  - seeded a dev session through `POST /api/auth/dev-session`
+  - created a fresh `Browser E2E Orbit` and native issue through the live API from the browser context
+  - started ERGO from the browser and confirmed the workflow board rendered the live run with active, done, and in-progress lanes
+  - moved the native issue from `planned` to `in_progress` through the issue drawer and confirmed the lane update
+  - verified Inbox exposed the seeded orbit, ERGO task, and review / stale triage lanes
+  - artifacts:
+    - `output/playwright/browser-e2e-inbox.png`
+    - `output/playwright/browser-e2e-workflow.png`
+- `uv run --extra dev pytest tests/test_celery_queue.py -q`
+- `PYTHONPATH='../../Autoweave Library' uv run --extra dev pytest tests/test_settings.py -q`
+- `docker compose -f 'Autoweave Web/docker-compose.yml' up -d --build worker`
+- Live connected-GitHub recovery validation:
+  - reused the real GitHub-backed orbit `live-recovery-proof-20260422142607`
+  - confirmed the worker now boots with `RUNTIME_AUTOWEAVE_OPENHANDS_POLL_TIMEOUT_SECONDS=300`
+  - restarted the worker and observed startup recovery requeue the persisted run `team_1.0_run_demo_5c88bd47b15d43bfb86ef4bdda151a93`
+  - observed the recovered `frontend_ui` conversation poll for roughly five minutes, then finalize instead of hanging on the old long default
+  - confirmed the recovered workflow immediately advanced to the next runnable step (`backend_impl`) instead of remaining pinned on the stale frontend attempt
+  - preserved the already-open draft PR and running demo for the same real repo:
+    - `https://github.com/hypnoastic/live-recovery-proof-20260422142607/pull/1`
+    - `http://localhost:63530`
+- Browser validation:
+  - seeded a fresh dev session through `POST /api/auth/dev-session`
+  - created a fresh orbit and native issue through the live UI issue surface
+  - artifact:
+    - `output/playwright/browser-gate-issues.png`
 
 ## Remaining Planned Slices
 - Tighten the native issue surface further with relation and hierarchy editing from denser inline flows instead of modal-heavy paths.
@@ -203,6 +234,11 @@
 - The inbox detail pane now surfaces run status, operator summary, failed-task count, request context, and the latest workflow event for clarification and failed-run records.
 - Inbox navigation and orbit routing now preserve `workflowRunId`, so `Open workflow` lands on the exact run the inbox item references.
 - Browser proof now covers both inline workflow context inside inbox and the exact-run transition into the orbit workflow board.
+- Verification on the current slice also covered the backend inbox aggregation path and the library runtime/orchestration suites through the normal editable install path after adding `build_editable` support to the custom backend.
+- The live stack smoke now passes again after updating the frontend copy assertion to match the current landing page hero text.
+- The worker recovery path now honors a runtime-scoped OpenHands poll-timeout override, so restart recovery uses the same five-minute budget as product-triggered runs instead of the library's much larger default.
+- Live connected-GitHub smoke is now proven in this environment through a real orbit, repo, issue, ERGO kickoff, draft PR, demo publish, issue auto-move to `in_review`, worker restart, and post-restart workflow advancement.
+- The restart proof specifically closed the previous blocker where a recovered integration/frontend attempt could sit in canonical `running` state long after the useful work had already been emitted.
 
 ## Remaining Known Gaps
 - Cycle lifecycle is still basic: there is no rollover, archive flow, or workspace-level cycle health editing beyond the current create/update/delete surface.
@@ -211,3 +247,4 @@
 - The orbit board still does not support drag/drop; that remains intentionally deferred until the PM model stabilizes.
 - Browser-proof automation now exists for authenticated flows, but richer seeded PM scenarios still depend on manual API setup rather than a dedicated fixture endpoint.
 - Inbox quick actions now cover approvals, mentions, stale work, clarification responses, run-failed recovery prompts, review-summary prompts, and exact workflow-run navigation, but failed runs still do not have a backend-supported retry/resume action from inbox.
+- The live connected-GitHub smoke still does not consistently reach a fully terminal workflow completion in this environment because repeated upstream model/provider throttling can force the recovered run to advance in capped retries rather than complete in one uninterrupted pass.
